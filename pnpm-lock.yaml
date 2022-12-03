@@ -15,6 +15,7 @@ importers:
       '@types/react': ^18.0.24
       '@types/react-dom': ^18.0.8
       '@vitejs/plugin-react': ^2.2.0
+      immer: ^9.0.16
       react: ^18.2.0
       react-dom: ^18.2.0
       react-router-dom: ^6.4.4
@@ -23,10 +24,11 @@ importers:
       zustand: ^4.1.4
       zustand-querystring: '*'
     dependencies:
+      immer: 9.0.16
       react: 18.2.0
       react-dom: 18.2.0_react@18.2.0
       react-router-dom: 6.4.4_biqbaboplfbrettd7655fr4n2y
-      zustand: 4.1.4_react@18.2.0
+      zustand: 4.1.4_immer@9.0.16+react@18.2.0
       zustand-querystring: link:../../packages/zustand-querystring
     devDependencies:
       '@types/react': 18.0.26
@@ -879,6 +881,10 @@ packages:
       function-bind: 1.1.1
     dev: true
 
+  /immer/9.0.16:
+    resolution: {integrity: sha512-qenGE7CstVm1NrHQbMh8YaSzTZTFNP3zPqr3YU0S0UY441j4bJTg4A2Hh5KAhwgaiU6ZZ1Ar6y/2f4TblnMReQ==}
+    dev: false
+
   /inflight/1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
     dependencies:
@@ -1364,7 +1370,7 @@ packages:
       use-sync-external-store: 1.2.0
     dev: true
 
-  /zustand/4.1.4_react@18.2.0:
+  /zustand/4.1.4_immer@9.0.16+react@18.2.0:
     resolution: {integrity: sha512-k2jVOlWo8p4R83mQ+/uyB8ILPO2PCJOf+QVjcL+1PbMCk1w5OoPYpAIxy9zd93FSfmJqoH6lGdwzzjwqJIRU5A==}
     engines: {node: '>=12.7.0'}
     peerDependencies:
@@ -1376,6 +1382,7 @@ packages:
       react:
         optional: true
     dependencies:
+      immer: 9.0.16
       react: 18.2.0
       use-sync-external-store: 1.2.0_react@18.2.0
     dev: false

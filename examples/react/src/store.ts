@@ -1,4 +1,5 @@
 import create from "zustand";
+import { immer } from "zustand/middleware/immer";
 import { queryString } from "zustand-querystring";
 
 interface Store {
@@ -17,37 +18,35 @@ interface Store {
   };
 }
 
-export const useStore = create<Store>(
+export const useStore = create<Store>()(
   queryString(
-    (set, get) => ({
+    immer((set, get) => ({
       count: 0,
-      incrementCount: () => set((state) => ({ count: state.count + 1 })),
+      incrementCount: () =>
+        set((state) => {
+          state.count += 1;
+        }),
 
       ticks: 0,
-      incrementTicks: () => set((state) => ({ ticks: state.ticks + 1 })),
+      incrementTicks: () =>
+        set((state) => {
+          state.ticks += 1;
+        }),
 
       someNestedState: {
         nestedCount: 0,
         incrementNestedCount: () =>
-          set((state) => ({
-            someNestedState: {
-              // OR use the immer middleware instead of spreading
-              ...state.someNestedState,
-              nestedCount: state.someNestedState.nestedCount + 1,
-            },
-          })),
+          set((state) => {
+            state.someNestedState.nestedCount += 1;
+          }),
 
         hello: "Hello",
         setHello: (hello: string) =>
-          set((state) => ({
-            someNestedState: {
-              // OR use the immer middleware instead of spreading
-              ...state.someNestedState,
-              hello,
-            },
-          })),
+          set((state) => {
+            state.someNestedState.hello = hello;
+          }),
       },
-    }),
+    })),
     {
       // select controls what part of the state is synced with the query string
       // pathname is the current route (e.g. /about or /)
