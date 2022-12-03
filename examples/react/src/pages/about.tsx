@@ -24,8 +24,8 @@ export const About = () => {
       <button onClick={decrementCount}>Decrement count</button>
 
       <div>
-        ticks is NOT persisted in the query string, because we specified its
-        parent key and haven't specifically set it to true
+        ticks is NOT persisted in the query string, because we haven't set it to
+        true in store.ts
       </div>
       <div>Ticks: {ticks}</div>
       <button onClick={incrementTicks}>Increment ticks</button>
