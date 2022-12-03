@@ -5,6 +5,7 @@ import { querystring } from "zustand-querystring";
 interface Store {
   count: number;
   incrementCount: () => void;
+  decrementCount: () => void;
 
   ticks: number;
   incrementTicks: () => void;
@@ -25,6 +26,10 @@ export const useStore = create<Store>()(
       incrementCount: () =>
         set((state) => {
           state.count += 1;
+        }),
+      decrementCount: () =>
+        set((state) => {
+          state.count -= 1;
         }),
 
       ticks: 0,

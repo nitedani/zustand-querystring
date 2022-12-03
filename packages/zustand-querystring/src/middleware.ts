@@ -11,6 +11,7 @@ type DeepSelect<T> = T extends object
 export interface QueryStringOptions<T> {
   url?: string;
   select?: (pathname: string) => DeepSelect<T>;
+  key?: string;
 }
 
 type QueryString = <
@@ -56,6 +57,10 @@ const compact = (newState, initialState) => {
 
 const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) =>
   Object.keys(selection).reduce((acc, key) => {
+    // @ts-ignore
+    if (!(key in state)) {
+      return acc;
+    }
     const value = selection[key];
     if (typeof value === 'boolean') {
       if (value) {
@@ -70,31 +75,48 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) =>
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     partialize: state => state,
+    key: '$',
     ...options,
   };
   const url = defaultedOptions.url;
 
   const initialState = get() ?? fn(set, get, api);
 
-  const getSelectedState = () => {
+  const getSelectedState = state => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(window.location.pathname);
       // translate the selection to state
-      const selectedState = translateSelectionToState(selection, get());
+      const selectedState = translateSelectionToState(selection, state);
       return selectedState;
     }
-    return get();
+    return state;
   };
 
   const initialize = (url: string, _set = set) => {
+    const fallback = () => fn(_set, get, api);
     try {
-      const queryString = url.split('?')[1]?.slice(2);
+      const queryString = url.split('?')[1];
+
       if (!queryString) {
-        return fn(_set, get, api);
+        return fallback();
       }
-      const parsed = parse(queryString);
+
+      const idx = queryString.indexOf(defaultedOptions.key + '=');
+      if (idx === -1) {
+        return fallback();
+      }
+
+      const toParse = queryString.substring(idx + 2);
+
+      if (!toParse) {
+        return fallback();
+      }
+
+      console.log('toParse', toParse);
+
+      const parsed = parse(toParse);
       const currentValue = get() ?? fn(_set, get, api);
-      const merged = mergeWith(currentValue, parsed);
+      const merged = mergeWith(currentValue, getSelectedState(parsed));
       set(merged, true);
       return merged;
     } catch (error) {
@@ -102,31 +124,49 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (typeof window !== 'undefined') {
         window.history.replaceState(null, '', window.location.pathname);
       }
-
       return fn(_set, get, api);
     }
   };
 
   if (typeof window !== 'undefined') {
     const setQuery = () => {
-      const selectedState = getSelectedState();
+      const selectedState = getSelectedState(get());
       if (!selectedState) {
         return;
       }
-
       const compactedSelectedState = compact(selectedState, initialState);
-
-      if (!compactedSelectedState) {
-        window.history.replaceState(null, '', window.location.pathname);
-        return;
-      }
-
-      const stringified = stringify(compactedSelectedState);
-
-      if (stringified) {
+      const stringified =
+        compactedSelectedState && stringify(compactedSelectedState);
+      const currentQueryString = window.location.search.slice(1);
+      if (stringified || currentQueryString) {
         // console.log('set query', stringified);
         // console.log('parse query', parse(stringified));
-        window.history.replaceState(null, '', `?q=${stringified}`);
+        // parse current querystring
+        // split query string to key-value
+        const variables = {};
+        const currentQuery = currentQueryString.split('&');
+        for (const variable of currentQuery) {
+          if (stringified?.includes(variable)) {
+            continue;
+          }
+          const [key, value] = variable.split('=');
+          variables[key] = value;
+        }
+        variables[defaultedOptions.key] = stringified;
+        const newQueryString = Object.keys(variables) // filter out empty values
+          .filter(key => variables[key])
+          // join key-value pairs
+          .map(key => `${key}=${variables[key]}`)
+          // join all pairs with &
+          .join('&');
+
+        console.log('newQueryString', newQueryString);
+
+        window.history.replaceState(
+          null,
+          '',
+          newQueryString ? `?${newQueryString}` : window.location.pathname
+        );
       }
     };
 
