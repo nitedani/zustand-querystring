@@ -2,6 +2,8 @@
 
 A zustand middleware that stores state in the querystring.
 
+Try on [StackBlitz](https://stackblitz.com/github/nitedani/zustand-querystring/tree/main/examples/react) (You need to click "Open in New Tab")
+
 Quickstart:
 ```ts
 import create from "zustand";
