@@ -1,1 +1,1 @@
-export { queryString, QueryStringOptions } from './middleware.js';
+export { querystring, QueryStringOptions } from './middleware.js';

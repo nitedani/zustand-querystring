@@ -158,4 +158,4 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   return fn(set, get, api);
 };
 
-export const queryString = queryStringImpl as unknown as QueryString;
+export const querystring = queryStringImpl as unknown as QueryString;

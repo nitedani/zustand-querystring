@@ -1,6 +1,6 @@
 import create from "zustand";
 import { immer } from "zustand/middleware/immer";
-import { queryString } from "zustand-querystring";
+import { querystring } from "zustand-querystring";
 
 interface Store {
   count: number;
@@ -19,7 +19,7 @@ interface Store {
 }
 
 export const useStore = create<Store>()(
-  queryString(
+  querystring(
     immer((set, get) => ({
       count: 0,
       incrementCount: () =>
@@ -53,7 +53,7 @@ export const useStore = create<Store>()(
       select(pathname) {
         return {
           count: true,
-          // ticks: false, <- false by default, because we specified the parent key
+          // ticks: false, <- false by default
 
           someNestedState: {
             nestedCount: true,
