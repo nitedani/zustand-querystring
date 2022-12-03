@@ -82,9 +82,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialState = get() ?? fn(set, get, api);
 
-  const getSelectedState = state => {
+  const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
-      const selection = defaultedOptions.select(window.location.pathname);
+      const selection = defaultedOptions.select(pathname);
       // translate the selection to state
       const selectedState = translateSelectionToState(selection, state);
       return selectedState;
@@ -95,7 +95,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const initialize = (url: string, _set = set) => {
     const fallback = () => fn(_set, get, api);
     try {
-      const queryString = url.split('?')[1];
+      const splitUrl = url.split('?');
+      const queryString = splitUrl[1];
+      const pathname = splitUrl[0];
 
       if (!queryString) {
         return fallback();
@@ -116,7 +118,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
       const parsed = parse(toParse);
       const currentValue = get() ?? fn(_set, get, api);
-      const merged = mergeWith(currentValue, getSelectedState(parsed));
+      const merged = mergeWith(
+        currentValue,
+        getSelectedState(parsed, pathname)
+      );
       set(merged, true);
       return merged;
     } catch (error) {
@@ -130,7 +135,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   if (typeof window !== 'undefined') {
     const setQuery = () => {
-      const selectedState = getSelectedState(get());
+      const selectedState = getSelectedState(get(), window.location.pathname);
       if (!selectedState) {
         return;
       }
@@ -171,10 +176,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
 
     //TODO: find a better way to do this
-    let previousUrl = '';
+    let previousPathname = '';
     setInterval(() => {
-      if (window.location.href !== previousUrl) {
-        previousUrl = window.location.href;
+      if (window.location.pathname !== previousPathname) {
+        previousPathname = window.location.pathname;
         setQuery();
       }
     }, 50);
@@ -185,10 +190,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
 
-    return initialize(window.location.href, (...args) => {
-      set(...args);
-      setQuery();
-    });
+    return initialize(
+      window.location.pathname + window.location.search,
+      (...args) => {
+        set(...args);
+        setQuery();
+      }
+    );
   }
 
   if (url) {
