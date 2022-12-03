@@ -114,7 +114,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return fallback();
       }
 
-      console.log('toParse', toParse);
+      // console.log('toParse', toParse);
 
       const parsed = parse(toParse);
       const currentValue = get() ?? fn(_set, get, api);
@@ -165,7 +165,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           // join all pairs with &
           .join('&');
 
-        console.log('newQueryString', newQueryString);
+        // console.log('newQueryString', newQueryString);
 
         window.history.replaceState(
           null,
