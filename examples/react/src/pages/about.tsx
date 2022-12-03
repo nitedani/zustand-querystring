@@ -5,6 +5,7 @@ export const About = () => {
   const {
     count,
     incrementCount,
+    decrementCount,
     ticks,
     incrementTicks,
     someNestedState: { nestedCount, incrementNestedCount, hello, setHello },
@@ -20,6 +21,7 @@ export const About = () => {
       </div>
       <div>Count: {count}</div>
       <button onClick={incrementCount}>Increment count</button>
+      <button onClick={decrementCount}>Decrement count</button>
 
       <div>
         ticks is NOT persisted in the query string, because we specified its
