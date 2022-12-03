@@ -1,0 +1,43 @@
+{
+  "name": "zustand-querystring",
+  "version": "0.0.1",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "zustand",
+    "querystring"
+  ],
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/nitedani/zustand-querystring"
+  },
+  "scripts": {
+    "build": "rimraf lib && tsc -b"
+  },
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "lib/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "dependencies": {
+    "lodash-es": "^4.17.21"
+  },
+  "prettier": {
+    "singleQuote": true,
+    "arrowParens": "avoid"
+  },
+  "devDependencies": {
+    "@types/lodash-es": "^4.17.6",
+    "rimraf": "^3.0.2",
+    "typescript": "^4.9.3",
+    "zustand": "^4.1.4"
+  }
+}
