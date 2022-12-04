@@ -30,10 +30,6 @@ type QueryStringImpl = <T>(
 const compact = (newState, initialState) => {
   const output = {};
   Object.keys(newState).forEach(key => {
-    if (!(key in initialState)) {
-      output[key] = newState[key];
-      return;
-    }
     if (
       newState[key] !== null &&
       newState[key] !== undefined &&
