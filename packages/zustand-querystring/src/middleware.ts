@@ -11,6 +11,7 @@ type DeepSelect<T> = T extends object
 export interface QueryStringOptions<T> {
   url?: string;
   select?: (pathname: string) => DeepSelect<T>;
+  key?: string;
 }
 
 type QueryString = <
@@ -67,14 +68,35 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) =>
     return acc;
   }, {} as T);
 
+const escapeStringRegexp = string => {
+  if (typeof string !== 'string') {
+    throw new TypeError('Expected a string');
+  }
+
+  return string.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
+};
+
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
+    key: '$',
     ...options,
   };
+  const matcher = new RegExp(
+    `${escapeStringRegexp(defaultedOptions.key)}=(.*);;`
+  );
+  const parseQueryString = querystring => {
+    const match = querystring.match(matcher);
+    if (match) {
+      let m = match[1];
+      if (!m.startsWith('$')) {
+        m = '$' + m;
+      }
+      return parse(m);
+    }
+    return null;
+  };
   const url = defaultedOptions.url;
-
   const initialState = get() ?? fn(set, get, api);
-
   const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
@@ -94,15 +116,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (!queryString) {
         return fallback();
       }
-
-      if (!queryString) {
-        return fallback();
-      }
-      if (!queryString.startsWith('$')) {
-        queryString = '$' + queryString;
-      }
-
-      const parsed = parse(queryString);
+      const parsed = parseQueryString(queryString);
       const currentValue = get() ?? fn(_set, get, api);
       const merged = mergeWith(
         currentValue,
@@ -119,31 +133,27 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   if (typeof window !== 'undefined') {
     const setQuery = () => {
       const selectedState = getSelectedState(get(), window.location.pathname);
+      const currentQueryString = window.location.search.slice(1);
+      const currentParsed = parseQueryString(currentQueryString);
 
-      if (!selectedState || Object.keys(selectedState).length === 0) {
-        return;
-      }
-
-      let currentQueryString = window.location.search.slice(1);
-      if (!currentQueryString.startsWith('$')) {
-        currentQueryString = '$' + currentQueryString;
-      }
-
-      const currentParsed = parse(currentQueryString);
-      const newMerged = mergeWith(
-        currentParsed,
-        selectedState,
-        (objValue, srcValue) => {
-          if (Array.isArray(objValue)) {
-            return srcValue;
-          }
-        }
-      );
+      const newMerged = {
+        ...currentParsed,
+        ...selectedState,
+      };
 
       const newCompacted = compact(newMerged, initialState);
       if (Object.keys(newCompacted).length) {
         const stringified = stringify(newCompacted).substring(1);
-        window.history.replaceState(null, '', `?${stringified}`);
+        const newQueryString = `${defaultedOptions.key}=${stringified};;`;
+        window.history.replaceState(
+          null,
+          '',
+          `?${
+            currentParsed
+              ? currentQueryString.replace(matcher, newQueryString)
+              : newQueryString
+          }`
+        );
       } else {
         window.history.replaceState(null, '', window.location.pathname);
       }
