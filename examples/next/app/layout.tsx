@@ -6,10 +6,9 @@ export default function RootLayout({ children }: { children: any }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const url = `${pathname}?${searchParams}`;
-
   const configuration = getConfiguration();
   const createStore = useCreateStore({
-    url: decodeURIComponent(url),
+    url,
     configuration,
   });
 
