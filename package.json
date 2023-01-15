@@ -1,5 +1,5 @@
 {
-  "name": "@nitedani/img-optimizer",
+  "name": "zustand-querystring",
   "version": "0.0.11",
   "private": true,
   "type": "module",
