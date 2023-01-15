@@ -1,0 +1,33 @@
+{
+  "name": "rakkas",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "rakkas",
+    "build": "rakkas build",
+    "start": "node dist/server",
+    "format": "prettier --write --ignore-unknown src",
+    "test": "pnpm test:typecheck && pnpm test:format && pnpm test:lint && pnpm test:unit",
+    "test:typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:format": "prettier --check --ignore-unknown src",
+    "test:lint": "eslint . --ignore-pattern dist",
+    "test:unit": "vitest run"
+  },
+  "devDependencies": {
+    "@rakkasjs/eslint-config": "0.6.11",
+    "@types/express": "^4.17.15",
+    "@types/react": "^18.0.26",
+    "@types/react-dom": "^18.0.10",
+    "rakkasjs": "0.6.12-next.2",
+    "typescript": "^4.9.4",
+    "vite": "^4.0.3",
+    "vite-tsconfig-paths": "^4.0.3"
+  },
+  "dependencies": {
+    "immer": "^9.0.17",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.3.2",
+    "zustand-querystring": "*"
+  }
+}

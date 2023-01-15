@@ -81,11 +81,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     key: '$',
     ...options,
   };
-  const matcher = new RegExp(
+  const stateMatcher = new RegExp(
     `${escapeStringRegexp(defaultedOptions.key)}=(.*);;`
   );
+  const matcher = new RegExp(
+    `[&\?]?${escapeStringRegexp(defaultedOptions.key)}=(.*);;&?`
+  );
   const parseQueryString = querystring => {
-    const match = querystring.match(matcher);
+    const match = querystring.match(stateMatcher);
     if (match) {
       let m = match[1];
       if (!m.startsWith('$')) {
@@ -107,16 +110,18 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state ?? {};
   };
 
-  const initialize = (url: string, _set = set) => {
+  const initialize = (url: URL, _set = set) => {
     const fallback = () => fn(_set, get, api);
     try {
-      const splitUrl = url.split('?');
-      let queryString = splitUrl[1];
-      const pathname = splitUrl[0];
+      const queryString = url.search.substring(1);
+      const pathname = url.pathname;
       if (!queryString) {
         return fallback();
       }
       const parsed = parseQueryString(queryString);
+      if (!parsed) {
+        return fallback();
+      }
       const currentValue = get() ?? fn(_set, get, api);
       const merged = mergeWith(
         currentValue,
@@ -132,8 +137,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   if (typeof window !== 'undefined') {
     const setQuery = () => {
-      const selectedState = getSelectedState(get(), window.location.pathname);
-      const currentQueryString = window.location.search.slice(1);
+      const selectedState = getSelectedState(get(), location.pathname);
+      const currentQueryString = location.search.slice(1);
       const currentParsed = parseQueryString(currentQueryString);
 
       const newMerged = {
@@ -141,32 +146,52 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ...selectedState,
       };
 
+      const ignored = currentQueryString.replace(matcher, '');
       const newCompacted = compact(newMerged, initialState);
       if (Object.keys(newCompacted).length) {
         const stringified = stringify(newCompacted).substring(1);
-        const newQueryString = `${defaultedOptions.key}=${stringified};;`;
-        window.history.replaceState(
-          null,
+        const newQueryState = `${defaultedOptions.key}=${stringified};;`;
+
+        let newQueryString = '';
+        if (currentParsed) {
+          newQueryString = currentQueryString.replace(
+            stateMatcher,
+            newQueryState
+          );
+        } else if (ignored) {
+          newQueryString = ignored + '&' + newQueryState;
+        } else {
+          newQueryString = newQueryState;
+        }
+
+        history.replaceState(
+          history.state,
           '',
-          `?${
-            currentParsed
-              ? currentQueryString.replace(matcher, newQueryString)
-              : newQueryString
-          }`
+          location.pathname + (newQueryString ? '?' + newQueryString : '')
         );
       } else {
-        window.history.replaceState(null, '', window.location.pathname);
+        history.replaceState(
+          history.state,
+          '',
+          location.pathname + (ignored ? '?' + ignored : '')
+        );
       }
     };
 
-    //TODO: find a better way to do this
-    let previousPathname = '';
-    setInterval(() => {
-      if (window.location.pathname !== previousPathname) {
-        previousPathname = window.location.pathname;
-        setQuery();
-      }
-    }, 50);
+    // @ts-ignore
+    if (!api.__ZUSTAND_QUERYSTRING_INIT__) {
+      // @ts-ignore
+      api.__ZUSTAND_QUERYSTRING_INIT__ = true;
+      let previousPathname = '';
+      const cb = () => {
+        if (location.pathname !== previousPathname) {
+          previousPathname = location.pathname;
+          setQuery();
+        }
+        requestAnimationFrame(cb);
+      };
+      requestAnimationFrame(cb);
+    }
 
     const originalSetState = api.setState;
     api.setState = (...args) => {
@@ -174,17 +199,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
 
-    return initialize(
-      window.location.pathname + window.location.search,
-      (...args) => {
-        set(...args);
-        setQuery();
-      }
-    );
-  }
-
-  if (url) {
-    return initialize(url);
+    return initialize(new URL(location.href), (...args) => {
+      set(...args);
+      setQuery();
+    });
+  } else if (url) {
+    return initialize(new URL(decodeURIComponent(url), 'http://localhost'));
   }
 
   return fn(set, get, api);
