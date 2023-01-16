@@ -1,8 +1,7 @@
-import create, { StoreApi } from "zustand";
+import { StoreApi, create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
 import createContext from "zustand/context";
-import { use } from "react";
 
 export type Configuration = {
   someApiUrl: string;
