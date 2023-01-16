@@ -1,6 +1,6 @@
 # zustand-querystring
 
-A zustand middleware that syncs state with the querystring.
+A Zustand middleware that syncs the store with the querystring.
 
 Try on [StackBlitz](https://stackblitz.com/github/nitedani/zustand-querystring/tree/main/examples/react) (You need to click "Open in New Tab")
 
