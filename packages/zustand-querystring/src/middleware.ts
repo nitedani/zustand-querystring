@@ -84,9 +84,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const stateMatcher = new RegExp(
     `${escapeStringRegexp(defaultedOptions.key)}=(.*);;`
   );
-  const matcher = new RegExp(
-    `[&\?]?${escapeStringRegexp(defaultedOptions.key)}=(.*);;&?`
+  const splitMatcher = new RegExp(
+    `${escapeStringRegexp(defaultedOptions.key)}=.*;;`
   );
+
   const parseQueryString = querystring => {
     const match = querystring.match(stateMatcher);
     if (match) {
@@ -138,7 +139,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   if (typeof window !== 'undefined') {
     const setQuery = () => {
       const selectedState = getSelectedState(get(), location.pathname);
-      const currentQueryString = location.search.slice(1);
+      const currentQueryString = location.search;
       const currentParsed = parseQueryString(currentQueryString);
 
       const newMerged = {
@@ -146,35 +147,43 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ...selectedState,
       };
 
-      const ignored = currentQueryString.replace(matcher, '');
+      const splitIgnored = currentQueryString.split(splitMatcher);
+      let ignored = '';
+      for (let str of splitIgnored) {
+        if (!str || str === '?' || str === '&') {
+          continue;
+        }
+        if (str.startsWith('&') || str.startsWith('?')) {
+          str = str.substring(1);
+        }
+        if (str.endsWith('&')) {
+          str = str.substring(0, str.length - 1);
+        }
+        ignored += (ignored ? '&' : '?') + str;
+      }
+
       const newCompacted = compact(newMerged, initialState);
       if (Object.keys(newCompacted).length) {
         const stringified = stringify(newCompacted).substring(1);
         const newQueryState = `${defaultedOptions.key}=${stringified};;`;
-
         let newQueryString = '';
         if (currentParsed) {
           newQueryString = currentQueryString.replace(
-            stateMatcher,
+            splitMatcher,
             newQueryState
           );
         } else if (ignored) {
           newQueryString = ignored + '&' + newQueryState;
         } else {
-          newQueryString = newQueryState;
+          newQueryString = '?' + newQueryState;
         }
-
         history.replaceState(
           history.state,
           '',
-          location.pathname + (newQueryString ? '?' + newQueryString : '')
+          location.pathname + newQueryString
         );
       } else {
-        history.replaceState(
-          history.state,
-          '',
-          location.pathname + (ignored ? '?' + ignored : '')
-        );
+        history.replaceState(history.state, '', location.pathname + ignored);
       }
     };
 
