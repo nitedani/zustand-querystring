@@ -1,8 +1,9 @@
-import { StoreApi, create } from "zustand";
+"use client";
+import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
-import createContext from "zustand/context";
-import { RequestContext } from "rakkasjs";
+import { usePathname, useSearchParams } from "next/navigation";
+import { createContext, useContext, useMemo } from "react";
 
 export type Configuration = {
   someApiUrl: string;
@@ -27,9 +28,9 @@ interface Store {
   };
 }
 
-const zustandContext = createContext<StoreApi<Store>>();
-export const StoreProvider = zustandContext.Provider;
-export const useStore = zustandContext.useStore;
+const zustandContext = createContext<ReturnType<typeof createStore> | null>(
+  null
+);
 
 export interface CreateStoreOptions {
   defaultState: Partial<Store> & { configuration: Configuration };
@@ -93,24 +94,51 @@ export const createStore = (options: CreateStoreOptions) =>
     )
   );
 
-export const getConfiguration = (ctx: RequestContext) => {
-  return {
-    someApiUrl: process.env.SOME_PUBLIC_API_URL || "",
-    language: "en",
-  };
+export const getConfiguration = () => {
+  if (typeof window === "undefined") {
+    return {
+      someApiUrl: process.env.SOME_PUBLIC_API_URL || "",
+      language: "en",
+    };
+  }
+  // @ts-ignore
+  return window.__StoreInit;
 };
 
-let store: ReturnType<typeof createStore> | undefined = undefined;
-export const useCreateStore = ({
-  url,
-  configuration,
-}: {
-  url?: string;
-  configuration: Configuration;
-}) => {
-  if (typeof window === "undefined") {
-    return () => createStore({ url, defaultState: { configuration } });
-  }
-  store ??= createStore({ url, defaultState: { configuration } });
-  return () => store!;
+export function useStore<R = Store>(
+  selector: (state: Store) => R = (state) => state as any,
+  equalityFn?: (left: R, right: R) => boolean
+) {
+  return useContext(zustandContext)!(selector, equalityFn);
+}
+
+export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const url = `${pathname}?${searchParams}`;
+  const configuration = getConfiguration();
+
+  const store = useMemo(
+    () =>
+      createStore({
+        url,
+        defaultState: { configuration },
+      }),
+    []
+  );
+
+  return (
+    <html>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__StoreInit = ${JSON.stringify(configuration)}`,
+          }}
+        ></script>
+      </head>
+      <zustandContext.Provider value={store}>
+        <body>{children}</body>
+      </zustandContext.Provider>
+    </html>
+  );
 };

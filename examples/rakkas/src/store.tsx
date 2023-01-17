@@ -1,7 +1,8 @@
-import { StoreApi, create } from "zustand";
-import { immer } from "zustand/middleware/immer";
+import { useRequestContext, useSSQ } from "rakkasjs";
+import { createContext, useContext, useMemo } from "react";
+import { create } from "zustand";
 import { querystring } from "zustand-querystring";
-import createContext from "zustand/context";
+import { immer } from "zustand/middleware/immer";
 
 export type Configuration = {
   someApiUrl: string;
@@ -26,9 +27,9 @@ interface Store {
   };
 }
 
-const zustandContext = createContext<StoreApi<Store>>();
-export const StoreProvider = zustandContext.Provider;
-export const useStore = zustandContext.useStore;
+const zustandContext = createContext<ReturnType<typeof createStore> | null>(
+  null
+);
 
 export interface CreateStoreOptions {
   defaultState: Partial<Store> & { configuration: Configuration };
@@ -92,28 +93,30 @@ export const createStore = (options: CreateStoreOptions) =>
     )
   );
 
-export const getConfiguration = () => {
-  if (typeof window === "undefined") {
-    return {
-      someApiUrl: process.env.SOME_PUBLIC_API_URL || "",
-      language: "en",
-    };
-  }
-  // @ts-ignore
-  return window.__StoreInit;
-};
+export function useStore<R = Store>(
+  selector: (state: Store) => R = (state) => state as any,
+  equalityFn?: (left: R, right: R) => boolean
+) {
+  return useContext(zustandContext)!(selector, equalityFn);
+}
 
-let store: ReturnType<typeof createStore> | undefined = undefined;
-export const useCreateStore = ({
-  url,
-  configuration,
-}: {
-  url?: string;
-  configuration: Configuration;
-}) => {
-  if (typeof window === "undefined") {
-    return () => createStore({ url, defaultState: { configuration } });
-  }
-  store ??= createStore({ url, defaultState: { configuration } });
-  return () => store!;
+export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
+  const { data: configuration } = useSSQ((ctx) => ({
+    someApiUrl: process.env.SOME_PUBLIC_API_URL || "",
+    language: "en", // or detect from ctx.request.headers
+  }));
+
+  const ctx = useRequestContext();
+  const store = useMemo(
+    () =>
+      createStore({
+        url: ctx?.request.url,
+        defaultState: { configuration },
+      }),
+    []
+  );
+
+  return (
+    <zustandContext.Provider value={store}>{children}</zustandContext.Provider>
+  );
 };

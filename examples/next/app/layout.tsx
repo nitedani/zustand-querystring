@@ -1,27 +1,9 @@
-"use client";
-import { getConfiguration, StoreProvider, useCreateStore } from "@/src/store";
-import { usePathname, useSearchParams } from "next/navigation";
+import { StoreProvider } from "@/src/store";
 
 export default function RootLayout({ children }: { children: any }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const url = `${pathname}?${searchParams}`;
-  const configuration = getConfiguration();
-  const createStore = useCreateStore({
-    url,
-    configuration,
-  });
-
   return (
     <html>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.__StoreInit = ${JSON.stringify(configuration)}`,
-          }}
-        ></script>
-      </head>
-      <StoreProvider createStore={createStore}>
+      <StoreProvider>
         <body>{children}</body>
       </StoreProvider>
     </html>

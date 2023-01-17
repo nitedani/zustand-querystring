@@ -14,7 +14,6 @@ export default function Home() {
   } = useStore();
 
   console.log(configuration);
-  
 
   return (
     <div>
