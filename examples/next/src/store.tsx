@@ -28,10 +28,6 @@ interface Store {
   };
 }
 
-const zustandContext = createContext<ReturnType<typeof createStore> | null>(
-  null
-);
-
 export interface CreateStoreOptions {
   defaultState: Partial<Store> & { configuration: Configuration };
   url?: string;
@@ -105,11 +101,12 @@ export const getConfiguration = () => {
   return window.__StoreInit;
 };
 
+const context = createContext<ReturnType<typeof createStore> | null>(null);
 export function useStore<R = Store>(
   selector: (state: Store) => R = (state) => state as any,
   equalityFn?: (left: R, right: R) => boolean
 ) {
-  return useContext(zustandContext)!(selector, equalityFn);
+  return useContext(context)!(selector, equalityFn);
 }
 
 export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
@@ -136,9 +133,9 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
           }}
         ></script>
       </head>
-      <zustandContext.Provider value={store}>
+      <context.Provider value={store}>
         <body>{children}</body>
-      </zustandContext.Provider>
+      </context.Provider>
     </html>
   );
 };
