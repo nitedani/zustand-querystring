@@ -12,6 +12,7 @@
     "url": "https://github.com/nitedani/zustand-querystring"
   },
   "scripts": {
+    "dev": "tsc -b --watch",
     "build": "rimraf lib && tsc -b"
   },
   "exports": {

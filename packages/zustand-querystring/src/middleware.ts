@@ -51,9 +51,11 @@ const compact = (newState, initialState) => {
   return output;
 };
 
-const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) =>
-  Object.keys(selection).reduce((acc, key) => {
-    // @ts-ignore
+const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
+  if (typeof state !== 'object' || !state) {
+    return {};
+  }
+  return Object.keys(selection).reduce((acc, key) => {
     if (!(key in state)) {
       return acc;
     }
@@ -67,6 +69,7 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) =>
     }
     return acc;
   }, {} as T);
+};
 
 const escapeStringRegexp = string => {
   if (typeof string !== 'string') {
