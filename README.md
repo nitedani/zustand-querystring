@@ -7,7 +7,7 @@ Try on [StackBlitz](https://stackblitz.com/github/nitedani/zustand-querystring/t
 Examples:
 - [React](./examples/react/)
 - [NextJS](./examples/next/)
-- [Rakkas](./example/rakkas/)
+- [Rakkas](./examples/rakkas/)
 
 Quickstart:
 ```ts
