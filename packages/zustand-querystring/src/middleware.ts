@@ -1,5 +1,5 @@
 import { parse, stringify } from './parser.js';
-import { mergeWith, isEqual } from 'lodash-es';
+import { mergeWith, isEqual, cloneDeep } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 
 type DeepSelect<T> = T extends object
@@ -103,7 +103,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return null;
   };
   const url = defaultedOptions.url;
-  const initialState = get() ?? fn(set, get, api);
   const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
@@ -114,32 +113,41 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state ?? {};
   };
 
-  const initialize = (url: URL, _set = set) => {
-    const fallback = () => fn(_set, get, api);
+  const initialize = (url: URL, initialState) => {
     try {
       const queryString = url.search.substring(1);
       const pathname = url.pathname;
       if (!queryString) {
-        return fallback();
+        return initialState;
       }
       const parsed = parseQueryString(queryString);
       if (!parsed) {
-        return fallback();
+        return initialState;
       }
-      const currentValue = get() ?? fn(_set, get, api);
+
       const merged = mergeWith(
-        currentValue,
+        cloneDeep(initialState),
         getSelectedState(parsed, pathname)
       );
       set(merged, true);
       return merged;
     } catch (error) {
       console.error(error);
-      return fn(_set, get, api);
+      return initialState;
     }
   };
 
   if (typeof window !== 'undefined') {
+    const initialState = cloneDeep(
+      fn(
+        (...args) => {
+          set(...args);
+          setQuery();
+        },
+        get,
+        api
+      )
+    );
     const setQuery = () => {
       const selectedState = getSelectedState(get(), location.pathname);
       const currentQueryString = location.search;
@@ -211,12 +219,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
 
-    return initialize(new URL(location.href), (...args) => {
-      set(...args);
-      setQuery();
-    });
+    return initialize(new URL(location.href), initialState);
   } else if (url) {
-    return initialize(new URL(decodeURIComponent(url), 'http://localhost'));
+    return initialize(
+      new URL(decodeURIComponent(url), 'http://localhost'),
+      fn(set, get, api)
+    );
   }
 
   return fn(set, get, api);
