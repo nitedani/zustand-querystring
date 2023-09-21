@@ -84,17 +84,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     key: '$',
     ...options,
   };
-  const stateMatcher = new RegExp(
-    `${escapeStringRegexp(defaultedOptions.key)}=(.*);;`
-  );
-  const splitMatcher = new RegExp(
-    `${escapeStringRegexp(defaultedOptions.key)}=.*;;`
-  );
+  const escapedKey = escapeStringRegexp(defaultedOptions.key);
+  const stateMatcher = new RegExp(`${escapedKey}=(.*);;|${escapedKey}=(.*)$`);
+  const splitMatcher = new RegExp(`${escapedKey}=.*;;|${escapedKey}=.*$`);
 
-  const parseQueryString = querystring => {
+  const parseQueryString = (querystring: string) => {
     const match = querystring.match(stateMatcher);
     if (match) {
-      let m = match[1];
+      let m = match[1] ?? match[2];
       if (!m.startsWith('$')) {
         m = '$' + m;
       }
