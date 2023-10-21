@@ -1,5 +1,5 @@
 {
-  "name": "zustand-querystring",
+  "name": "zustand-querystring-root",
   "version": "0.0.15",
   "private": true,
   "type": "module",
