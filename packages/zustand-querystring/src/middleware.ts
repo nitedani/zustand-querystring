@@ -91,11 +91,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const parseQueryString = (querystring: string) => {
     const match = querystring.match(stateMatcher);
     if (match) {
-      let m = match[1] ?? match[2];
-      if (!m.startsWith('$')) {
-        m = '$' + m;
-      }
-      return parse(m);
+      return parse(match[1] ?? match[2]);
     }
     return null;
   };
@@ -172,7 +168,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
       const newCompacted = compact(newMerged, initialState);
       if (Object.keys(newCompacted).length) {
-        const stringified = stringify(newCompacted).substring(1);
+        const stringified = stringify(newCompacted);
         const newQueryState = `${defaultedOptions.key}=${stringified};;`;
         let newQueryString = '';
         if (currentParsed) {

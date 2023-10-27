@@ -8,7 +8,9 @@ function encodeString(str, regexp) {
 }
 
 function trim(res: string) {
-  return typeof res === 'string' ? res.replace(/;+$/g, '') : res;
+  return typeof res === 'string'
+    ? res.replace(/;+$/g, '').replace(/^\$/, '')
+    : res;
 }
 
 export function stringify(input: unknown, recursive?: boolean) {
@@ -65,6 +67,10 @@ export function stringify(input: unknown, recursive?: boolean) {
 }
 
 export function parse(str: string) {
+  if (!str.startsWith('$')) {
+    str = '$' + str;
+  }
+
   let pos = 0;
   str = decodeURI(str);
 
