@@ -4,7 +4,6 @@ import Link from "next/link";
 
 export default function Home() {
   const {
-    configuration,
     count,
     incrementCount,
     decrementCount,
@@ -12,8 +11,6 @@ export default function Home() {
     incrementTicks,
     someNestedState: { nestedCount, incrementNestedCount, hello, setHello },
   } = useStore();
-
-  console.log(configuration);
 
   return (
     <div>

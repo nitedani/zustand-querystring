@@ -1,17 +1,11 @@
 "use client";
-import { create } from "zustand";
+import { create, useStore as useZustandStore } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
 import { usePathname, useSearchParams } from "next/navigation";
-import { createContext, useContext, useMemo } from "react";
-
-export type Configuration = {
-  someApiUrl: string;
-  language: string;
-};
+import { ReactNode, useContext, useRef, createContext } from "react";
 
 interface Store {
-  configuration: Configuration;
   count: number;
   incrementCount: () => void;
   decrementCount: () => void;
@@ -28,8 +22,7 @@ interface Store {
   };
 }
 
-export interface CreateStoreOptions {
-  defaultState: Partial<Store> & { configuration: Configuration };
+interface CreateStoreOptions {
   url?: string;
 }
 
@@ -66,7 +59,6 @@ export const createStore = (options: CreateStoreOptions) =>
               state.someNestedState.hello = hello;
             }),
         },
-        ...options.defaultState,
       })),
       {
         url: options.url,
@@ -86,56 +78,35 @@ export const createStore = (options: CreateStoreOptions) =>
             // someNestedState: true
           };
         },
-      }
-    )
+      },
+    ),
   );
 
-export const getConfiguration = () => {
-  if (typeof window === "undefined") {
-    return {
-      someApiUrl: process.env.SOME_PUBLIC_API_URL || "",
-      language: "en",
-    };
-  }
-  // @ts-ignore
-  return window.__StoreInit;
+type StoreType = ReturnType<typeof createStore>;
+const zustandContext = createContext<StoreType | null>(null);
+
+export const useStore = <T = Store,>(selector?: (state: Store) => T) => {
+  selector ??= (state) => state as T;
+  const store = useContext(zustandContext);
+  if (!store) throw new Error("Store is missing the provider");
+  return useZustandStore(store, selector);
 };
 
-const context = createContext<ReturnType<typeof createStore> | null>(null);
-export function useStore<R = Store>(
-  selector: (state: Store) => R = (state) => state as any,
-  equalityFn?: (left: R, right: R) => boolean
-) {
-  return useContext(context)!(selector, equalityFn);
-}
-
-export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
+export const StoreProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const url = `${pathname}?${searchParams}`;
-  const configuration = getConfiguration();
+  const storeRef = useRef<StoreType>();
 
-  const store = useMemo(
-    () =>
-      createStore({
-        url,
-        defaultState: { configuration },
-      }),
-    []
-  );
+  if (!storeRef.current) {
+    storeRef.current = createStore({
+      url,
+    });
+  }
 
   return (
-    <html>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.__StoreInit = ${JSON.stringify(configuration)}`,
-          }}
-        ></script>
-      </head>
-      <context.Provider value={store}>
-        <body>{children}</body>
-      </context.Provider>
-    </html>
+    <zustandContext.Provider value={storeRef.current}>
+      {children}
+    </zustandContext.Provider>
   );
 };

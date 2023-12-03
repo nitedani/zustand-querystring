@@ -1,11 +1,12 @@
 import { StoreProvider } from "@/src/store";
+import type { ReactNode } from "react";
 
-export default function RootLayout({ children }: { children: any }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html>
-      <StoreProvider>
-        <body>{children}</body>
-      </StoreProvider>
+      <body>
+        <StoreProvider>{children}</StoreProvider>
+      </body>
     </html>
   );
 }

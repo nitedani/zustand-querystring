@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "bumpp": "^8.2.1",
+    "prettier": "^3.1.0",
     "turbo": "^1.4.6"
   },
   "engines": {}

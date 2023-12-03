@@ -85,14 +85,14 @@ export const createStore = (options: CreateStoreOptions) =>
             // someNestedState: true
           };
         },
-      }
-    )
+      },
+    ),
   );
 
 const context = createContext<ReturnType<typeof createStore> | null>(null);
 export function useStore<R = Store>(
   selector: (state: Store) => R = (state) => state as any,
-  equalityFn?: (left: R, right: R) => boolean
+  equalityFn?: (left: R, right: R) => boolean,
 ) {
   return useContext(context)!(selector, equalityFn);
 }
@@ -110,7 +110,7 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
         url: ctx?.request.url,
         defaultState: { configuration },
       }),
-    []
+    [],
   );
 
   return <context.Provider value={store}>{children}</context.Provider>;

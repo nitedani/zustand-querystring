@@ -17,15 +17,15 @@ export interface QueryStringOptions<T> {
 type QueryString = <
   T,
   Mps extends [StoreMutatorIdentifier, unknown][] = [],
-  Mcs extends [StoreMutatorIdentifier, unknown][] = []
+  Mcs extends [StoreMutatorIdentifier, unknown][] = [],
 >(
   initializer: StateCreator<T, Mps, Mcs>,
-  options?: QueryStringOptions<T>
+  options?: QueryStringOptions<T>,
 ) => StateCreator<T, Mps, Mcs>;
 
 type QueryStringImpl = <T>(
   storeInitializer: StateCreator<T, [], []>,
-  options?: QueryStringOptions<T>
+  options?: QueryStringOptions<T>,
 ) => StateCreator<T, [], []>;
 
 const compact = (newState, initialState) => {
@@ -120,7 +120,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
       const merged = mergeWith(
         cloneDeep(initialState),
-        getSelectedState(parsed, pathname)
+        getSelectedState(parsed, pathname),
       );
       set(merged, true);
       return merged;
@@ -138,8 +138,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           setQuery();
         },
         get,
-        api
-      )
+        api,
+      ),
     );
     const setQuery = () => {
       const selectedState = getSelectedState(get(), location.pathname);
@@ -174,7 +174,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         if (currentParsed) {
           newQueryString = currentQueryString.replace(
             splitMatcher,
-            newQueryState
+            newQueryState,
           );
         } else if (ignored) {
           newQueryString = ignored + '&' + newQueryState;
@@ -184,7 +184,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         history.replaceState(
           history.state,
           '',
-          location.pathname + newQueryString
+          location.pathname + newQueryString,
         );
       } else {
         history.replaceState(history.state, '', location.pathname + ignored);
@@ -216,7 +216,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   } else if (url) {
     return initialize(
       new URL(decodeURIComponent(url), 'http://localhost'),
-      fn(set, get, api)
+      fn(set, get, api),
     );
   }
 
