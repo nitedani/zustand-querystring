@@ -1,6 +1,6 @@
 import { useRequestContext, useSSQ } from "rakkasjs";
-import { createContext, useContext, useMemo } from "react";
-import { create } from "zustand";
+import { createContext, useContext, useState } from "react";
+import { create, useStore as useZustandStore } from "zustand";
 import { querystring } from "zustand-querystring";
 import { immer } from "zustand/middleware/immer";
 
@@ -89,13 +89,15 @@ export const createStore = (options: CreateStoreOptions) =>
     ),
   );
 
-const context = createContext<ReturnType<typeof createStore> | null>(null);
-export function useStore<R = Store>(
-  selector: (state: Store) => R = (state) => state as any,
-  equalityFn?: (left: R, right: R) => boolean,
-) {
-  return useContext(context)!(selector, equalityFn);
-}
+type StoreType = ReturnType<typeof createStore>;
+const zustandContext = createContext<StoreType | null>(null);
+
+export const useStore = <T = Store,>(selector?: (state: Store) => T) => {
+  selector ??= (state) => state as T;
+  const store = useContext(zustandContext);
+  if (!store) throw new Error("Store is missing the provider");
+  return useZustandStore(store, selector);
+};
 
 export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
   const { data: configuration } = useSSQ((ctx) => ({
@@ -104,14 +106,13 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
   }));
 
   const ctx = useRequestContext();
-  const store = useMemo(
+  const [store] = useState(
     () =>
       createStore({
         url: ctx?.request.url,
         defaultState: { configuration },
       }),
-    [],
   );
 
-  return <context.Provider value={store}>{children}</context.Provider>;
+  return <zustandContext.Provider value={store}>{children}</zustandContext.Provider>;
 };

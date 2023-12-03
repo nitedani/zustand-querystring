@@ -3,7 +3,7 @@ import { create, useStore as useZustandStore } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ReactNode, useContext, useRef, createContext } from "react";
+import { ReactNode, useContext, createContext, useState } from "react";
 
 interface Store {
   count: number;
@@ -78,8 +78,8 @@ export const createStore = (options: CreateStoreOptions) =>
             // someNestedState: true
           };
         },
-      },
-    ),
+      }
+    )
   );
 
 type StoreType = ReturnType<typeof createStore>;
@@ -96,17 +96,14 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const url = `${pathname}?${searchParams}`;
-  const storeRef = useRef<StoreType>();
 
-  if (!storeRef.current) {
-    storeRef.current = createStore({
+  const [store] = useState(() =>
+    createStore({
       url,
-    });
-  }
+    })
+  );
 
   return (
-    <zustandContext.Provider value={storeRef.current}>
-      {children}
-    </zustandContext.Provider>
+    <zustandContext.Provider value={store}>{children}</zustandContext.Provider>
   );
 };
