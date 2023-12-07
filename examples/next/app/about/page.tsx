@@ -1,5 +1,5 @@
 "use client";
-import { useStore } from "../../src/store";
+import { useStore } from "@/src/use-store";
 import Link from "next/link";
 
 export default function About() {
