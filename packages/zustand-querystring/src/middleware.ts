@@ -167,10 +167,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }
 
       const newCompacted = compact(newMerged, initialState);
+      let newQueryString = '';
       if (Object.keys(newCompacted).length) {
         const stringified = stringify(newCompacted);
         const newQueryState = `${defaultedOptions.key}=${stringified};;`;
-        let newQueryString = '';
         if (currentParsed) {
           newQueryString = currentQueryString.replace(
             splitMatcher,
@@ -181,13 +181,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         } else {
           newQueryString = '?' + newQueryState;
         }
-        history.replaceState(
-          history.state,
-          '',
-          location.pathname + newQueryString,
-        );
       } else {
-        history.replaceState(history.state, '', location.pathname + ignored);
+        newQueryString = ignored;
+      }
+
+      const currentUrl = location.pathname + location.search;
+      const newUrl = location.pathname + newQueryString;
+
+      if (newUrl !== currentUrl) {
+        history.replaceState(history.state, '', newUrl);
       }
     };
 
