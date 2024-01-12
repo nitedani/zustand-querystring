@@ -45,6 +45,11 @@ export function stringify(input: unknown, recursive?: boolean) {
     return '@' + res.join('&') + ';';
   }
 
+  // Date
+  if (input instanceof Date) {
+    return '=!Date:' + encodeString(input.toISOString(), valueStringifyRegexp);
+  }
+
   // Object
   if (typeof input === 'object') {
     for (const [key, value] of Object.entries(input)) {
@@ -96,7 +101,12 @@ export function parse(str: string) {
 
     // String
     if (type === '=') {
-      return readToken(valueParseRegexp);
+      const value = readToken(valueParseRegexp);
+      // Date
+      if (value.startsWith('!Date:')) {
+        return new Date(value.slice('!Date:'.length));
+      }
+      return value;
     }
 
     // Number, Boolean or Null
