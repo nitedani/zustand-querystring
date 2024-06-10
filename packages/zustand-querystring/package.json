@@ -1,6 +1,6 @@
 {
   "name": "zustand-querystring",
-  "version": "0.0.19",
+  "version": "0.0.20-beta.0",
   "license": "MIT",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
