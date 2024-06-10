@@ -84,6 +84,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     key: '$',
     ...options,
   };
+
+  if (encodeURIComponent(defaultedOptions.key) === defaultedOptions.key) {
+    defaultedOptions.key = `:${defaultedOptions.key}`;
+  }
   const escapedKey = escapeStringRegexp(defaultedOptions.key);
   const stateMatcher = new RegExp(`${escapedKey}=(.*);;|${escapedKey}=(.*)$`);
   const splitMatcher = new RegExp(`${escapedKey}=.*;;|${escapedKey}=.*$`);
@@ -95,7 +99,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
     return null;
   };
-  const url = defaultedOptions.url;
+  let url = defaultedOptions.url;
   const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
@@ -131,6 +135,20 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   if (typeof window !== 'undefined') {
+    const decodeHref = () => {
+      let href = location.href;
+      let decoded = decodeURIComponent(href);
+
+      if (
+        decoded.indexOf(`?${defaultedOptions.key}=`) !==
+        href.indexOf(`?${defaultedOptions.key}=`)
+      ) {
+        href = decoded;
+        decoded = decodeURIComponent(href);
+      }
+
+      return href;
+    };
     const initialState = cloneDeep(
       fn(
         (...args) => {
@@ -142,8 +160,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       ),
     );
     const setQuery = () => {
-      const selectedState = getSelectedState(get(), location.pathname);
-      const currentQueryString = location.search;
+      const url = new URL(decodeHref());
+      const selectedState = getSelectedState(get(), url.pathname);
+      const currentQueryString = url.search;
       const currentParsed = parseQueryString(currentQueryString);
 
       const newMerged = {
@@ -201,7 +220,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const cb = () => {
         if (location.pathname !== previousPathname) {
           previousPathname = location.pathname;
-          setQuery();
+          setTimeout(setQuery, 100);
         }
         requestAnimationFrame(cb);
       };
@@ -214,12 +233,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
 
-    return initialize(new URL(location.href), initialState);
+    return initialize(new URL(decodeHref()), initialState);
   } else if (url) {
-    return initialize(
-      new URL(decodeURIComponent(url), 'http://localhost'),
-      fn(set, get, api),
-    );
+    url = decodeURIComponent(url);
+    const idx = url.indexOf(`?${defaultedOptions.key}=`);
+    const decoded = decodeURIComponent(url);
+    if (decoded.indexOf(`?${defaultedOptions.key}=`) !== idx) {
+      url = decoded;
+    }
+    return initialize(new URL(url, 'http://localhost'), fn(set, get, api));
   }
 
   return fn(set, get, api);
