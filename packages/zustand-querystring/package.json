@@ -44,10 +44,10 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@types/lodash-es": "^4.17.6",
+    "@types/lodash-es": "^4.17.12",
     "rimraf": "^3.0.2",
-    "typescript": "^4.9.3",
-    "zustand": "^4.3.8",
-    "tsup": "^6.6.3"
+    "tsup": "^6.7.0",
+    "typescript": "^4.9.5",
+    "zustand": "^4.5.4"
   }
 }

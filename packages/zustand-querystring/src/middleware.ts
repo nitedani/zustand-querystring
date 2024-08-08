@@ -1,6 +1,6 @@
-import { parse, stringify } from './parser.js';
-import { mergeWith, isEqual, cloneDeep } from 'lodash-es';
+import { cloneDeep, isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
+import { parse, stringify } from './parser.js';
 
 type DeepSelect<T> = T extends object
   ? {
@@ -71,35 +71,21 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
-const escapeStringRegexp = string => {
-  if (typeof string !== 'string') {
-    throw new TypeError('Expected a string');
-  }
-
-  return string.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
-};
-
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
-    key: '$',
+    key: 'state',
     ...options,
   };
+  const { url } = defaultedOptions;
 
-  if (encodeURIComponent(defaultedOptions.key) === defaultedOptions.key) {
-    defaultedOptions.key = `:${defaultedOptions.key}`;
-  }
-  const escapedKey = escapeStringRegexp(defaultedOptions.key);
-  const stateMatcher = new RegExp(`${escapedKey}=(.*);;|${escapedKey}=(.*)$`);
-  const splitMatcher = new RegExp(`${escapedKey}=.*;;|${escapedKey}=.*$`);
-
-  const parseQueryString = (querystring: string) => {
-    const match = querystring.match(stateMatcher);
+  const getStateFromUrl = (url: URL) => {
+    const match = url.searchParams.get(defaultedOptions.key);
     if (match) {
-      return parse(match[1] ?? match[2]);
+      return parse(match);
     }
     return null;
   };
-  let url = defaultedOptions.url;
+
   const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
@@ -112,19 +98,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialize = (url: URL, initialState) => {
     try {
-      const queryString = url.search.substring(1);
-      const pathname = url.pathname;
-      if (!queryString) {
+      const stateFromURl = getStateFromUrl(url);
+      if (!stateFromURl) {
         return initialState;
       }
-      const parsed = parseQueryString(queryString);
-      if (!parsed) {
-        return initialState;
-      }
-
       const merged = mergeWith(
         cloneDeep(initialState),
-        getSelectedState(parsed, pathname),
+        getSelectedState(stateFromURl, url.pathname),
       );
       set(merged, true);
       return merged;
@@ -135,20 +115,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   if (typeof window !== 'undefined') {
-    const decodeHref = () => {
-      let href = location.href;
-      let decoded = decodeURIComponent(href);
-
-      if (
-        decoded.indexOf(`?${defaultedOptions.key}=`) !==
-        href.indexOf(`?${defaultedOptions.key}=`)
-      ) {
-        href = decoded;
-        decoded = decodeURIComponent(href);
-      }
-
-      return href;
-    };
     const initialState = cloneDeep(
       fn(
         (...args) => {
@@ -159,56 +125,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         api,
       ),
     );
+
     const setQuery = () => {
-      const url = new URL(decodeHref());
+      const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
-      const currentQueryString = url.search;
-      const currentParsed = parseQueryString(currentQueryString);
-
-      const newMerged = {
-        ...currentParsed,
-        ...selectedState,
-      };
-
-      const splitIgnored = currentQueryString.split(splitMatcher);
-      let ignored = '';
-      for (let str of splitIgnored) {
-        if (!str || str === '?' || str === '&') {
-          continue;
-        }
-        if (str.startsWith('&') || str.startsWith('?')) {
-          str = str.substring(1);
-        }
-        if (str.endsWith('&')) {
-          str = str.substring(0, str.length - 1);
-        }
-        ignored += (ignored ? '&' : '?') + str;
-      }
-
-      const newCompacted = compact(newMerged, initialState);
-      let newQueryString = '';
+      const newCompacted = compact(selectedState, initialState);
+      const previous = url.search;
       if (Object.keys(newCompacted).length) {
-        const stringified = stringify(newCompacted);
-        const newQueryState = `${defaultedOptions.key}=${stringified};;`;
-        if (currentParsed) {
-          newQueryString = currentQueryString.replace(
-            splitMatcher,
-            newQueryState,
-          );
-        } else if (ignored) {
-          newQueryString = ignored + '&' + newQueryState;
-        } else {
-          newQueryString = '?' + newQueryState;
-        }
+        url.searchParams.set(defaultedOptions.key, stringify(newCompacted));
       } else {
-        newQueryString = ignored;
+        url.searchParams.delete(defaultedOptions.key);
       }
-
-      const currentUrl = location.pathname + location.search;
-      const newUrl = location.pathname + newQueryString;
-
-      if (newUrl !== currentUrl) {
-        history.replaceState(history.state, '', newUrl);
+      if (url.search !== previous) {
+        history.replaceState(history.state, '', url);
       }
     };
 
@@ -233,14 +162,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
 
-    return initialize(new URL(decodeHref()), initialState);
+    return initialize(new URL(window.location.href), initialState);
   } else if (url) {
-    url = decodeURIComponent(url);
-    const idx = url.indexOf(`?${defaultedOptions.key}=`);
-    const decoded = decodeURIComponent(url);
-    if (decoded.indexOf(`?${defaultedOptions.key}=`) !== idx) {
-      url = decoded;
-    }
     return initialize(new URL(url, 'http://localhost'), fn(set, get, api));
   }
 
