@@ -30,5 +30,5 @@
     "zustand": "^4.5.4",
     "zustand-querystring": "0.0.20-beta.0"
   },
-  "version": "0.0.20-beta.0"
+  "version": "0.1.0"
 }

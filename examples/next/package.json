@@ -1,6 +1,6 @@
 {
   "name": "next",
-  "version": "0.0.20-beta.0",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
