@@ -1,7 +1,7 @@
 {
   "name": "react",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.2.0",
     "zustand": "^5.0.3",
-    "zustand-querystring": "0.1.0"
+    "zustand-querystring": "0.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.10",
