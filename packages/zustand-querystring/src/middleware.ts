@@ -1,4 +1,4 @@
-import { cloneDeep, isEqual, mergeWith } from 'lodash-es';
+import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { parse, stringify } from './parser.js';
 
@@ -8,10 +8,18 @@ type DeepSelect<T> = T extends object
     }
   : boolean;
 
+type DeepPartial<T> = T extends object
+  ? { [P in keyof T]?: DeepPartial<T[P]> }
+  : T;
+
 export interface QueryStringOptions<T> {
   url?: string;
   select?: (pathname: string) => DeepSelect<T>;
   key?: string;
+  format?: {
+    stringify: (value: DeepPartial<T>) => string;
+    parse: (value: string) => DeepPartial<T>;
+  };
 }
 
 type QueryString = <
@@ -74,14 +82,17 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     key: 'state',
+    format: {
+      stringify,
+      parse,
+    },
     ...options,
   };
-  const { url } = defaultedOptions;
 
   const getStateFromUrl = (url: URL) => {
     const match = url.searchParams.get(defaultedOptions.key);
     if (match) {
-      return parse(match);
+      return defaultedOptions.format.parse(match);
     }
     return null;
   };
@@ -103,10 +114,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return initialState;
       }
       const merged = mergeWith(
-        cloneDeep(initialState),
+        {},
+        initialState,
         getSelectedState(stateFromURl, url.pathname),
       );
-      set(merged, true);
+
       return merged;
     } catch (error) {
       console.error(error);
@@ -115,15 +127,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   if (typeof window !== 'undefined') {
-    const initialState = cloneDeep(
-      fn(
-        (...args) => {
-          set(...args);
-          setQuery();
-        },
-        get,
-        api,
-      ),
+    const initialState = fn(
+      (...args) => {
+        set(...(args as Parameters<typeof set>));
+        setQuery();
+      },
+      get,
+      api,
     );
 
     const setQuery = () => {
@@ -132,7 +142,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const newCompacted = compact(selectedState, initialState);
       const previous = url.search;
       if (Object.keys(newCompacted).length) {
-        url.searchParams.set(defaultedOptions.key, stringify(newCompacted));
+        url.searchParams.set(
+          defaultedOptions.key,
+          defaultedOptions.format.stringify(newCompacted),
+        );
       } else {
         url.searchParams.delete(defaultedOptions.key);
       }
@@ -155,16 +168,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
       requestAnimationFrame(cb);
     }
-
     const originalSetState = api.setState;
     api.setState = (...args) => {
-      originalSetState(...args);
+      originalSetState(...(args as Parameters<typeof set>));
       setQuery();
     };
-
-    return initialize(new URL(window.location.href), initialState);
-  } else if (url) {
-    return initialize(new URL(url, 'http://localhost'), fn(set, get, api));
+    const initialized = initialize(new URL(window.location.href), initialState);
+    api.getInitialState = () => initialized;
+    return initialized;
+  } else if (defaultedOptions.url) {
+    const initialized = initialize(
+      new URL(defaultedOptions.url, 'http://localhost'),
+      fn(set, get, api),
+    );
+    api.getInitialState = () => initialized;
+    return initialized;
   }
 
   return fn(set, get, api);

@@ -1,11 +1,13 @@
 import { StoreProvider } from "@/src/use-store";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html>
       <body>
-        <StoreProvider>{children}</StoreProvider>
+        <Suspense>
+          <StoreProvider>{children}</StoreProvider>
+        </Suspense>
       </body>
     </html>
   );

@@ -9,18 +9,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "immer": "^9.0.21",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0",
-    "zustand": "^4.5.4",
-    "zustand-querystring": "0.0.20-beta.0"
+    "immer": "^10.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.2.0",
+    "zustand": "^5.0.3",
+    "zustand-querystring": "0.1.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^2.2.0",
-    "typescript": "^4.9.5",
-    "vite": "^3.2.10"
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
   }
 }

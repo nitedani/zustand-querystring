@@ -1,4 +1,4 @@
-import create from "zustand";
+import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
 
@@ -69,6 +69,6 @@ export const useStore = create<Store>()(
           // someNestedState: true
         };
       },
-    },
-  ),
+    }
+  )
 );
