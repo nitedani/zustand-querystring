@@ -7,11 +7,11 @@ describe('readable format', () => {
       const obj = { value: 42 };
       const encoded = stringify(obj);
       expect(parse(encoded)).toEqual(obj);
-      
+
       const obj2 = { zero: 0 };
       const encoded2 = stringify(obj2);
       expect(parse(encoded2)).toEqual(obj2);
-      
+
       const obj3 = { negative: -123.45 };
       const encoded3 = stringify(obj3);
       expect(parse(encoded3)).toEqual(obj3);
@@ -57,7 +57,7 @@ describe('readable format', () => {
     });
 
     it('should handle objects with special characters in keys', () => {
-      const obj = { 'my.key': 'value', 'another$key': 123 };
+      const obj = { 'my.key': 'value', another$key: 123 };
       const encoded = stringify(obj);
       expect(parse(encoded)).toEqual(obj);
     });
@@ -107,7 +107,12 @@ describe('readable format', () => {
     });
 
     it('should handle arrays with objects', () => {
-      const obj = { users: [{ id: 1, name: 'A' }, { id: 2, name: 'B' }] };
+      const obj = {
+        users: [
+          { id: 1, name: 'A' },
+          { id: 2, name: 'B' },
+        ],
+      };
       const encoded = stringify(obj);
       expect(parse(encoded)).toEqual(obj);
     });
@@ -173,7 +178,7 @@ describe('readable format', () => {
       };
       const encoded = stringify(obj);
       const parsed = parse(encoded) as typeof obj;
-      
+
       expect(parsed.user.id).toBe(123);
       expect(parsed.user.profile.name).toBe('John Doe');
       expect(parsed.user.profile.settings.theme).toBe('dark');
@@ -198,7 +203,7 @@ describe('readable format', () => {
     it('should handle objects with dots and special chars', () => {
       const obj = {
         'key.with.dots': 'value',
-        'key$with$dollars': 123,
+        key$with$dollars: 123,
         'key:with:colons': true,
         'key@with@at': ['array', 'values'],
       };
@@ -263,7 +268,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with double dots (..)', () => {
-      const obj = { 
+      const obj = {
         path: 'path..to..file',
         ellipsis: 'wait...',
         multiple: '.....',
@@ -273,7 +278,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with tilde (~)', () => {
-      const obj = { 
+      const obj = {
         home: '~/documents',
         approx: '~100',
         multiple: '~~~',
@@ -284,7 +289,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with colon (:)', () => {
-      const obj = { 
+      const obj = {
         time: '12:30:45',
         ratio: '16:9',
         protocol: 'https://example.com',
@@ -295,7 +300,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with at sign (@)', () => {
-      const obj = { 
+      const obj = {
         email: 'user@example.com',
         mention: '@username',
         multiple: '@@@',
@@ -306,7 +311,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with dollar sign ($)', () => {
-      const obj = { 
+      const obj = {
         price: '$99.99',
         currency: 'USD$',
         multiple: '$$$',
@@ -317,7 +322,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with equals sign (=)', () => {
-      const obj = { 
+      const obj = {
         equation: 'x=y',
         comparison: '===',
         assignment: 'a=b=c=d',
@@ -327,7 +332,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with forward slash (/)', () => {
-      const obj = { 
+      const obj = {
         path: '/home/user/file',
         url: 'https://example.com/path/to/page',
         division: '10/5',
@@ -338,12 +343,12 @@ describe('readable format', () => {
     });
 
     it('should handle keys with special characters', () => {
-      const obj = { 
+      const obj = {
         'key..with..dots': 'value1',
         'key~with~tilde': 'value2',
         'key:with:colon': 'value3',
         'key@with@at': 'value4',
-        'key$with$dollar': 'value5',
+        key$with$dollar: 'value5',
         'key=with=equals': 'value6',
         'key/with/slash': 'value7',
       };
@@ -352,7 +357,7 @@ describe('readable format', () => {
     });
 
     it('should handle all special characters combined', () => {
-      const obj = { 
+      const obj = {
         crazy: '..~~::@@$$==//',
         mixed: '$@key:value=42..~end/',
         nested: {
@@ -364,7 +369,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings that look like encoded values', () => {
-      const obj = { 
+      const obj = {
         fakeNumber: ':123',
         fakeArray: '@item1..item2~',
         fakeObject: '$key:value~',
@@ -376,7 +381,7 @@ describe('readable format', () => {
     });
 
     it('should handle empty strings in various positions', () => {
-      const obj = { 
+      const obj = {
         empty: '',
         array: ['', 'text', ''],
         nested: { inner: '' },
@@ -386,7 +391,7 @@ describe('readable format', () => {
     });
 
     it('should handle strings with newlines and tabs', () => {
-      const obj = { 
+      const obj = {
         multiline: 'line1\nline2\nline3',
         tabs: 'col1\tcol2\tcol3',
         mixed: 'text\n\twith\n\tformatting',
@@ -396,7 +401,7 @@ describe('readable format', () => {
     });
 
     it('should handle numbers edge cases', () => {
-      const obj = { 
+      const obj = {
         zero: 0,
         infinity: Infinity,
         negInfinity: -Infinity,
@@ -411,6 +416,28 @@ describe('readable format', () => {
       expect(parsed.scientific).toBe(1.23e-10);
       expect(parsed.large).toBe(9007199254740991);
     });
+
+    it('should preserve null values in objects', () => {
+      const obj = {
+        name: 'John',
+        age: null,
+        city: 'NYC',
+      };
+      const encoded = stringify(obj);
+      expect(parse(encoded)).toEqual(obj);
+    });
+
+    it('should preserve null in nested objects', () => {
+      const obj = {
+        user: {
+          name: 'John',
+          email: null,
+        },
+        count: 5,
+      };
+      const encoded = stringify(obj);
+      expect(parse(encoded)).toEqual(obj);
+    });
   });
 
   describe('round-trip consistency', () => {
@@ -418,8 +445,14 @@ describe('readable format', () => {
       { name: 'simple object', value: { a: 1, b: 'hello' } },
       { name: 'nested object', value: { a: { b: { c: 'deep' } } } },
       { name: 'array in object', value: { items: [1, 2, 3] } },
-      { name: 'mixed array in object', value: { items: [1, 'two', true, null, { four: 4 }] } },
-      { name: 'complex', value: { users: [{ id: 1, name: 'Alice' }], count: 42 } },
+      {
+        name: 'mixed array in object',
+        value: { items: [1, 'two', true, null, { four: 4 }] },
+      },
+      {
+        name: 'complex',
+        value: { users: [{ id: 1, name: 'Alice' }], count: 42 },
+      },
       { name: 'with date', value: { created: new Date('2024-01-15') } },
       { name: 'empty', value: {} },
     ];

@@ -20,6 +20,8 @@ export interface QueryStringOptions<T> {
     stringify: (value: DeepPartial<T>) => string;
     parse: (value: string) => DeepPartial<T>;
   };
+  syncNull?: boolean;
+  syncUndefined?: boolean;
 }
 
 type QueryString = <
@@ -36,22 +38,37 @@ type QueryStringImpl = <T>(
   options?: QueryStringOptions<T>,
 ) => StateCreator<T, [], []>;
 
-const compact = (newState, initialState) => {
+export const compact = (
+  newState,
+  initialState,
+  syncNull = false,
+  syncUndefined = false,
+) => {
   const output = {};
   Object.keys(newState).forEach(key => {
+    const newValue = newState[key];
+    const initialValue = initialState[key];
+
     if (
-      newState[key] !== null &&
-      newState[key] !== undefined &&
-      typeof newState[key] !== 'function' &&
-      !isEqual(newState[key], initialState[key])
+      typeof newValue !== 'function' &&
+      !isEqual(newValue, initialValue) &&
+      (syncNull || newValue !== null) &&
+      (syncUndefined || newValue !== undefined)
     ) {
-      if (typeof newState[key] === 'object' && !Array.isArray(newState[key])) {
-        const value = compact(newState[key], initialState[key]);
+      const isPlainObject =
+        typeof newValue === 'object' &&
+        newValue !== null &&
+        newValue !== undefined &&
+        !Array.isArray(newValue) &&
+        newValue.constructor === Object;
+
+      if (isPlainObject && initialValue && typeof initialValue === 'object') {
+        const value = compact(newValue, initialValue, syncNull, syncUndefined);
         if (value && Object.keys(value).length > 0) {
           output[key] = value;
         }
       } else {
-        output[key] = newState[key];
+        output[key] = newValue;
       }
     }
   });
@@ -86,6 +103,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       stringify,
       parse,
     },
+    syncNull: false,
+    syncUndefined: false,
     ...options,
   };
 
@@ -145,13 +164,18 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const setQuery = () => {
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
-      const newCompacted = compact(selectedState, initialState);
+      const newCompacted = compact(
+        selectedState,
+        initialState,
+        defaultedOptions.syncNull,
+        defaultedOptions.syncUndefined,
+      );
       const previous = url.search;
-      
+
       // Parse existing query params, preserving order
       const params = url.search.slice(1).split('&').filter(Boolean);
       let stateIndex = -1;
-      
+
       // Remove our param, remember its position
       const otherParams = params.filter((p, i) => {
         const [key] = p.split('=', 1);
@@ -161,16 +185,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         }
         return true;
       });
-      
+
       // Add our param back if we have state
       if (Object.keys(newCompacted).length) {
         const value = defaultedOptions.format.stringify(newCompacted);
         const position = stateIndex === -1 ? otherParams.length : stateIndex;
         otherParams.splice(position, 0, `${defaultedOptions.key}=${value}`);
       }
-      
+
       url.search = otherParams.length ? '?' + otherParams.join('&') : '';
-      
+
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
       }

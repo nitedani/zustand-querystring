@@ -71,8 +71,6 @@ export const useStore = create<Store>()(
           // someNestedState: true
         };
       },
-    }
-  )
+    },
+  ),
 );
-
-

@@ -75,6 +75,6 @@ export const createStore = (options: CreateStoreOptions) =>
             // someNestedState: true
           };
         },
-      }
-    )
+      },
+    ),
   );

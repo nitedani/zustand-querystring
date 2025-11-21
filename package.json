@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "release": "pnpm build && bumpp package.json packages/*/package.json examples/*/package.json && pnpm -r publish --access=public"
   },
   "devDependencies": {
