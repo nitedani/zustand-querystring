@@ -8,7 +8,6 @@ Examples:
 
 - [React](./examples/react/)
 - [NextJS](./examples/next/)
-- [Rakkas](./examples/rakkas/)
 
 Quickstart:
 
@@ -60,5 +59,6 @@ export const useStore = create<Store>()(
 querystring options:
 
 - <b>select</b> - the select option controls what part of the state is synced with the query string
-- <b>key: string</b> - the key option controls how the state is stored in the querystring (default: $)
+- <b>key: string</b> - the key option controls how the state is stored in the querystring (default: "state")
 - <b>url</b> - the url option is used to provide the request url on the server side render
+- <b>format</b> - custom format for encoding/decoding. Use `import * as format from "zustand-querystring/format/readable"` for human-readable URLs

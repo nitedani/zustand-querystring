@@ -90,9 +90,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   const getStateFromUrl = (url: URL) => {
-    const match = url.searchParams.get(defaultedOptions.key);
-    if (match) {
-      return defaultedOptions.format.parse(match);
+    const params = url.search.slice(1).split('&');
+    for (const param of params) {
+      const eqIndex = param.indexOf('=');
+      if (eqIndex === -1) continue;
+      const key = param.slice(0, eqIndex);
+      if (key === defaultedOptions.key) {
+        const value = param.slice(eqIndex + 1);
+        return value ? defaultedOptions.format.parse(value) : null;
+      }
     }
     return null;
   };
@@ -141,14 +147,30 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const selectedState = getSelectedState(get(), url.pathname);
       const newCompacted = compact(selectedState, initialState);
       const previous = url.search;
+      
+      // Parse existing query params, preserving order
+      const params = url.search.slice(1).split('&').filter(Boolean);
+      let stateIndex = -1;
+      
+      // Remove our param, remember its position
+      const otherParams = params.filter((p, i) => {
+        const [key] = p.split('=', 1);
+        if (key === defaultedOptions.key) {
+          stateIndex = i;
+          return false;
+        }
+        return true;
+      });
+      
+      // Add our param back if we have state
       if (Object.keys(newCompacted).length) {
-        url.searchParams.set(
-          defaultedOptions.key,
-          defaultedOptions.format.stringify(newCompacted),
-        );
-      } else {
-        url.searchParams.delete(defaultedOptions.key);
+        const value = defaultedOptions.format.stringify(newCompacted);
+        const position = stateIndex === -1 ? otherParams.length : stateIndex;
+        otherParams.splice(position, 0, `${defaultedOptions.key}=${value}`);
       }
+      
+      url.search = otherParams.length ? '?' + otherParams.join('&') : '';
+      
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
       }

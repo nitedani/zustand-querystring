@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { querystring } from "zustand-querystring";
+import * as readable from "zustand-querystring/format/readable";
 
 interface Store {
   count: number;
@@ -53,6 +54,7 @@ export const useStore = create<Store>()(
       },
     })),
     {
+      format: readable,
       // select controls what part of the state is synced with the query string
       // pathname is the current route (e.g. /about or /)
       select(pathname) {
@@ -72,3 +74,5 @@ export const useStore = create<Store>()(
     }
   )
 );
+
+
