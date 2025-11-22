@@ -6,7 +6,7 @@ describe('compact', () => {
     const initialState = { a: 1, b: 2, c: 3 };
     const newState = { a: 1, b: 5, c: 3 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ b: 5 });
+    expect(result.output).toEqual({ b: 5 });
   });
 
   it('should handle nested objects inside class instances', () => {
@@ -25,7 +25,7 @@ describe('compact', () => {
     const result = compact(newState, initialState);
 
     // Class instances are atomic - different metadata means whole instance is included
-    expect(result).toEqual({ user: user2 });
+    expect(result.output).toEqual({ user: user2 });
   });
 
   it('should strip null by default (syncNull=false)', () => {
@@ -33,7 +33,7 @@ describe('compact', () => {
     const newState = { name: null, age: 30 };
     const result = compact(newState, initialState);
     // With syncNull=false (default), null values are not synced
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should sync null when syncNull=true', () => {
@@ -41,14 +41,14 @@ describe('compact', () => {
     const newState = { name: null, age: 30 };
     const result = compact(newState, initialState, true, false);
     // With syncNull=true, null is synced when it differs from initial
-    expect(result).toEqual({ name: null });
+    expect(result.output).toEqual({ name: null });
   });
 
   it('should preserve null in nested objects when syncNull=true', () => {
     const initialState = { user: { name: 'John', email: 'john@example.com' } };
     const newState = { user: { name: 'John', email: null } };
     const result = compact(newState, initialState, true);
-    expect(result).toEqual({ user: { email: null } });
+    expect(result.output).toEqual({ user: { email: null } });
   });
 
   it('should strip undefined by default (syncUndefined=false)', () => {
@@ -56,7 +56,7 @@ describe('compact', () => {
     const newState = { a: 1, b: undefined };
     const result = compact(newState, initialState);
     // With syncUndefined=false (default), undefined values are not synced
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should sync undefined when syncUndefined=true', () => {
@@ -64,7 +64,7 @@ describe('compact', () => {
     const newState = { a: 1, b: undefined };
     const result = compact(newState, initialState, false, true);
     // With syncUndefined=true, undefined is synced when it differs from initial
-    expect(result).toEqual({ b: undefined });
+    expect(result.output).toEqual({ b: undefined });
   });
 
   it('should handle undefined in initial state', () => {
@@ -72,14 +72,14 @@ describe('compact', () => {
     const newState = { a: 1, b: undefined };
     const result = compact(newState, initialState);
     // Same as initial, should not be synced
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should remove function values', () => {
     const initialState = { a: 1, b: () => {} };
     const newState = { a: 5, b: () => {} };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ a: 5 });
+    expect(result.output).toEqual({ a: 5 });
   });
 
   it('should handle nested objects', () => {
@@ -92,14 +92,14 @@ describe('compact', () => {
       count: 0,
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ user: { name: 'Jane' } });
+    expect(result.output).toEqual({ user: { name: 'Jane' } });
   });
 
   it('should handle arrays', () => {
     const initialState = { items: [1, 2, 3], count: 0 };
     const newState = { items: [1, 2, 4], count: 0 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ items: [1, 2, 4] });
+    expect(result.output).toEqual({ items: [1, 2, 4] });
   });
 
   it('should remove empty nested objects', () => {
@@ -112,7 +112,7 @@ describe('compact', () => {
       count: 5,
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle deeply nested changes', () => {
@@ -125,21 +125,21 @@ describe('compact', () => {
       x: 10,
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ a: { b: { c: { d: 2 } } } });
+    expect(result.output).toEqual({ a: { b: { c: { d: 2 } } } });
   });
 
   it('should handle null as a value in initial state', () => {
     const initialState = { name: null, age: 30 };
     const newState = { name: 'John', age: 30 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ name: 'John' });
+    expect(result.output).toEqual({ name: 'John' });
   });
 
   it('should handle objects with null values when syncNull=true', () => {
     const initialState = { user: { name: 'John' }, count: 0 };
     const newState = { user: null, count: 5 };
     const result = compact(newState, initialState, true);
-    expect(result).toEqual({ user: null, count: 5 });
+    expect(result.output).toEqual({ user: null, count: 5 });
   });
 
   it('should handle complex mixed scenarios', () => {
@@ -156,7 +156,7 @@ describe('compact', () => {
       items: [1, 2, 3],
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({
+    expect(result.output).toEqual({
       age: 31,
       settings: { theme: 'light' },
     });
@@ -166,21 +166,21 @@ describe('compact', () => {
     const initialState = { count: 5 };
     const newState = { count: 0 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ count: 0 });
+    expect(result.output).toEqual({ count: 0 });
   });
 
   it('should preserve false values', () => {
     const initialState = { enabled: true };
     const newState = { enabled: false };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ enabled: false });
+    expect(result.output).toEqual({ enabled: false });
   });
 
   it('should preserve empty strings', () => {
     const initialState = { name: 'John' };
     const newState = { name: '' };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ name: '' });
+    expect(result.output).toEqual({ name: '' });
   });
 
   it('should handle NaN values', () => {
@@ -188,14 +188,14 @@ describe('compact', () => {
     const newState = { value: NaN };
     const result = compact(newState, initialState);
     // NaN !== NaN, so it should be included
-    expect(result).toEqual({ value: NaN });
+    expect(result.output).toEqual({ value: NaN });
   });
 
   it('should handle Infinity values', () => {
     const initialState = { value: 5 };
     const newState = { value: Infinity };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ value: Infinity });
+    expect(result.output).toEqual({ value: Infinity });
   });
 
   it('should handle Date objects', () => {
@@ -205,7 +205,7 @@ describe('compact', () => {
     const newState = { created: date2 };
     const result = compact(newState, initialState);
     // lodash isEqual compares Date objects by value
-    expect(result).toEqual({ created: date2 });
+    expect(result.output).toEqual({ created: date2 });
   });
 
   it('should handle same Date objects', () => {
@@ -214,63 +214,63 @@ describe('compact', () => {
     const newState = { created: new Date('2024-01-01') };
     const result = compact(newState, initialState);
     // lodash isEqual considers these equal
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle empty arrays vs non-empty', () => {
     const initialState = { items: [] };
     const newState = { items: [1, 2, 3] };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ items: [1, 2, 3] });
+    expect(result.output).toEqual({ items: [1, 2, 3] });
   });
 
   it('should handle non-empty arrays vs empty', () => {
     const initialState = { items: [1, 2, 3] };
     const newState = { items: [] };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ items: [] });
+    expect(result.output).toEqual({ items: [] });
   });
 
   it('should handle nested null in arrays', () => {
     const initialState = { items: [1, 2, 3] };
     const newState = { items: [1, null, 3] };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ items: [1, null, 3] });
+    expect(result.output).toEqual({ items: [1, null, 3] });
   });
 
   it('should handle objects in arrays', () => {
     const initialState = { users: [{ id: 1, name: 'John' }] };
     const newState = { users: [{ id: 1, name: 'Jane' }] };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ users: [{ id: 1, name: 'Jane' }] });
+    expect(result.output).toEqual({ users: [{ id: 1, name: 'Jane' }] });
   });
 
   it('should handle missing keys in new state', () => {
     const initialState = { a: 1, b: 2, c: 3 };
     const newState = { a: 1, c: 3 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle extra keys in new state', () => {
     const initialState = { a: 1, b: 2 };
     const newState = { a: 1, b: 2, c: 3 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ c: 3 });
+    expect(result.output).toEqual({ c: 3 });
   });
 
   it('should handle deeply nested null when syncNull=true', () => {
     const initialState = { a: { b: { c: { d: 'value' } } } };
     const newState = { a: { b: { c: { d: null } } } };
     const result = compact(newState, initialState, true);
-    expect(result).toEqual({ a: { b: { c: { d: null } } } });
+    expect(result.output).toEqual({ a: { b: { c: { d: null } } } });
   });
 
   it('should handle changing object to null when syncNull=true', () => {
     const initialState = { settings: { theme: 'dark' } };
     const newState = { settings: null };
     const result = compact(newState, initialState, true);
-    expect(result).toEqual({ settings: null });
+    expect(result.output).toEqual({ settings: null });
   });
 
   it('should handle changing null to object', () => {
@@ -278,21 +278,21 @@ describe('compact', () => {
     const newState = { settings: { theme: 'dark' } };
     const result = compact(newState, initialState);
     // This works because typeof null === 'object' but we check !isNull
-    expect(result).toEqual({ settings: { theme: 'dark' } });
+    expect(result.output).toEqual({ settings: { theme: 'dark' } });
   });
 
   it('should handle changing array to null when syncNull=true', () => {
     const initialState = { items: [1, 2, 3] };
     const newState = { items: null };
     const result = compact(newState, initialState, true);
-    expect(result).toEqual({ items: null });
+    expect(result.output).toEqual({ items: null });
   });
 
   it('should handle changing string to number', () => {
     const initialState = { value: '5' };
     const newState = { value: 5 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ value: 5 });
+    expect(result.output).toEqual({ value: 5 });
   });
 
   it('should handle objects with symbol keys', () => {
@@ -301,21 +301,21 @@ describe('compact', () => {
     const newState = { [sym]: 1, normal: 3 };
     const result = compact(newState, initialState);
     // Symbols are not enumerable via Object.keys
-    expect(result).toEqual({ normal: 3 });
+    expect(result.output).toEqual({ normal: 3 });
   });
 
   it('should handle empty object in initial state', () => {
     const initialState = {};
     const newState = { a: 1, b: 2 };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ a: 1, b: 2 });
+    expect(result.output).toEqual({ a: 1, b: 2 });
   });
 
   it('should handle empty object in new state', () => {
     const initialState = { a: 1, b: 2 };
     const newState = {};
     const result = compact(newState, initialState);
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle RegExp objects', () => {
@@ -323,7 +323,7 @@ describe('compact', () => {
     const newState = { pattern: /test2/ };
     const result = compact(newState, initialState);
     // lodash isEqual compares RegExp by their source and flags
-    expect(result).toEqual({ pattern: /test2/ });
+    expect(result.output).toEqual({ pattern: /test2/ });
   });
 
   it('should handle nested array changes', () => {
@@ -340,7 +340,7 @@ describe('compact', () => {
       ],
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({
+    expect(result.output).toEqual({
       matrix: [
         [1, 2],
         [3, 5],
@@ -356,7 +356,7 @@ describe('compact', () => {
       user: { name: 'John', age: 31, email: 'john@example.com' },
     };
     const result = compact(newState, initialState);
-    expect(result).toEqual({ user: { age: 31 } });
+    expect(result.output).toEqual({ user: { age: 31 } });
   });
 
   it('should not mutate input objects', () => {
@@ -391,8 +391,8 @@ describe('compact', () => {
 
     // Class instances are treated as atomic values (not recursed into)
     // They are compared by lodash isEqual which does deep property comparison
-    expect(result).toEqual({ user: user2 });
-    expect((result as any).user).toBeInstanceOf(User);
+    expect(result.output).toEqual({ user: user2 });
+    expect((result.output as any).user).toBeInstanceOf(User);
   });
 
   it('should handle same class instances', () => {
@@ -409,7 +409,7 @@ describe('compact', () => {
     const result = compact(newState, initialState);
 
     // Same reference, should be removed
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle class instance property changes', () => {
@@ -429,7 +429,7 @@ describe('compact', () => {
 
     // Different instances with same values - lodash isEqual checks deep equality
     // For classes, it compares by properties not reference
-    expect(result).toEqual({});
+    expect(result.output).toEqual({});
   });
 
   it('should handle nested objects inside class instances', () => {
@@ -448,6 +448,6 @@ describe('compact', () => {
     const result = compact(newState, initialState);
 
     // Class instances are atomic - different metadata means whole instance is included
-    expect(result).toEqual({ user: user2 });
+    expect(result.output).toEqual({ user: user2 });
   });
 });

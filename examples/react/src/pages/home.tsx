@@ -13,7 +13,7 @@ export const Home = () => {
 
   return (
     <div>
-      <Link to="/about">Go to about page</Link>
+      <Link to="/about">About</Link> | <Link to="/standalone">Standalone</Link>
       <div>Home page</div>
       <div>
         count is persisted in the query string, because we set it to true in
@@ -22,21 +22,18 @@ export const Home = () => {
       <div>Count: {count}</div>
       <button onClick={incrementCount}>Increment count</button>
       <button onClick={decrementCount}>Decrement count</button>
-
       <div>
         ticks is NOT persisted in the query string, because we haven't set it to
         true in store.ts
       </div>
       <div>Ticks: {ticks}</div>
       <button onClick={incrementTicks}>Increment ticks</button>
-
       <div>
         hello is NOT persisted in the query string on this(/) page, as we set it
         in store.ts
       </div>
       <div>hello: {hello}</div>
       <button onClick={() => setHello("World!")}>Set Hello to World</button>
-
       <div>
         nestedCount is persisted in the query string, because we set it to true
         in store.ts

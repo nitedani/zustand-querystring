@@ -8,18 +8,16 @@ type DeepSelect<T> = T extends object
     }
   : boolean;
 
-type DeepPartial<T> = T extends object
-  ? { [P in keyof T]?: DeepPartial<T[P]> }
-  : T;
+export interface QueryStringFormat {
+  stringify: (value: any, standalone?: boolean) => string;
+  parse: (value: string, standalone?: boolean) => any;
+}
 
 export interface QueryStringOptions<T> {
   url?: string;
   select?: (pathname: string) => DeepSelect<T>;
-  key?: string;
-  format?: {
-    stringify: (value: DeepPartial<T>) => string;
-    parse: (value: string) => DeepPartial<T>;
-  };
+  key?: string | false;
+  format?: QueryStringFormat;
   syncNull?: boolean;
   syncUndefined?: boolean;
 }
@@ -45,6 +43,8 @@ export const compact = (
   syncUndefined = false,
 ) => {
   const output = {};
+  const removed: string[] = [];
+
   Object.keys(newState).forEach(key => {
     const newValue = newState[key];
     const initialValue = initialState[key];
@@ -63,17 +63,19 @@ export const compact = (
         newValue.constructor === Object;
 
       if (isPlainObject && initialValue && typeof initialValue === 'object') {
-        const value = compact(newValue, initialValue, syncNull, syncUndefined);
-        if (value && Object.keys(value).length > 0) {
-          output[key] = value;
+        const result = compact(newValue, initialValue, syncNull, syncUndefined);
+        if (result.output && Object.keys(result.output).length > 0) {
+          output[key] = result.output;
         }
       } else {
         output[key] = newValue;
       }
+    } else {
+      removed.push(key);
     }
   });
 
-  return output;
+  return { output, removed };
 };
 
 const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
@@ -98,7 +100,7 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
 
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
-    key: 'state',
+    key: 'state' as string | false,
     format: {
       stringify,
       parse,
@@ -108,7 +110,20 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     ...options,
   };
 
+  const standalone = !defaultedOptions.key;
+
   const getStateFromUrl = (url: URL) => {
+    if (standalone) {
+      // Standalone mode: each state key is a separate query param
+      const params = new URLSearchParams(url.search);
+      const state = {};
+      params.forEach((value, key) => {
+        state[key] = defaultedOptions.format.parse(value, true);
+      });
+      return Object.keys(state).length > 0 ? state : null;
+    }
+
+    // Normal mode: single namespaced key
     const params = url.search.slice(1).split('&');
     for (const param of params) {
       const eqIndex = param.indexOf('=');
@@ -116,7 +131,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const key = param.slice(0, eqIndex);
       if (key === defaultedOptions.key) {
         const value = param.slice(eqIndex + 1);
-        return value ? defaultedOptions.format.parse(value) : null;
+        return value ? defaultedOptions.format.parse(value, false) : null;
       }
     }
     return null;
@@ -164,7 +179,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const setQuery = () => {
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
-      const newCompacted = compact(
+      const { output: newCompacted } = compact(
         selectedState,
         initialState,
         defaultedOptions.syncNull,
@@ -172,28 +187,52 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
       const previous = url.search;
 
-      // Parse existing query params, preserving order
       const params = url.search.slice(1).split('&').filter(Boolean);
-      let stateIndex = -1;
 
-      // Remove our param, remember its position
-      const otherParams = params.filter((p, i) => {
-        const [key] = p.split('=', 1);
-        if (key === defaultedOptions.key) {
-          stateIndex = i;
-          return false;
+      // Determine which keys we manage and what values to write
+      const managedKeys = standalone
+        ? new Set(Object.keys(selectedState).map(encodeURI))
+        : new Set([defaultedOptions.key as string]);
+
+      const valuesToWrite = standalone
+        ? new Map(
+            Object.entries(newCompacted).map(([k, v]) => [encodeURI(k), v]),
+          )
+        : Object.keys(newCompacted).length
+          ? new Map([[defaultedOptions.key as string, newCompacted]])
+          : new Map();
+
+      const result: string[] = [];
+
+      // Process existing params: update ours, keep others
+      params.forEach(p => {
+        const key = p.split('=')[0];
+
+        if (!managedKeys.has(key)) {
+          // Not ours - keep as-is
+          result.push(p);
+          return;
         }
-        return true;
+
+        // Our key - add if has value
+        if (valuesToWrite.has(key)) {
+          const encoded = defaultedOptions.format.stringify(
+            valuesToWrite.get(key),
+            standalone,
+          );
+          result.push(`${key}=${encoded}`);
+          valuesToWrite.delete(key);
+        }
+        // If no value, it's compacted - skip it
       });
 
-      // Add our param back if we have state
-      if (Object.keys(newCompacted).length) {
-        const value = defaultedOptions.format.stringify(newCompacted);
-        const position = stateIndex === -1 ? otherParams.length : stateIndex;
-        otherParams.splice(position, 0, `${defaultedOptions.key}=${value}`);
-      }
+      // Add new keys not in URL
+      valuesToWrite.forEach((value, key) => {
+        const encoded = defaultedOptions.format.stringify(value, standalone);
+        result.push(`${key}=${encoded}`);
+      });
 
-      url.search = otherParams.length ? '?' + otherParams.join('&') : '';
+      url.search = result.length ? '?' + result.join('&') : '';
 
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
