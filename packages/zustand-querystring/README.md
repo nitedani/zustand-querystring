@@ -59,9 +59,9 @@ export const useStore = create<Store>()(
 querystring options:
 
 - <b>select</b> - the select option controls what part of the state is synced with the query string
-- <b>key: string</b> - the key option controls how the state is stored in the querystring (default: 'state')
+- <b>key: string | false</b> - the key option controls how the state is stored in the querystring (default: 'state'). Set to `false` for standalone mode where each state key becomes a separate query parameter.
 - <b>url</b> - the url option is used to provide the request url on the server side render
-- <b>format</b> - custom format for stringify/parse (default: JSON-based format)
+- <b>format</b> - custom format for stringify/parse (default: JSON-based format). Use `readable` from `zustand-querystring/format/readable` for human-readable URLs.
 - <b>syncNull: boolean</b> - when true, null values that differ from initial state are synced to URL (default: false)
 - <b>syncUndefined: boolean</b> - when true, undefined values that differ from initial state are synced to URL (default: false)
 
