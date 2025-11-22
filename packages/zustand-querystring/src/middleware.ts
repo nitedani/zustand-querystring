@@ -112,13 +112,35 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const standalone = !defaultedOptions.key;
 
-  const getStateFromUrl = (url: URL) => {
+  // Track registered standalone keys globally to detect conflicts
+  if (typeof window !== 'undefined' && standalone) {
+    // @ts-ignore
+    if (!window.__ZUSTAND_QUERYSTRING_KEYS__) {
+      // @ts-ignore
+      window.__ZUSTAND_QUERYSTRING_KEYS__ = new Map();
+    }
+  }
+
+  const getStateFromUrl = (url: URL, initialState: any) => {
     if (standalone) {
       // Standalone mode: each state key is a separate query param
-      const params = new URLSearchParams(url.search);
+      const params = url.search.slice(1).split('&').filter(Boolean);
       const state = {};
-      params.forEach((value, key) => {
-        state[key] = defaultedOptions.format.parse(value, true);
+      const initialKeys = new Set(Object.keys(initialState));
+
+      params.forEach(param => {
+        const eqIndex = param.indexOf('=');
+        if (eqIndex === -1) return;
+        const key = decodeURI(param.slice(0, eqIndex));
+        const value = param.slice(eqIndex + 1);
+        if (!initialKeys.has(key)) return;
+
+        try {
+          const parsed = defaultedOptions.format.parse(value, true);
+          state[key] = parsed;
+        } catch (error) {
+          console.error('[getStateFromUrl] error parsing key:', key, error);
+        }
       });
       return Object.keys(state).length > 0 ? state : null;
     }
@@ -131,7 +153,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const key = param.slice(0, eqIndex);
       if (key === defaultedOptions.key) {
         const value = param.slice(eqIndex + 1);
-        return value ? defaultedOptions.format.parse(value, false) : null;
+        const parsed = value
+          ? defaultedOptions.format.parse(value, false)
+          : null;
+        return parsed;
       }
     }
     return null;
@@ -140,7 +165,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const getSelectedState = (state, pathname) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
-      // translate the selection to state
       const selectedState = translateSelectionToState(selection, state);
       return selectedState;
     }
@@ -149,19 +173,25 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialize = (url: URL, initialState) => {
     try {
-      const stateFromURl = getStateFromUrl(url);
+      const stateFromURl = getStateFromUrl(url, initialState);
       if (!stateFromURl) {
         return initialState;
       }
+      const selected = getSelectedState(stateFromURl, url.pathname);
       const merged = mergeWith(
         {},
         initialState,
-        getSelectedState(stateFromURl, url.pathname),
+        selected,
+        (_objValue, srcValue) => {
+          if (Array.isArray(srcValue)) {
+            return srcValue;
+          }
+          return undefined;
+        },
       );
-
       return merged;
     } catch (error) {
-      console.error(error);
+      console.error('[initialize] error:', error);
       return initialState;
     }
   };
@@ -175,6 +205,37 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       get,
       api,
     );
+
+    // Validate standalone keys don't conflict
+    if (standalone) {
+      // @ts-ignore
+      const registry = window.__ZUSTAND_QUERYSTRING_KEYS__;
+      const stateKeys = Object.keys(initialState as object).filter(
+        k => typeof (initialState as any)[k] !== 'function',
+      );
+
+      const conflicts: string[] = [];
+
+      for (const key of stateKeys) {
+        if (registry.has(key)) {
+          const existing = registry.get(key);
+          const current = defaultedOptions.format;
+          // Allow same format, error on different formats
+          if (existing !== current) {
+            conflicts.push(key);
+          }
+        } else {
+          registry.set(key, defaultedOptions.format);
+        }
+      }
+
+      if (conflicts.length > 0) {
+        throw new Error(
+          `[zustand-querystring] Standalone mode conflict: Multiple stores are using the following keys with different formats: ${conflicts.map(k => `"${k}"`).join(', ')}. ` +
+            `This will cause parsing errors. Please use unique state keys or the same format for all stores sharing keys.`,
+        );
+      }
+    }
 
     const setQuery = () => {
       const url = new URL(window.location.href);

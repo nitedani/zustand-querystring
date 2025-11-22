@@ -55,7 +55,6 @@ export const useStore = create<Store>()(
     })),
     {
       format: readable,
-      key: false,
       // select controls what part of the state is synced with the query string
       // pathname is the current route (e.g. /about or /)
       select(pathname) {
