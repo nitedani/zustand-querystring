@@ -46,7 +46,7 @@ describe('readable format', () => {
     it('should handle simple objects', () => {
       const obj = { name: 'John', age: 30 };
       const encoded = stringify(obj);
-      expect(encoded).toBe('name=John..age:30');
+      expect(encoded).toBe('name=John,age:30');
       expect(parse(encoded)).toEqual(obj);
     });
 
@@ -126,7 +126,7 @@ describe('readable format', () => {
     it('should handle arrays with undefined', () => {
       const obj = { items: [1, undefined, 3] };
       const encoded = stringify(obj);
-      expect(parse(encoded)).toEqual({ items: [1, null, 3] });
+      expect(parse(encoded)).toEqual({ items: [1, undefined, 3] });
     });
   });
 
@@ -260,7 +260,7 @@ describe('readable format', () => {
     });
 
     it('should return empty string for undefined', () => {
-      expect(stringify(undefined)).toBe('');
+      expect(stringify(undefined)).toBe(':undefined');
     });
 
     it('should return empty string for functions', () => {

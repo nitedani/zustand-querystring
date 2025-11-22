@@ -1,182 +1,169 @@
-const keyStringifyRegexp = /([=:@$/.])/g;
-const valueStringifyRegexp = /([.~/])/g;
-const keyParseRegexp = /[=:@$.]/;
-const valueParseRegexp = /[.~]/;
+/**
+ * URL-Safe Serialization
+ * 
+ * Inspired by URLON (https://github.com/cerebral/urlon)
+ * Copyright (c) 2021 Cerebral - MIT License
+ */
 
-function encodeString(str: string, regexp: RegExp): string {
-  return encodeURI(str.replace(regexp, '/$1'));
+// Configuration
+const TYPE_OBJECT = '.';
+const TYPE_ARRAY = '@';
+const TYPE_STRING = '=';
+const TYPE_PRIMITIVE = ':';
+const SEPARATOR = ',';
+const TERMINATOR = '~';
+const ESCAPE = '/';
+const DATE_PREFIX = '!Date:';
+
+// Build regex patterns from config
+const SEP_CHAR = SEPARATOR[0];
+const esc = (c: string) => /[.$^*+?()[\]{}|\\]/.test(c) ? `\\${c}` : c;
+
+const KEY_STOP = new RegExp(`[${TYPE_STRING}${TYPE_PRIMITIVE}${TYPE_ARRAY}${esc(TYPE_OBJECT)}${esc(SEP_CHAR)}]`);
+const VALUE_STOP = new RegExp(`[${esc(SEP_CHAR)}${TERMINATOR}]`);
+const KEY_ESCAPE = new RegExp(`([${TYPE_STRING}${TYPE_PRIMITIVE}${TYPE_ARRAY}${esc(TYPE_OBJECT)}${ESCAPE}${esc(SEP_CHAR)}])`, 'g');
+const VALUE_ESCAPE = new RegExp(`([${esc(SEP_CHAR)}${TERMINATOR}${ESCAPE}])`, 'g');
+
+function escapeStr(str: string, pattern: RegExp): string {
+  return encodeURI(str.replace(pattern, `${ESCAPE}$1`));
 }
 
-function trim(res: string): string {
-  return typeof res === 'string'
-    ? res.replace(/~+$/g, '').replace(/^\$/, '')
-    : res;
+function cleanResult(str: string): string {
+  while (str.endsWith(TERMINATOR)) str = str.slice(0, -1);
+  if (str.startsWith(TYPE_OBJECT) || str.startsWith(TYPE_ARRAY)) {
+    str = str.slice(1);
+  }
+  return str;
 }
 
-export function stringify(input: unknown, recursive?: boolean): string {
-  if (!recursive) {
-    return trim(stringify(input, true));
+// === SERIALIZE ===
+
+export function stringify(value: unknown): string {
+  return cleanResult(serialize(value));
+}
+
+function serialize(value: unknown): string {
+  if (value === null) return `${TYPE_PRIMITIVE}null`;
+  if (value === undefined) return `${TYPE_PRIMITIVE}undefined`;
+  if (typeof value === 'function') return '';
+  
+  if (typeof value === 'number') {
+    return `${TYPE_PRIMITIVE}${String(value).replace(/\./g, `${ESCAPE}.`)}`;
   }
-
-  // Function
-  if (typeof input === 'function') {
-    return '';
+  
+  if (typeof value === 'boolean') {
+    return `${TYPE_PRIMITIVE}${value}`;
   }
-
-  // Number, Boolean or Null
-  if (
-    typeof input === 'number' ||
-    input === true ||
-    input === false ||
-    input === null
-  ) {
-    const value = String(input);
-    // Escape dots in numbers to avoid conflicts with separator
-    return ':' + value.replace(/\./g, '/.');
+  
+  if (value instanceof Date) {
+    return `${TYPE_STRING}${DATE_PREFIX}${escapeStr(value.toISOString(), VALUE_ESCAPE)}`;
   }
-
-  const res: string[] = [];
-
-  // Array
-  if (Array.isArray(input)) {
-    for (const elem of input) {
-      typeof elem === 'undefined'
-        ? res.push(':null')
-        : res.push(stringify(elem, true));
-    }
-    return '@' + res.join('..') + '~';
+  
+  if (Array.isArray(value)) {
+    const items = value.map(v => serialize(v));
+    return `${TYPE_ARRAY}${items.join(SEPARATOR)}${TERMINATOR}`;
   }
-
-  // Date
-  if (input instanceof Date) {
-    return '=!Date:' + encodeString(input.toISOString(), valueStringifyRegexp);
-  }
-
-  // Object
-  if (typeof input === 'object') {
-    for (const [key, value] of Object.entries(input)) {
-      const stringifiedValue = stringify(value, true);
-      if (stringifiedValue) {
-        res.push(encodeString(key, keyStringifyRegexp) + stringifiedValue);
+  
+  if (typeof value === 'object') {
+    const entries: string[] = [];
+    for (const [k, v] of Object.entries(value)) {
+      const val = serialize(v);
+      if (val || v === undefined) {
+        entries.push(`${escapeStr(k, KEY_ESCAPE)}${val}`);
       }
     }
-    return '$' + res.join('..') + '~';
+    return `${TYPE_OBJECT}${entries.join(SEPARATOR)}${TERMINATOR}`;
   }
-
-  // undefined
-  if (typeof input === 'undefined') {
-    return '';
-  }
-
-  // String
-  return '=' + encodeString(input.toString(), valueStringifyRegexp);
+  
+  return `${TYPE_STRING}${escapeStr(String(value), VALUE_ESCAPE)}`;
 }
 
-export function parse<T = unknown>(str: string): T {
-  if (!str.startsWith('$')) {
-    str = '$' + str;
-  }
+// === PARSE ===
 
+export function parse<T = unknown>(input: string): T {
+  const str = decodeURI(input);
+  const first = str[0];
+  const hasMarker = first === TYPE_STRING || first === TYPE_PRIMITIVE || 
+                    first === TYPE_ARRAY || first === TYPE_OBJECT;
+  
   let pos = 0;
-  str = decodeURI(str);
-
-  function readToken(regexp: RegExp): string {
-    let token = '';
-    for (; pos !== str.length; ++pos) {
-      if (str.charAt(pos) === '/') {
-        pos += 1;
-        if (pos === str.length) {
-          token += '~';
-          break;
-        }
-      } else if (str.charAt(pos).match(regexp)) {
-        break;
+  const source = hasMarker ? str : `${TYPE_OBJECT}${str}`;
+  
+  function readUntil(pattern: RegExp): string {
+    let result = '';
+    while (pos < source.length) {
+      const char = source[pos];
+      if (char === ESCAPE) {
+        pos++;
+        result += pos < source.length ? source[pos++] : TERMINATOR;
+        continue;
       }
-      token += str.charAt(pos);
+      if (pattern.test(char)) break;
+      result += char;
+      pos++;
     }
-    return token;
+    return result;
   }
-
-  function parseToken(): unknown {
-    const type = str.charAt(pos++);
-
-    // String
-    if (type === '=') {
-      const value = readToken(valueParseRegexp);
-      // Date
-      if (value.startsWith('!Date:')) {
-        return new Date(value.slice('!Date:'.length));
-      }
-      return value;
+  
+  function skipSeparator(): void {
+    if (source[pos] === SEPARATOR) {
+      pos++;
     }
-
-    // Number, Boolean or Null
-    if (type === ':') {
-      const value = readToken(valueParseRegexp);
-      if (value === 'true') {
-        return true;
-      }
-      if (value === 'false') {
-        return false;
-      }
-      const parsedValue = parseFloat(value);
-      return isNaN(parsedValue) ? null : parsedValue;
-    }
-
-    // Array
-    if (type === '@') {
-      const res: unknown[] = [];
-      loop: {
-        // empty array
-        if (pos >= str.length || str.charAt(pos) === '~') {
-          break loop;
-        }
-        // parse array items
-        while (true) {
-          res.push(parseToken());
-          if (pos >= str.length || str.charAt(pos) === '~') {
-            break loop;
-          }
-          // Skip the '..' separator
-          if (str.charAt(pos) === '.' && str.charAt(pos + 1) === '.') {
-            pos += 2;
-          } else {
-            pos += 1;
-          }
-        }
-      }
-      pos += 1;
-      return res;
-    }
-
-    // Object
-    if (type === '$') {
-      const res: Record<string, unknown> = {};
-      loop: {
-        if (pos >= str.length || str.charAt(pos) === '~') {
-          break loop;
-        }
-        while (true) {
-          const name = readToken(keyParseRegexp);
-          res[name] = parseToken();
-          if (pos >= str.length || str.charAt(pos) === '~') {
-            break loop;
-          }
-          // Skip the '..' separator
-          if (str.charAt(pos) === '.' && str.charAt(pos + 1) === '.') {
-            pos += 2;
-          } else {
-            pos += 1;
-          }
-        }
-      }
-      pos += 1;
-      return res;
-    }
-
-    // Error
-    throw new Error('Unexpected char "' + type + '" at position ' + (pos - 1));
   }
-
-  return parseToken() as T;
+  
+  function parseString(): string | Date {
+    const val = readUntil(VALUE_STOP);
+    if (val.startsWith(DATE_PREFIX)) {
+      return new Date(val.slice(DATE_PREFIX.length));
+    }
+    return val;
+  }
+  
+  function parsePrimitive(): number | boolean | null | undefined {
+    const val = readUntil(VALUE_STOP);
+    if (val === 'null') return null;
+    if (val === 'undefined') return undefined;
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return parseFloat(val);
+  }
+  
+  function parseArray(): unknown[] {
+    const result: unknown[] = [];
+    while (pos < source.length && source[pos] !== TERMINATOR) {
+      result.push(parseValue());
+      if (pos < source.length && source[pos] !== TERMINATOR) {
+        skipSeparator();
+      }
+    }
+    if (source[pos] === TERMINATOR) pos++;
+    return result;
+  }
+  
+  function parseObject(): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    while (pos < source.length && source[pos] !== TERMINATOR) {
+      const key = readUntil(KEY_STOP);
+      result[key] = parseValue();
+      if (pos < source.length && source[pos] !== TERMINATOR) {
+        skipSeparator();
+      }
+    }
+    if (source[pos] === TERMINATOR) pos++;
+    return result;
+  }
+  
+  function parseValue(): unknown {
+    const type = source[pos++];
+    
+    switch (type) {
+      case TYPE_STRING: return parseString();
+      case TYPE_PRIMITIVE: return parsePrimitive();
+      case TYPE_ARRAY: return parseArray();
+      case TYPE_OBJECT: return parseObject();
+      default: throw new Error(`Unexpected type "${type}" at position ${pos - 1}`);
+    }
+  }
+  
+  return parseValue() as T;
 }
