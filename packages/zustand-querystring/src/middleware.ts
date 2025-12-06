@@ -1,6 +1,6 @@
 import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
-import { parse, stringify } from './parser.js';
+import { json } from './parser.js';
 
 type DeepSelect<T> = T extends object
   ? {
@@ -8,16 +8,51 @@ type DeepSelect<T> = T extends object
     }
   : boolean;
 
-export interface QueryStringFormat {
-  stringify: (value: any, standalone?: boolean) => string;
-  parse: (value: string, standalone?: boolean) => any;
+export interface QueryStringParam {
+  key: string;
+  value: string | string[];
 }
 
-export interface QueryStringOptions<T> {
+/** Record of key to array of values - always arrays for consistency */
+export type QueryStringParams = Record<string, string[]>;
+
+/** Format for namespaced mode (key is a string) */
+export interface QueryStringFormatNamespaced {
+  /** Serialize entire state into a single encoded string */
+  stringify: (state: object) => string;
+  /** Deserialize a single encoded string back to state */
+  parse: (value: string, ctx?: ParseContext) => object;
+}
+
+/** Context passed to parse methods for type inference and future extensibility */
+export interface ParseContext {
+  /** Initial state for type inference */
+  initialState: object;
+}
+
+/** Format for standalone mode (key is false) */
+export interface QueryStringFormatStandalone {
+  /** Serialize state into key-value pairs (always arrays for consistency) */
+  stringifyStandalone: (state: object) => QueryStringParams;
+  /** Deserialize key-value pairs back to state */
+  parseStandalone: (params: QueryStringParams, ctx: ParseContext) => object;
+}
+
+/** Full format implementing both modes */
+export type QueryStringFormat = QueryStringFormatNamespaced & QueryStringFormatStandalone;
+
+/** Conditional format type based on key option */
+export type QueryStringFormatFor<K extends string | false> = 
+  K extends false 
+    ? QueryStringFormatStandalone 
+    : QueryStringFormatNamespaced;
+
+export interface QueryStringOptions<T, K extends string | false = string | false> {
   url?: string;
   select?: (pathname: string) => DeepSelect<T>;
-  key?: string | false;
-  format?: QueryStringFormat;
+  key?: K;
+  prefix?: string;
+  format?: QueryStringFormatFor<K>;
   syncNull?: boolean;
   syncUndefined?: boolean;
 }
@@ -98,68 +133,73 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
+const parseSearchString = (search: string): QueryStringParams => {
+  const result: QueryStringParams = {};
+  
+  search
+    .slice(search.startsWith('?') ? 1 : 0)
+    .split('&')
+    .filter(Boolean)
+    .forEach(param => {
+      const eqIndex = param.indexOf('=');
+      if (eqIndex === -1) return;
+      const key = param.slice(0, eqIndex);
+      const value = param.slice(eqIndex + 1);
+      
+      if (!result[key]) {
+        result[key] = [];
+      }
+      result[key].push(value);
+    });
+  
+  return result;
+};
+
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     key: 'state' as string | false,
-    format: {
-      stringify,
-      parse,
-    },
+    prefix: '',
+    format: json as QueryStringFormat,
     syncNull: false,
     syncUndefined: false,
     ...options,
   };
 
-  const standalone = !defaultedOptions.key;
+  // Cast format to full type - runtime checks ensure correct methods are called
+  const format = defaultedOptions.format as QueryStringFormat;
+  const standalone = defaultedOptions.key === false;
 
-  // Track registered standalone keys globally to detect conflicts
-  if (typeof window !== 'undefined' && standalone) {
-    // @ts-ignore
-    if (!window.__ZUSTAND_QUERYSTRING_KEYS__) {
-      // @ts-ignore
-      window.__ZUSTAND_QUERYSTRING_KEYS__ = new Map();
-    }
-  }
-
-  const getStateFromUrl = (url: URL, initialState: any) => {
-    if (standalone) {
-      // Standalone mode: each state key is a separate query param
-      const params = url.search.slice(1).split('&').filter(Boolean);
-      const state = {};
-      const initialKeys = new Set(Object.keys(initialState));
-
-      params.forEach(param => {
-        const eqIndex = param.indexOf('=');
-        if (eqIndex === -1) return;
-        const key = decodeURI(param.slice(0, eqIndex));
-        const value = param.slice(eqIndex + 1);
-        if (!initialKeys.has(key)) return;
-
-        try {
-          const parsed = defaultedOptions.format.parse(value, true);
-          state[key] = parsed;
-        } catch (error) {
-          console.error('[getStateFromUrl] error parsing key:', key, error);
+  const getStateFromUrl = (url: URL, initialState: object) => {
+    let params = parseSearchString(url.search);
+    
+    // Filter by prefix and strip it from keys
+    if (defaultedOptions.prefix) {
+      const filtered: QueryStringParams = {};
+      for (const [key, values] of Object.entries(params)) {
+        if (key.startsWith(defaultedOptions.prefix)) {
+          filtered[key.slice(defaultedOptions.prefix.length)] = values;
         }
-      });
-      return Object.keys(state).length > 0 ? state : null;
-    }
-
-    // Normal mode: single namespaced key
-    const params = url.search.slice(1).split('&');
-    for (const param of params) {
-      const eqIndex = param.indexOf('=');
-      if (eqIndex === -1) continue;
-      const key = param.slice(0, eqIndex);
-      if (key === defaultedOptions.key) {
-        const value = param.slice(eqIndex + 1);
-        const parsed = value
-          ? defaultedOptions.format.parse(value, false)
-          : null;
-        return parsed;
       }
+      params = filtered;
     }
-    return null;
+    
+    if (standalone) {
+      // Standalone mode: format handles all params with initialState for type inference
+      const result = format.parseStandalone(params, { initialState });
+      return Object.keys(result).length > 0 ? result : null;
+    } else {
+      // Namespaced mode: find the key and parse its value
+      const values = params[defaultedOptions.key as string];
+      if (values && values.length > 0) {
+        try {
+          // Namespaced mode always has single value (not repeated keys)
+          return format.parse(values[0], { initialState });
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
   };
 
   const getSelectedState = (state, pathname) => {
@@ -173,11 +213,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialize = (url: URL, initialState) => {
     try {
-      const stateFromURl = getStateFromUrl(url, initialState);
-      if (!stateFromURl) {
+      const stateFromUrl = getStateFromUrl(url, initialState);
+      if (!stateFromUrl) {
         return initialState;
       }
-      const selected = getSelectedState(stateFromURl, url.pathname);
+      const selected = getSelectedState(stateFromUrl, url.pathname);
       const merged = mergeWith(
         {},
         initialState,
@@ -206,37 +246,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       api,
     );
 
-    // Validate standalone keys don't conflict
-    if (standalone) {
-      // @ts-ignore
-      const registry = window.__ZUSTAND_QUERYSTRING_KEYS__;
-      const stateKeys = Object.keys(initialState as object).filter(
-        k => typeof (initialState as any)[k] !== 'function',
-      );
-
-      const conflicts: string[] = [];
-
-      for (const key of stateKeys) {
-        if (registry.has(key)) {
-          const existing = registry.get(key);
-          const current = defaultedOptions.format;
-          // Allow same format, error on different formats
-          if (existing !== current) {
-            conflicts.push(key);
-          }
-        } else {
-          registry.set(key, defaultedOptions.format);
-        }
-      }
-
-      if (conflicts.length > 0) {
-        throw new Error(
-          `[zustand-querystring] Standalone mode conflict: Multiple stores are using the following keys with different formats: ${conflicts.map(k => `"${k}"`).join(', ')}. ` +
-            `This will cause parsing errors. Please use unique state keys or the same format for all stores sharing keys.`,
-        );
-      }
-    }
-
     const setQuery = () => {
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
@@ -248,50 +257,70 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
       const previous = url.search;
 
+      // Get the key-value pairs based on mode
+      let stateParams: QueryStringParams;
+      let managedKeys: Set<string>;
+      
+      if (standalone) {
+        // Stringify the full selected state to get all managed keys
+        const allParams = format.stringifyStandalone(selectedState as object);
+        managedKeys = new Set(Object.keys(allParams).map(k => defaultedOptions.prefix + k));
+        
+        // Stringify compacted state for values to write (with prefix)
+        const compactedParams = format.stringifyStandalone(newCompacted);
+        stateParams = {};
+        for (const [key, values] of Object.entries(compactedParams)) {
+          stateParams[defaultedOptions.prefix + key] = values;
+        }
+      } else {
+        // Namespaced mode: single key
+        if (Object.keys(newCompacted).length > 0) {
+          stateParams = { [defaultedOptions.key as string]: [format.stringify(newCompacted)] };
+        } else {
+          stateParams = {};
+        }
+        managedKeys = new Set([defaultedOptions.key as string]);
+      }
+
+      // Build a map of key -> array of values to write
+      const valuesToWrite = new Map<string, string[]>();
+      const keyOrder: string[] = []; // Track key order
+      for (const [key, values] of Object.entries(stateParams)) {
+        valuesToWrite.set(key, [...values]);
+        keyOrder.push(key);
+      }
+
       const params = url.search.slice(1).split('&').filter(Boolean);
-
-      // Determine which keys we manage and what values to write
-      const managedKeys = standalone
-        ? new Set(Object.keys(selectedState).map(encodeURI))
-        : new Set([defaultedOptions.key as string]);
-
-      const valuesToWrite = standalone
-        ? new Map(
-            Object.entries(newCompacted).map(([k, v]) => [encodeURI(k), v]),
-          )
-        : Object.keys(newCompacted).length
-          ? new Map([[defaultedOptions.key as string, newCompacted]])
-          : new Map();
-
       const result: string[] = [];
 
-      // Process existing params: update ours, keep others
-      params.forEach(p => {
-        const key = p.split('=')[0];
+      // Process existing params
+      params.forEach(param => {
+        const eqIndex = param.indexOf('=');
+        if (eqIndex === -1) return;
+        const key = param.slice(0, eqIndex);
 
         if (!managedKeys.has(key)) {
           // Not ours - keep as-is
-          result.push(p);
+          result.push(param);
           return;
         }
 
-        // Our key - add if has value
-        if (valuesToWrite.has(key)) {
-          const encoded = defaultedOptions.format.stringify(
-            valuesToWrite.get(key),
-            standalone,
-          );
-          result.push(`${key}=${encoded}`);
-          valuesToWrite.delete(key);
+        // Our key - if we have values to write, take one from the front
+        const values = valuesToWrite.get(key);
+        if (values && values.length > 0) {
+          const value = values.shift()!;
+          result.push(`${key}=${value}`);
         }
-        // If no value, it's compacted - skip it
+        // If no more values, skip (removed)
       });
 
-      // Add new keys not in URL
-      valuesToWrite.forEach((value, key) => {
-        const encoded = defaultedOptions.format.stringify(value, standalone);
-        result.push(`${key}=${encoded}`);
-      });
+      // Add remaining values at the end in stringify order (new additions)
+      for (const key of keyOrder) {
+        const values = valuesToWrite.get(key);
+        if (values) {
+          values.forEach(v => result.push(`${key}=${v}`));
+        }
+      }
 
       url.search = result.length ? '?' + result.join('&') : '';
 

@@ -8,3 +8,5 @@ package-lock.json
 .pnpm*
 *.tsbuildinfo
 *.ts.timestamp*
+coverage/
+__screenshots__
