@@ -1,6 +1,6 @@
 import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
-import { json } from './parser.js';
+import { compact as compactFormat } from './format/compact.js';
 
 type DeepSelect<T> = T extends object
   ? {
@@ -159,37 +159,42 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     key: 'state' as string | false,
     prefix: '',
-    format: json as QueryStringFormat,
+    format: compactFormat as QueryStringFormat,
     syncNull: false,
     syncUndefined: false,
     ...options,
   };
+
+  // Ensure prefix is always a string (handles undefined from spread)
+  if (defaultedOptions.prefix === undefined) {
+    defaultedOptions.prefix = '';
+  }
 
   // Cast format to full type - runtime checks ensure correct methods are called
   const format = defaultedOptions.format as QueryStringFormat;
   const standalone = defaultedOptions.key === false;
 
   const getStateFromUrl = (url: URL, initialState: object) => {
-    let params = parseSearchString(url.search);
-    
-    // Filter by prefix and strip it from keys
-    if (defaultedOptions.prefix) {
-      const filtered: QueryStringParams = {};
-      for (const [key, values] of Object.entries(params)) {
-        if (key.startsWith(defaultedOptions.prefix)) {
-          filtered[key.slice(defaultedOptions.prefix.length)] = values;
-        }
-      }
-      params = filtered;
-    }
+    const params = parseSearchString(url.search);
     
     if (standalone) {
-      // Standalone mode: format handles all params with initialState for type inference
-      const result = format.parseStandalone(params, { initialState });
+      // Standalone mode: filter by prefix and strip it from keys
+      let filteredParams = params;
+      if (defaultedOptions.prefix) {
+        filteredParams = {};
+        for (const [key, values] of Object.entries(params)) {
+          if (key.startsWith(defaultedOptions.prefix)) {
+            filteredParams[key.slice(defaultedOptions.prefix.length)] = values;
+          }
+        }
+      }
+      // Format handles all params with initialState for type inference
+      const result = format.parseStandalone(filteredParams, { initialState });
       return Object.keys(result).length > 0 ? result : null;
     } else {
-      // Namespaced mode: find the key and parse its value
-      const values = params[defaultedOptions.key as string];
+      // Namespaced mode: look for prefix + key directly
+      const fullKey = defaultedOptions.prefix + (defaultedOptions.key as string);
+      const values = params[fullKey];
       if (values && values.length > 0) {
         try {
           // Namespaced mode always has single value (not repeated keys)
@@ -273,13 +278,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           stateParams[defaultedOptions.prefix + key] = values;
         }
       } else {
-        // Namespaced mode: single key
+        // Namespaced mode: single key (with prefix)
+        const fullKey = defaultedOptions.prefix + (defaultedOptions.key as string);
         if (Object.keys(newCompacted).length > 0) {
-          stateParams = { [defaultedOptions.key as string]: [format.stringify(newCompacted)] };
+          stateParams = { [fullKey]: [format.stringify(newCompacted)] };
         } else {
           stateParams = {};
         }
-        managedKeys = new Set([defaultedOptions.key as string]);
+        managedKeys = new Set([fullKey]);
       }
 
       // Build a map of key -> array of values to write

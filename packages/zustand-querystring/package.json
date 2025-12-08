@@ -25,17 +25,25 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
-    "./format/configurable": {
-      "types": "./dist/format/configurable.d.ts",
-      "import": "./dist/format/configurable.mjs",
-      "require": "./dist/format/configurable.js"
+    "./format/compact": {
+      "types": "./dist/format/compact.d.ts",
+      "import": "./dist/format/compact.mjs",
+      "require": "./dist/format/compact.js"
+    },
+    "./format/plain": {
+      "types": "./dist/format/plain.d.ts",
+      "import": "./dist/format/plain.mjs",
+      "require": "./dist/format/plain.js"
     },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
-      "format/configurable": [
-        "./dist/format/configurable.d.ts"
+      "format/compact": [
+        "./dist/format/compact.d.ts"
+      ],
+      "format/plain": [
+        "./dist/format/plain.d.ts"
       ]
     }
   },
@@ -48,7 +56,8 @@
     ],
     "entry": {
       "index": "src/index.ts",
-      "format/configurable": "src/format/configurable.ts"
+      "format/compact": "src/format/compact.ts",
+      "format/plain": "src/format/plain.ts"
     },
     "dts": true
   },
@@ -56,8 +65,7 @@
     "/dist"
   ],
   "dependencies": {
-    "lodash-es": "^4.17.21",
-    "zod": "^4.1.13"
+    "lodash-es": "^4.17.21"
   },
   "prettier": {
     "singleQuote": true,
