@@ -14,7 +14,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.2.0",
     "zustand": "^5.0.3",
-    "zustand-querystring": "workspace:*"
+    "zustand-querystring": "^0.5.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.10",

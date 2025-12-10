@@ -5,7 +5,7 @@
  * with complex state objects that exercise all parser branches.
  * 
  * Test matrix:
- * - Formats: compact, plain
+ * - Formats: marked, plain
  * - Modes: standalone (key: false), namespaced (key: string)
  * - Configurations: default, custom options
  * - State types: strings, numbers, booleans, null, arrays, nested objects, dates
@@ -16,9 +16,9 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
 import { querystring } from '../middleware.js';
-import { compact, createFormat as createCompactFormat } from './compact.js';
+import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
-import type { CompactFormatOptions } from './compact.js';
+import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
 
 // =============================================================================
@@ -248,14 +248,14 @@ function ComplexStateDisplay({ store }: { store: ReturnType<typeof createComplex
 }
 
 // =============================================================================
-// COMPACT FORMAT TESTS
+// MARKED FORMAT TESTS
 // =============================================================================
 
-describe('Compact Format - Comprehensive Browser Tests', () => {
+describe('Marked Format - Comprehensive Browser Tests', () => {
   describe('standalone mode (key: false)', () => {
     describe('default configuration', () => {
       it('should round-trip complex state with all types', async () => {
-        const useStore = createComplexStore(compact, false);
+        const useStore = createComplexStore(marked, false);
         
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
@@ -287,7 +287,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
       });
 
       it('should round-trip state with special characters', async () => {
-        const useStore = createComplexStore(compact, false);
+        const useStore = createComplexStore(marked, false);
         
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Special' }).click();
@@ -299,7 +299,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
       });
 
       it('should round-trip unicode characters', async () => {
-        const useStore = createComplexStore(compact, false);
+        const useStore = createComplexStore(marked, false);
         
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Unicode' }).click();
@@ -311,7 +311,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
 
       it('should restore complex state from URL on mount', async () => {
         // Pre-set URL with encoded state
-        const params = compact.stringifyStandalone(complexTestState);
+        const params = marked.stringifyStandalone(complexTestState);
         const urlParts: string[] = [];
         for (const [key, values] of Object.entries(params)) {
           for (const value of values) {
@@ -320,7 +320,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
         }
         window.history.replaceState({}, '', `?${urlParts.join('&')}`);
 
-        const useStore = createComplexStore(compact, false);
+        const useStore = createComplexStore(marked, false);
         render(<ComplexStateDisplay store={useStore} />);
 
         await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
@@ -332,7 +332,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
     });
 
     describe('custom configuration', () => {
-      const customConfigs: Array<{ name: string; options: CompactFormatOptions }> = [
+      const customConfigs: Array<{ name: string; options: MarkedFormatOptions }> = [
         {
           name: 'alternative separators',
           options: { separator: ';', terminator: '!' },
@@ -366,7 +366,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
 
       for (const config of customConfigs) {
         it(`should round-trip complex state with ${config.name}`, async () => {
-          const format = createCompactFormat(config.options);
+          const format = createMarkedFormat(config.options);
           const useStore = createComplexStore(format, false);
           
           render(<ComplexStateDisplay store={useStore} />);
@@ -383,7 +383,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
         });
 
         it(`should restore state from URL with ${config.name}`, async () => {
-          const format = createCompactFormat(config.options);
+          const format = createMarkedFormat(config.options);
           const params = format.stringifyStandalone(complexTestState);
           const urlParts: string[] = [];
           for (const [key, values] of Object.entries(params)) {
@@ -407,7 +407,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
   describe('namespaced mode (key: "state")', () => {
     describe('default configuration', () => {
       it('should round-trip complex state in single param', async () => {
-        const useStore = createComplexStore(compact, 'state');
+        const useStore = createComplexStore(marked, 'state');
         
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
@@ -428,10 +428,10 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
       });
 
       it('should restore complex state from namespaced URL', async () => {
-        const encoded = compact.stringify(complexTestState);
+        const encoded = marked.stringify(complexTestState);
         window.history.replaceState({}, '', `?state=${encoded}`);
 
-        const useStore = createComplexStore(compact, 'state');
+        const useStore = createComplexStore(marked, 'state');
         render(<ComplexStateDisplay store={useStore} />);
 
         await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
@@ -441,7 +441,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
       });
 
       it('should handle special characters in namespaced mode', async () => {
-        const useStore = createComplexStore(compact, 'state');
+        const useStore = createComplexStore(marked, 'state');
         
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Special' }).click();
@@ -453,7 +453,7 @@ describe('Compact Format - Comprehensive Browser Tests', () => {
 
     describe('custom configuration', () => {
       it('should work with all custom options in namespaced mode', async () => {
-        const format = createCompactFormat({
+        const format = createMarkedFormat({
           typeObject: 'O',
           typeArray: 'A',
           typeString: 'S',
@@ -643,7 +643,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ text: 'initial', setText: (text) => set({ text }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -671,7 +671,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ items: ['a', 'b'], setItems: (items) => set({ items }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -692,7 +692,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('string with comma (regression test)', () => {
-    it('compact: should preserve comma in string through round-trip', async () => {
+    it('marked: should preserve comma in string through round-trip', async () => {
       interface Store {
         search: string;
         setSearch: (search: string) => void;
@@ -701,7 +701,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ search: '', setSearch: (search) => set({ search }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -720,18 +720,18 @@ describe('Edge Cases and Regression Tests', () => {
       await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
     });
 
-    it('compact: should restore comma in string from URL', async () => {
+    it('marked: should restore comma in string from URL', async () => {
       interface Store {
         search: string;
       }
 
-      const encoded = compact.stringifyStandalone({ search: 'hello, world' });
+      const encoded = marked.stringifyStandalone({ search: 'hello, world' });
       window.history.replaceState({}, '', `?search=${encoded.search[0]}`);
 
       const useStore = create<Store>()(
         querystring(
           () => ({ search: '' }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -774,7 +774,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('decimal numbers', () => {
-    it('compact: should preserve decimal precision', async () => {
+    it('marked: should preserve decimal precision', async () => {
       interface Store {
         price: number;
         setPrice: (price: number) => void;
@@ -783,7 +783,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ price: 0, setPrice: (price) => set({ price }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -806,7 +806,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('negative numbers', () => {
-    it('compact: should handle negative numbers', async () => {
+    it('marked: should handle negative numbers', async () => {
       interface Store {
         value: number;
         setValue: (value: number) => void;
@@ -815,7 +815,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ value: 0, setValue: (value) => set({ value }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -838,7 +838,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('deeply nested objects', () => {
-    it('compact: should handle 5 levels of nesting', async () => {
+    it('marked: should handle 5 levels of nesting', async () => {
       interface DeepState {
         a: { b: { c: { d: { e: string } } } };
         setE: (e: string) => void;
@@ -850,7 +850,7 @@ describe('Edge Cases and Regression Tests', () => {
             a: { b: { c: { d: { e: '' } } } },
             setE: (e) => set({ a: { b: { c: { d: { e } } } } }),
           }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -871,7 +871,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('array of objects', () => {
-    it('compact: should preserve array of objects', async () => {
+    it('marked: should preserve array of objects', async () => {
       interface Store {
         items: Array<{ id: number; name: string }>;
         setItems: (items: Store['items']) => void;
@@ -880,7 +880,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ items: [], setItems: (items) => set({ items }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 
@@ -903,7 +903,7 @@ describe('Edge Cases and Regression Tests', () => {
   });
 
   describe('mixed arrays', () => {
-    it('compact: should handle arrays with multiple types', async () => {
+    it('marked: should handle arrays with multiple types', async () => {
       interface Store {
         mixed: (string | number | boolean)[];
         setMixed: (mixed: Store['mixed']) => void;
@@ -912,7 +912,7 @@ describe('Edge Cases and Regression Tests', () => {
       const useStore = create<Store>()(
         querystring(
           (set) => ({ mixed: [], setMixed: (mixed) => set({ mixed }) }),
-          { key: false, format: compact }
+          { key: false, format: marked }
         )
       );
 

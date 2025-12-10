@@ -680,7 +680,7 @@ export function createFormat(options: PlainFormatOptions = {}): QueryStringForma
  *
  * - Entry separator: `,`
  * - Nesting separator: `.`
- * - Array separator: `repeat` (repeated keys)
+ * - Array separator: `,` (comma-separated values)
  * - Escape character: `/`
  */
 export const plain: QueryStringFormat = createFormat();

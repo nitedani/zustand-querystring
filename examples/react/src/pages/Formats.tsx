@@ -1,5 +1,8 @@
 import { useState, useMemo } from "react";
-import { compact, plain } from "zustand-querystring";
+import { marked } from "zustand-querystring/format/marked";
+import { plain } from "zustand-querystring/format/plain";
+import { json } from "zustand-querystring/format/json";
+import { isEqual } from "lodash-es";
 import {
   Title,
   Text,
@@ -61,7 +64,7 @@ const exampleStates = {
 type ExampleKey = keyof typeof exampleStates;
 
 function formatOutput(
-  format: typeof compact | typeof plain,
+  format: typeof marked | typeof plain | typeof json,
   state: object,
   mode: "namespaced" | "standalone"
 ): string {
@@ -80,7 +83,7 @@ function formatOutput(
 }
 
 function parseOutput(
-  format: typeof compact | typeof plain,
+  format: typeof marked | typeof plain | typeof json,
   input: string,
   mode: "namespaced" | "standalone",
   initialState: object
@@ -125,30 +128,25 @@ export function Formats() {
     }
   }, [customJson, selectedExample]);
 
-  const compactOutput = formatOutput(compact, currentState, mode);
+  const markedOutput = formatOutput(marked, currentState, mode);
   const plainOutput = formatOutput(plain, currentState, mode);
+  const jsonOutput = formatOutput(json, currentState, mode);
 
-  const compactParsed = parseOutput(compact, compactOutput, mode, currentState);
+  const markedParsed = parseOutput(marked, markedOutput, mode, currentState);
   const plainParsed = parseOutput(plain, plainOutput, mode, currentState);
+  const jsonParsed = parseOutput(json, jsonOutput, mode, currentState);
 
-  // Check if plain format loses data
-  const inputJson = JSON.stringify(currentState);
+  // Check round-trip fidelity (order-insensitive)
+  const markedRoundTripMatch = !markedParsed.startsWith("Error") && 
+    isEqual(JSON.parse(markedParsed), currentState);
   const plainRoundTripMatch = !plainParsed.startsWith("Error") && 
-    JSON.stringify(JSON.parse(plainParsed)) === inputJson;
-  const compactRoundTripMatch = !compactParsed.startsWith("Error") && 
-    JSON.stringify(JSON.parse(compactParsed)) === inputJson;
+    isEqual(JSON.parse(plainParsed), currentState);
+  const jsonRoundTripMatch = !jsonParsed.startsWith("Error") && 
+    isEqual(JSON.parse(jsonParsed), currentState);
 
   return (
     <Stack gap="xl">
-      <div>
-        <Title order={1} mb="xs">
-          Format Comparison
-        </Title>
-        <Text c="dimmed">
-          Compare how different formats serialize the same state. Each format
-          has trade-offs between URL length and readability.
-        </Text>
-      </div>
+      <Title order={1}>Format Comparison</Title>
 
       <Card shadow="sm" padding="lg" radius="md" withBorder>
         <Group justify="space-between" mb="md">
@@ -204,23 +202,23 @@ export function Formats() {
           <Table.Tbody>
             <Table.Tr>
               <Table.Td>
-                <Text fw={500}>Compact</Text>
+                <Text fw={500}>Marked</Text>
               </Table.Td>
               <Table.Td>
                 <Code
                   block
                   style={{ wordBreak: "break-all", whiteSpace: "pre-wrap" }}
                 >
-                  {compactOutput}
+                  {markedOutput}
                 </Code>
               </Table.Td>
               <Table.Td>
                 <Text size="sm" ta="center">
-                  {compactOutput.length}
+                  {markedOutput.length}
                 </Text>
               </Table.Td>
               <Table.Td>
-                <CopyButton value={compactOutput}>
+                <CopyButton value={markedOutput}>
                   {({ copied, copy }) => (
                     <Tooltip label={copied ? "Copied" : "Copy"}>
                       <ActionIcon
@@ -268,6 +266,39 @@ export function Formats() {
                 </CopyButton>
               </Table.Td>
             </Table.Tr>
+            <Table.Tr>
+              <Table.Td>
+                <Text fw={500}>JSON</Text>
+              </Table.Td>
+              <Table.Td>
+                <Code
+                  block
+                  style={{ wordBreak: "break-all", whiteSpace: "pre-wrap" }}
+                >
+                  {jsonOutput}
+                </Code>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" ta="center">
+                  {jsonOutput.length}
+                </Text>
+              </Table.Td>
+              <Table.Td>
+                <CopyButton value={jsonOutput}>
+                  {({ copied, copy }) => (
+                    <Tooltip label={copied ? "Copied" : "Copy"}>
+                      <ActionIcon
+                        variant="subtle"
+                        onClick={copy}
+                        color={copied ? "teal" : "gray"}
+                      >
+                        {copied ? "OK" : "CP"}
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </CopyButton>
+              </Table.Td>
+            </Table.Tr>
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
@@ -275,92 +306,55 @@ export function Formats() {
       <Group grow align="flex-start">
         <Card shadow="sm" padding="lg" radius="md" withBorder>
           <Group justify="space-between" mb="md">
-            <Title order={4}>Compact Format</Title>
-            {!compactRoundTripMatch && (
-              <Badge color="red" size="sm">Data Loss</Badge>
+            <Title order={4}>Marked</Title>
+            {!markedRoundTripMatch && (
+              <Badge color="red" size="sm">Round-trip failed</Badge>
             )}
           </Group>
-          <Stack gap="sm">
-            <Text size="sm">
-              <Text span fw={500}>
-                Best for:
-              </Text>{" "}
-              Complex state, minimal URL length
-            </Text>
-            <Text size="sm">
-              <Text span fw={500}>
-                Type markers:
-              </Text>{" "}
-              <Code>:</Code> primitive, <Code>=</Code> string, <Code>@</Code>{" "}
-              array, <Code>.</Code> object
-            </Text>
-            <Text size="sm">
-              <Text span fw={500}>
-                Delimiters:
-              </Text>{" "}
-              <Code>,</Code> separator, <Code>~</Code> terminator
-            </Text>
-            <Text size="sm" c="dimmed">
-              Parsed result:
-            </Text>
+          <Stack gap="xs">
+            <Text size="xs" c="dimmed" mt="xs">Parsed:</Text>
             <Code block style={{ fontSize: 11 }}>
-              {compactParsed}
+              {markedParsed}
             </Code>
           </Stack>
         </Card>
 
         <Card shadow="sm" padding="lg" radius="md" withBorder>
           <Group justify="space-between" mb="md">
-            <Title order={4}>Plain Format</Title>
+            <Title order={4}>Plain</Title>
             {!plainRoundTripMatch && (
-              <Badge color="red" size="sm">Data Loss</Badge>
+              <Badge color="red" size="sm">Round-trip failed</Badge>
             )}
           </Group>
-          <Stack gap="sm">
-            <Text size="sm">
-              <Text span fw={500}>
-                Best for:
-              </Text>{" "}
-              Human-readable URLs, manual editing
-            </Text>
-            <Text size="sm">
-              <Text span fw={500}>
-                Nesting:
-              </Text>{" "}
-              Dot notation (<Code>user.name=John</Code>)
-            </Text>
-            <Text size="sm">
-              <Text span fw={500}>
-                Arrays:
-              </Text>{" "}
-              Repeated keys (<Code>tags=a&tags=b</Code>)
-            </Text>
-            <Text size="sm" c="dimmed">
-              Parsed result:
-            </Text>
+          <Stack gap="xs">
+            <Text size="xs" c="dimmed" mt="xs">Parsed:</Text>
             <Code block style={{ fontSize: 11 }}>
               {plainParsed}
             </Code>
           </Stack>
         </Card>
+
+        <Card shadow="sm" padding="lg" radius="md" withBorder>
+          <Group justify="space-between" mb="md">
+            <Title order={4}>JSON</Title>
+            {!jsonRoundTripMatch && (
+              <Badge color="red" size="sm">Round-trip failed</Badge>
+            )}
+          </Group>
+          <Stack gap="xs">
+            <Text size="xs" c="dimmed" mt="xs">Parsed:</Text>
+            <Code block style={{ fontSize: 11 }}>
+              {jsonParsed}
+            </Code>
+          </Stack>
+        </Card>
       </Group>
 
-      <Alert variant="light" color="blue" title="Mode Comparison">
-        <Text size="sm" mb="sm">
-          <Text span fw={500}>
-            Standalone mode
-          </Text>{" "}
-          ({mode === "standalone" ? "current" : "switch above"}): Each state
-          field becomes a separate URL parameter. Better for SEO and sharing
-          specific filter combinations.
-        </Text>
+      <Alert variant="light" color="gray" title="Modes">
         <Text size="sm">
-          <Text span fw={500}>
-            Namespaced mode
-          </Text>{" "}
-          ({mode === "namespaced" ? "current" : "switch above"}): All state is
-          serialized into a single parameter (default key: "state"). Cleaner
-          URLs but less readable.
+          <Text span fw={500}>Standalone</Text> ({mode === "standalone" ? "current" : "switch above"}): Each field is a URL param.
+          {" "}
+          <Text span fw={500}>Namespaced</Text> ({mode === "namespaced" ? "current" : "switch above"}): All state in one param.
         </Text>
       </Alert>
     </Stack>

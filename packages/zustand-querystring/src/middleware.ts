@@ -1,6 +1,6 @@
 import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
-import { compact as compactFormat } from './format/compact.js';
+import { marked as markedFormat } from './format/marked.js';
 
 type DeepSelect<T> = T extends object
   ? {
@@ -157,9 +157,9 @@ const parseSearchString = (search: string): QueryStringParams => {
 
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
-    key: 'state' as string | false,
+    key: false as string | false,
     prefix: '',
-    format: compactFormat as QueryStringFormat,
+    format: markedFormat as QueryStringFormat,
     syncNull: false,
     syncUndefined: false,
     ...options,

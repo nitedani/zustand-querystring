@@ -2,11 +2,11 @@ import { useMemo, useRef, useEffect, useState } from "react";
 import { create, StoreApi, UseBoundStore } from "zustand";
 import {
   querystring,
-  compact,
   QueryStringFormat,
 } from "zustand-querystring";
+import { marked, createFormat as createMarkedFormat } from "zustand-querystring/format/marked";
 import { createFormat as createPlainFormat } from "zustand-querystring/format/plain";
-import { createFormat as createCompactFormat } from "zustand-querystring/format/compact";
+import { json } from "zustand-querystring/format/json";
 import {
   Title,
   Text,
@@ -24,9 +24,9 @@ import {
   NumberInput,
 } from "@mantine/core";
 
-// Settings store - persisted under "settings" key in compact format
+// Settings store - persisted under "settings" key in marked format
 interface SettingsState {
-  format: "compact" | "plain";
+  format: "marked" | "plain" | "json";
   mode: "namespaced" | "standalone";
   prefix: string;
   // Plain format options
@@ -39,8 +39,8 @@ interface SettingsState {
     undefinedString: string;
     emptyArrayMarker: string;
   };
-  // Compact format options
-  compactOptions: {
+  // Marked format options
+  markedOptions: {
     typeObject: string;
     typeArray: string;
     typeString: string;
@@ -50,11 +50,11 @@ interface SettingsState {
     escapeChar: string;
     datePrefix: string;
   };
-  setFormat: (v: "compact" | "plain") => void;
+  setFormat: (v: "marked" | "plain" | "json") => void;
   setMode: (v: "namespaced" | "standalone") => void;
   setPrefix: (v: string) => void;
   setPlainOptions: (v: Partial<SettingsState["plainOptions"]>) => void;
-  setCompactOptions: (v: Partial<SettingsState["compactOptions"]>) => void;
+  setMarkedOptions: (v: Partial<SettingsState["markedOptions"]>) => void;
 }
 
 const defaultPlainOptions = {
@@ -67,7 +67,7 @@ const defaultPlainOptions = {
   emptyArrayMarker: "__empty__",
 };
 
-const defaultCompactOptions = {
+const defaultMarkedOptions = {
   typeObject: ".",
   typeArray: "@",
   typeString: "=",
@@ -81,28 +81,28 @@ const defaultCompactOptions = {
 const useSettings = create<SettingsState>()(
   querystring(
     (set) => ({
-      format: "compact",
+      format: "marked",
       mode: "standalone",
       prefix: "",
       plainOptions: defaultPlainOptions,
-      compactOptions: defaultCompactOptions,
+      markedOptions: defaultMarkedOptions,
       setFormat: (format) => set({ format }),
       setMode: (mode) => set({ mode }),
       setPrefix: (prefix) => set({ prefix }),
       setPlainOptions: (opts) =>
         set((s) => ({ plainOptions: { ...s.plainOptions, ...opts } })),
-      setCompactOptions: (opts) =>
-        set((s) => ({ compactOptions: { ...s.compactOptions, ...opts } })),
+      setMarkedOptions: (opts) =>
+        set((s) => ({ markedOptions: { ...s.markedOptions, ...opts } })),
     }),
     {
-      format: compact,
+      format: marked,
       key: "settings",
       select: () => ({
         format: true,
         mode: true,
         prefix: true,
         plainOptions: true,
-        compactOptions: true,
+        markedOptions: true,
       }),
     }
   )
@@ -144,7 +144,7 @@ const initialState = {
   },
 };
 
-type FormatType = "compact" | "plain";
+type FormatType = "marked" | "plain" | "json";
 type ModeType = "namespaced" | "standalone";
 
 function createPlaygroundStore(
@@ -186,17 +186,19 @@ function createPlaygroundStore(
 
 export function Playground() {
   const settings = useSettings();
-  const { format: formatType, mode, prefix, plainOptions, compactOptions } = settings;
+  const { format: formatType, mode, prefix, plainOptions, markedOptions } = settings;
   const [formatError, setFormatError] = useState<string | null>(null);
-  const lastValidFormatRef = useRef<QueryStringFormat>(compact);
+  const lastValidFormatRef = useRef<QueryStringFormat>(marked);
 
   const format = useMemo(() => {
     try {
       let newFormat: QueryStringFormat;
-      if (formatType === "compact") {
-        newFormat = createCompactFormat(compactOptions);
-      } else {
+      if (formatType === "marked") {
+        newFormat = createMarkedFormat(markedOptions);
+      } else if (formatType === "plain") {
         newFormat = createPlainFormat(plainOptions);
+      } else {
+        newFormat = json;
       }
       lastValidFormatRef.current = newFormat;
       setFormatError(null);
@@ -205,7 +207,7 @@ export function Playground() {
       setFormatError(err instanceof Error ? err.message : String(err));
       return lastValidFormatRef.current;
     }
-  }, [formatType, plainOptions, compactOptions]);
+  }, [formatType, plainOptions, markedOptions]);
 
   // Store the last known good state to restore after format/mode change
   const savedStateRef = useRef<{
@@ -215,7 +217,7 @@ export function Playground() {
     tags: string[];
     filters: { category: string; minPrice: number; maxPrice: number };
   }>({ ...initialState, tags: [], filters: { ...initialState.filters } });
-  const prevConfigRef = useRef({ formatType, mode, prefix, plainOptions, compactOptions });
+  const prevConfigRef = useRef({ formatType, mode, prefix, plainOptions, markedOptions });
   const prevStoreRef = useRef<UseBoundStore<StoreApi<PlaygroundState>> | null>(
     null
   );
@@ -226,7 +228,7 @@ export function Playground() {
       prevConfigRef.current.mode !== mode ||
       prevConfigRef.current.prefix !== prefix ||
       JSON.stringify(prevConfigRef.current.plainOptions) !== JSON.stringify(plainOptions) ||
-      JSON.stringify(prevConfigRef.current.compactOptions) !== JSON.stringify(compactOptions);
+      JSON.stringify(prevConfigRef.current.markedOptions) !== JSON.stringify(markedOptions);
 
     // If config changed, reset the OLD store first to clear URL
     if (configChanged && prevStoreRef.current) {
@@ -238,7 +240,7 @@ export function Playground() {
     prevStoreRef.current = store;
 
     if (configChanged) {
-      prevConfigRef.current = { formatType, mode, prefix, plainOptions, compactOptions };
+      prevConfigRef.current = { formatType, mode, prefix, plainOptions, markedOptions };
       // Restore saved state
       const s = savedStateRef.current;
       store.setState({
@@ -251,7 +253,7 @@ export function Playground() {
     }
 
     return store;
-  }, [format, formatType, mode, prefix, plainOptions, compactOptions]);
+  }, [format, formatType, mode, prefix, plainOptions, markedOptions]);
 
   const state = useStore();
 
@@ -302,18 +304,14 @@ export function Playground() {
             </Text>
             <SegmentedControl
               value={formatType}
-              onChange={(v) => settings.setFormat(v as "compact" | "plain")}
+              onChange={(v) => settings.setFormat(v as "marked" | "plain" | "json")}
               data={[
-                { label: "Compact", value: "compact" },
+                { label: "Marked", value: "marked" },
                 { label: "Plain", value: "plain" },
+                { label: "JSON", value: "json" },
               ]}
               fullWidth
             />
-            <Text size="xs" c="dimmed" mt="xs">
-              {formatType === "compact"
-                ? "Type markers, minimal size"
-                : "Dot notation, human-readable"}
-            </Text>
           </div>
           <div>
             <Text size="sm" fw={500} mb="xs">
@@ -330,11 +328,6 @@ export function Playground() {
               ]}
               fullWidth
             />
-            <Text size="xs" c="dimmed" mt="xs">
-              {mode === "standalone"
-                ? "Each field is a URL param"
-                : "All state in one param"}
-            </Text>
           </div>
           <div>
             <Text size="sm" fw={500} mb="xs">
@@ -345,17 +338,16 @@ export function Playground() {
               onChange={(e) => settings.setPrefix(e.target.value)}
               placeholder="e.g., app_"
             />
-            <Text size="xs" c="dimmed" mt="xs">
-              Optional prefix for all params
-            </Text>
           </div>
         </Group>
 
-        <Divider my="md" label={`${formatType === "compact" ? "Compact" : "Plain"} Format Options`} labelPosition="left" />
-        
-        {formatType === "plain" ? (
+        {formatType !== "json" && (
           <>
-            <Group grow align="flex-start">
+            <Divider my="md" label={`${formatType === "marked" ? "Marked" : "Plain"} Options`} labelPosition="left" />
+            
+            {formatType === "plain" ? (
+              <>
+                <Group grow align="flex-start">
               <TextInput
                 label="Entry Separator"
                 value={plainOptions.entrySeparator}
@@ -411,63 +403,65 @@ export function Playground() {
             <Group grow align="flex-start">
               <TextInput
                 label="Type Object"
-                value={compactOptions.typeObject}
-                onChange={(e) => settings.setCompactOptions({ typeObject: e.target.value })}
+                value={markedOptions.typeObject}
+                onChange={(e) => settings.setMarkedOptions({ typeObject: e.target.value })}
                 size="xs"
-                error={!compactOptions.typeObject}
+                error={!markedOptions.typeObject}
               />
               <TextInput
                 label="Type Array"
-                value={compactOptions.typeArray}
-                onChange={(e) => settings.setCompactOptions({ typeArray: e.target.value })}
+                value={markedOptions.typeArray}
+                onChange={(e) => settings.setMarkedOptions({ typeArray: e.target.value })}
                 size="xs"
-                error={!compactOptions.typeArray}
+                error={!markedOptions.typeArray}
               />
               <TextInput
                 label="Type String"
-                value={compactOptions.typeString}
-                onChange={(e) => settings.setCompactOptions({ typeString: e.target.value })}
+                value={markedOptions.typeString}
+                onChange={(e) => settings.setMarkedOptions({ typeString: e.target.value })}
                 size="xs"
-                error={!compactOptions.typeString}
+                error={!markedOptions.typeString}
               />
               <TextInput
                 label="Type Primitive"
-                value={compactOptions.typePrimitive}
-                onChange={(e) => settings.setCompactOptions({ typePrimitive: e.target.value })}
+                value={markedOptions.typePrimitive}
+                onChange={(e) => settings.setMarkedOptions({ typePrimitive: e.target.value })}
                 size="xs"
-                error={!compactOptions.typePrimitive}
+                error={!markedOptions.typePrimitive}
               />
             </Group>
             <Group grow align="flex-start" mt="sm">
               <TextInput
                 label="Separator"
-                value={compactOptions.separator}
-                onChange={(e) => settings.setCompactOptions({ separator: e.target.value })}
+                value={markedOptions.separator}
+                onChange={(e) => settings.setMarkedOptions({ separator: e.target.value })}
                 size="xs"
-                error={!compactOptions.separator}
+                error={!markedOptions.separator}
               />
               <TextInput
                 label="Terminator"
-                value={compactOptions.terminator}
-                onChange={(e) => settings.setCompactOptions({ terminator: e.target.value })}
+                value={markedOptions.terminator}
+                onChange={(e) => settings.setMarkedOptions({ terminator: e.target.value })}
                 size="xs"
-                error={!compactOptions.terminator}
+                error={!markedOptions.terminator}
               />
               <TextInput
                 label="Escape Char"
-                value={compactOptions.escapeChar}
-                onChange={(e) => settings.setCompactOptions({ escapeChar: e.target.value })}
+                value={markedOptions.escapeChar}
+                onChange={(e) => settings.setMarkedOptions({ escapeChar: e.target.value })}
                 size="xs"
-                error={!compactOptions.escapeChar}
+                error={!markedOptions.escapeChar}
               />
               <TextInput
                 label="Date Prefix"
-                value={compactOptions.datePrefix}
-                onChange={(e) => settings.setCompactOptions({ datePrefix: e.target.value })}
+                value={markedOptions.datePrefix}
+                onChange={(e) => settings.setMarkedOptions({ datePrefix: e.target.value })}
                 size="xs"
-                error={!compactOptions.datePrefix}
+                error={!markedOptions.datePrefix}
               />
             </Group>
+          </>
+        )}
           </>
         )}
       </Card>
@@ -550,7 +544,7 @@ export function Playground() {
             </Title>
             <Code block style={{ wordBreak: "break-all" }}>
               {(() => {
-                const search = decodeURI(window.location.search);
+                const search = window.location.search;
                 if (!search) return "(empty)";
                 const parts = search.slice(1).split("&");
                 const filtered = parts.filter(
@@ -576,19 +570,19 @@ export function Playground() {
         </Title>
         <Code block>
           {(() => {
-            const formatImport = formatType === "compact" 
-              ? "import { createFormat } from 'zustand-querystring/format/compact';"
+            const formatImport = formatType === "marked" 
+              ? "import { createFormat } from 'zustand-querystring/format/marked';"
               : "import { createFormat } from 'zustand-querystring/format/plain';";
             
-            const hasCustomCompactOptions = formatType === "compact" && (
-              compactOptions.typeObject !== "." ||
-              compactOptions.typeArray !== "@" ||
-              compactOptions.typeString !== "=" ||
-              compactOptions.typePrimitive !== ":" ||
-              compactOptions.separator !== "," ||
-              compactOptions.terminator !== "~" ||
-              compactOptions.escapeChar !== "/" ||
-              compactOptions.datePrefix !== "D"
+            const hasCustomMarkedOptions = formatType === "marked" && (
+              markedOptions.typeObject !== "." ||
+              markedOptions.typeArray !== "@" ||
+              markedOptions.typeString !== "=" ||
+              markedOptions.typePrimitive !== ":" ||
+              markedOptions.separator !== "," ||
+              markedOptions.terminator !== "~" ||
+              markedOptions.escapeChar !== "/" ||
+              markedOptions.datePrefix !== "D"
             );
             
             const hasCustomPlainOptions = formatType === "plain" && (
@@ -600,20 +594,20 @@ export function Playground() {
               plainOptions.emptyArrayMarker !== "__empty__"
             );
             
-            const needsCreateFormat = hasCustomCompactOptions || hasCustomPlainOptions;
+            const needsCreateFormat = hasCustomMarkedOptions || hasCustomPlainOptions;
             
             let formatConfig = "";
             if (needsCreateFormat) {
-              if (formatType === "compact") {
+              if (formatType === "marked") {
                 const opts: string[] = [];
-                if (compactOptions.typeObject !== ".") opts.push(`  typeObject: "${compactOptions.typeObject}"`);
-                if (compactOptions.typeArray !== "@") opts.push(`  typeArray: "${compactOptions.typeArray}"`);
-                if (compactOptions.typeString !== "=") opts.push(`  typeString: "${compactOptions.typeString}"`);
-                if (compactOptions.typePrimitive !== ":") opts.push(`  typePrimitive: "${compactOptions.typePrimitive}"`);
-                if (compactOptions.separator !== ",") opts.push(`  separator: "${compactOptions.separator}"`);
-                if (compactOptions.terminator !== "~") opts.push(`  terminator: "${compactOptions.terminator}"`);
-                if (compactOptions.escapeChar !== "/") opts.push(`  escapeChar: "${compactOptions.escapeChar}"`);
-                if (compactOptions.datePrefix !== "D") opts.push(`  datePrefix: "${compactOptions.datePrefix}"`);
+                if (markedOptions.typeObject !== ".") opts.push(`  typeObject: "${markedOptions.typeObject}"`);
+                if (markedOptions.typeArray !== "@") opts.push(`  typeArray: "${markedOptions.typeArray}"`);
+                if (markedOptions.typeString !== "=") opts.push(`  typeString: "${markedOptions.typeString}"`);
+                if (markedOptions.typePrimitive !== ":") opts.push(`  typePrimitive: "${markedOptions.typePrimitive}"`);
+                if (markedOptions.separator !== ",") opts.push(`  separator: "${markedOptions.separator}"`);
+                if (markedOptions.terminator !== "~") opts.push(`  terminator: "${markedOptions.terminator}"`);
+                if (markedOptions.escapeChar !== "/") opts.push(`  escapeChar: "${markedOptions.escapeChar}"`);
+                if (markedOptions.datePrefix !== "D") opts.push(`  datePrefix: "${markedOptions.datePrefix}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               } else {
                 const opts: string[] = [];

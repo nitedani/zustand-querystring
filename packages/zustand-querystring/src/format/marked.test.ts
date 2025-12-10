@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringify, parse, compact, createFormat, type CompactFormatOptions } from './compact';
+import { stringify, parse, marked, createFormat, type MarkedFormatOptions } from './marked';
 
 // Helper to run tests in both modes
 function testBothModes(name: string, testFn: (standalone: boolean) => void) {
@@ -7,7 +7,7 @@ function testBothModes(name: string, testFn: (standalone: boolean) => void) {
   it(`${name} (standalone mode)`, () => testFn(true));
 }
 
-describe('compact format', () => {
+describe('marked format', () => {
   describe('primitives in objects', () => {
     testBothModes('should handle numbers', standalone => {
       const obj = { value: 42 };
@@ -892,24 +892,24 @@ describe('compact format', () => {
     });
   });
 
-  describe('compact format object interface', () => {
-    it('should export compact as QueryStringFormat', () => {
-      expect(compact.stringify).toBeDefined();
-      expect(compact.parse).toBeDefined();
-      expect(compact.stringifyStandalone).toBeDefined();
-      expect(compact.parseStandalone).toBeDefined();
+  describe('marked format object interface', () => {
+    it('should export marked as QueryStringFormat', () => {
+      expect(marked.stringify).toBeDefined();
+      expect(marked.parse).toBeDefined();
+      expect(marked.stringifyStandalone).toBeDefined();
+      expect(marked.parseStandalone).toBeDefined();
     });
 
     it('should work with stringify and parse', () => {
       const state = { count: 5, name: 'test' };
-      const str = compact.stringify(state);
-      expect(compact.parse(str, { initialState: state })).toEqual(state);
+      const str = marked.stringify(state);
+      expect(marked.parse(str, { initialState: state })).toEqual(state);
     });
 
     describe('stringifyStandalone', () => {
       it('should return QueryStringParams format', () => {
         const state = { name: 'John', age: 30 };
-        const result = compact.stringifyStandalone(state);
+        const result = marked.stringifyStandalone(state);
         expect(result).toEqual({
           name: ['John'],
           age: [':30'],
@@ -918,13 +918,13 @@ describe('compact format', () => {
 
       it('should handle nested objects', () => {
         const state = { user: { name: 'John' } };
-        const result = compact.stringifyStandalone(state);
+        const result = marked.stringifyStandalone(state);
         expect(result.user).toEqual(['.name=John']);
       });
 
       it('should handle arrays', () => {
         const state = { tags: ['a', 'b', 'c'] };
-        const result = compact.stringifyStandalone(state);
+        const result = marked.stringifyStandalone(state);
         expect(result.tags).toEqual(['@a,b,c']);
       });
 
@@ -934,7 +934,7 @@ describe('compact format', () => {
           page: 1,
           filters: { active: true },
         };
-        const result = compact.stringifyStandalone(state);
+        const result = marked.stringifyStandalone(state);
         expect(result.search).toEqual(['test']);
         expect(result.page).toEqual([':1']);
         expect(result.filters).toEqual(['.active:true']);
@@ -947,7 +947,7 @@ describe('compact format', () => {
           name: ['John'],
           age: [':30'],
         };
-        const result = compact.parseStandalone(params, { initialState: {} });
+        const result = marked.parseStandalone(params, { initialState: {} });
         expect(result).toEqual({ name: 'John', age: 30 });
       });
 
@@ -955,7 +955,7 @@ describe('compact format', () => {
         const params = {
           user: ['.name=John'],
         };
-        const result = compact.parseStandalone(params, { initialState: {} });
+        const result = marked.parseStandalone(params, { initialState: {} });
         expect(result).toEqual({ user: { name: 'John' } });
       });
 
@@ -963,7 +963,7 @@ describe('compact format', () => {
         const params = {
           tags: ['@a,b,c'],
         };
-        const result = compact.parseStandalone(params, { initialState: {} });
+        const result = marked.parseStandalone(params, { initialState: {} });
         expect(result).toEqual({ tags: ['a', 'b', 'c'] });
       });
 
@@ -972,7 +972,7 @@ describe('compact format', () => {
           empty: [],
           name: ['=John'],
         };
-        const result = compact.parseStandalone(params, { initialState: {} });
+        const result = marked.parseStandalone(params, { initialState: {} });
         expect(result).toEqual({ name: 'John' });
       });
 
@@ -980,7 +980,7 @@ describe('compact format', () => {
         const params = {
           name: ['=John', '=Jane'],
         };
-        const result = compact.parseStandalone(params, { initialState: {} });
+        const result = marked.parseStandalone(params, { initialState: {} });
         expect(result).toEqual({ name: 'John' });
       });
     });
@@ -988,22 +988,22 @@ describe('compact format', () => {
     describe('round-trip standalone mode', () => {
       it('should round-trip simple objects', () => {
         const state = { name: 'John', age: 30, active: true };
-        const params = compact.stringifyStandalone(state);
-        const parsed = compact.parseStandalone(params, { initialState: {} });
+        const params = marked.stringifyStandalone(state);
+        const parsed = marked.parseStandalone(params, { initialState: {} });
         expect(parsed).toEqual(state);
       });
 
       it('should round-trip nested objects', () => {
         const state = { user: { name: 'John', settings: { theme: 'dark' } } };
-        const params = compact.stringifyStandalone(state);
-        const parsed = compact.parseStandalone(params, { initialState: {} });
+        const params = marked.stringifyStandalone(state);
+        const parsed = marked.parseStandalone(params, { initialState: {} });
         expect(parsed).toEqual(state);
       });
 
       it('should round-trip arrays', () => {
         const state = { tags: ['a', 'b', 'c'], numbers: [1, 2, 3] };
-        const params = compact.stringifyStandalone(state);
-        const parsed = compact.parseStandalone(params, { initialState: {} });
+        const params = marked.stringifyStandalone(state);
+        const parsed = marked.parseStandalone(params, { initialState: {} });
         expect(parsed).toEqual(state);
       });
 
@@ -1016,8 +1016,8 @@ describe('compact format', () => {
             price: { min: 0, max: 100 },
           },
         };
-        const params = compact.stringifyStandalone(state);
-        const parsed = compact.parseStandalone(params, { initialState: {} });
+        const params = marked.stringifyStandalone(state);
+        const parsed = marked.parseStandalone(params, { initialState: {} });
         expect(parsed).toEqual(state);
       });
     });
@@ -1036,11 +1036,11 @@ describe('compact format', () => {
       expect(format.parseStandalone).toBeDefined();
     });
 
-    it('should produce same output as default compact', () => {
+    it('should produce same output as default marked', () => {
       const format = createFormat();
       const state = { name: 'John', count: 42, active: true };
 
-      expect(format.stringify(state)).toBe(compact.stringify(state));
+      expect(format.stringify(state)).toBe(marked.stringify(state));
     });
 
     it('should round-trip with default options', () => {
@@ -1059,7 +1059,7 @@ describe('compact format', () => {
   describe('custom options', () => {
     describe('custom type markers', () => {
       it('should use custom typeObject marker', () => {
-        const opts: CompactFormatOptions = { typeObject: '$' };
+        const opts: MarkedFormatOptions = { typeObject: '$' };
         const state = { nested: { value: 1 } };
         const encoded = stringify(state, false, opts);
 
@@ -1068,7 +1068,7 @@ describe('compact format', () => {
       });
 
       it('should use custom typeArray marker', () => {
-        const opts: CompactFormatOptions = { typeArray: '#' };
+        const opts: MarkedFormatOptions = { typeArray: '#' };
         const state = { items: [1, 2, 3] };
         const encoded = stringify(state, false, opts);
 
@@ -1077,7 +1077,7 @@ describe('compact format', () => {
       });
 
       it('should use custom typeString marker', () => {
-        const opts: CompactFormatOptions = { typeString: '*' };
+        const opts: MarkedFormatOptions = { typeString: '*' };
         const state = { message: 'hello' };
         const encoded = stringify(state, false, opts);
 
@@ -1086,7 +1086,7 @@ describe('compact format', () => {
       });
 
       it('should use custom typePrimitive marker', () => {
-        const opts: CompactFormatOptions = { typePrimitive: '!' };
+        const opts: MarkedFormatOptions = { typePrimitive: '!' };
         const state = { count: 42, active: true };
         const encoded = stringify(state, false, opts);
 
@@ -1097,7 +1097,7 @@ describe('compact format', () => {
 
     describe('custom separators', () => {
       it('should use custom separator', () => {
-        const opts: CompactFormatOptions = { separator: ';' };
+        const opts: MarkedFormatOptions = { separator: ';' };
         const state = { a: 1, b: 2, c: 3 };
         const encoded = stringify(state, false, opts);
 
@@ -1107,7 +1107,7 @@ describe('compact format', () => {
       });
 
       it('should use custom terminator', () => {
-        const opts: CompactFormatOptions = { terminator: '!' };
+        const opts: MarkedFormatOptions = { terminator: '!' };
         const state = { nested: { deep: 1 }, sibling: 2 };
         const encoded = stringify(state, false, opts);
 
@@ -1116,7 +1116,7 @@ describe('compact format', () => {
       });
 
       it('should use custom escape character', () => {
-        const opts: CompactFormatOptions = { escapeChar: '\\' };
+        const opts: MarkedFormatOptions = { escapeChar: '\\' };
         const state = { 'key.with.dots': 'value' };
         const encoded = stringify(state, false, opts);
 
@@ -1126,7 +1126,7 @@ describe('compact format', () => {
 
     describe('custom date prefix', () => {
       it('should use custom date prefix', () => {
-        const opts: CompactFormatOptions = { datePrefix: 'T' };
+        const opts: MarkedFormatOptions = { datePrefix: 'T' };
         const date = new Date('2024-01-15T12:00:00.000Z');
         const state = { created: date };
         const encoded = stringify(state, false, opts);
@@ -1138,7 +1138,7 @@ describe('compact format', () => {
       });
 
       it('should handle date prefix in standalone mode', () => {
-        const opts: CompactFormatOptions = { datePrefix: 'DT' };
+        const opts: MarkedFormatOptions = { datePrefix: 'DT' };
         const date = new Date('2024-01-15T12:00:00.000Z');
         const encoded = stringify(date, true, opts);
 
@@ -1150,7 +1150,7 @@ describe('compact format', () => {
     });
 
     describe('fully custom format', () => {
-      const customOpts: CompactFormatOptions = {
+      const customOpts: MarkedFormatOptions = {
         typeObject: '$',
         typeArray: '#',
         typeString: '*',
@@ -1270,7 +1270,7 @@ describe('compact format', () => {
 
   describe('edge cases with custom options', () => {
     it('should handle multi-character tokens', () => {
-      const opts: CompactFormatOptions = {
+      const opts: MarkedFormatOptions = {
         typeObject: '{{',
         typeArray: '[[',
         separator: '||',
@@ -1284,14 +1284,14 @@ describe('compact format', () => {
     });
 
     it('should handle values containing custom tokens', () => {
-      const opts: CompactFormatOptions = { separator: '|' };
+      const opts: MarkedFormatOptions = { separator: '|' };
       const state = { text: 'pipe|in|value' };
       const encoded = stringify(state, false, opts);
       expect(parse(encoded, false, opts)).toEqual(state);
     });
 
     it('should handle dates with string that matches custom date prefix', () => {
-      const opts: CompactFormatOptions = { datePrefix: 'TIME' };
+      const opts: MarkedFormatOptions = { datePrefix: 'TIME' };
       const state = {
         fake: 'TIME1234567890',
         real: new Date(1234567890),
@@ -1418,7 +1418,7 @@ describe('compact format', () => {
     describe('stringifyStandalone should encode keys for URL safety', () => {
       it('should encode space in key', () => {
         const state = { 'key with space': 'value' };
-        const params = compact.stringifyStandalone(state);
+        const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
         
         expect(keys[0]).toBe('key%20with%20space');
@@ -1427,7 +1427,7 @@ describe('compact format', () => {
 
       it('should encode accented characters in key', () => {
         const state = { café: 'coffee' };
-        const params = compact.stringifyStandalone(state);
+        const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
         
         expect(keys[0]).toBe('caf%C3%A9');
@@ -1436,7 +1436,7 @@ describe('compact format', () => {
 
       it('should encode Hungarian characters in key', () => {
         const state = { árvíz: 'flood' };
-        const params = compact.stringifyStandalone(state);
+        const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
         
         expect(keys[0]).toContain('%C3%A1'); // á encoded
@@ -1444,15 +1444,15 @@ describe('compact format', () => {
 
       it('should round-trip keys with special characters', () => {
         const state = { 'key with space': 'value', 'café': 'coffee', 'árvíz': 'flood' };
-        const params = compact.stringifyStandalone(state);
-        const parsed = compact.parseStandalone(params, { initialState: {} });
+        const params = marked.stringifyStandalone(state);
+        const parsed = marked.parseStandalone(params, { initialState: {} });
         
         expect(parsed).toEqual(state);
       });
 
       it('should produce URL-safe keys that can be used directly', () => {
         const state = { 'hello world': 'test value', nested: { deep: 1 } };
-        const params = compact.stringifyStandalone(state);
+        const params = marked.stringifyStandalone(state);
         
         // All keys should be URL-safe (no raw spaces, no raw unicode)
         for (const key of Object.keys(params)) {

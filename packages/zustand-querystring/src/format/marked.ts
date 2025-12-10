@@ -1,10 +1,10 @@
 /**
- * URL-Safe Serialization (Compact Format)
+ * URL-Safe Serialization (Marked Format)
  *
  * Inspired by URLON (https://github.com/cerebral/urlon)
  * Copyright (c) 2021 Cerebral - MIT License
  *
- * A compact format for URL state serialization with configurable tokens.
+ * A marked format for URL state serialization with configurable tokens.
  *
  * Features:
  * - Type markers for objects, arrays, strings, and primitives
@@ -23,7 +23,7 @@ import type { QueryStringFormat, QueryStringParams, ParseContext } from '../midd
 // CONFIGURATION
 // =============================================================================
 
-export interface CompactFormatOptions {
+export interface MarkedFormatOptions {
   /** Marker for object type @default '.' */
   typeObject?: string;
   /** Marker for array type @default '@' */
@@ -53,7 +53,7 @@ interface ResolvedOptions {
   datePrefix: string;
 }
 
-function resolveOptions(opts: CompactFormatOptions = {}): ResolvedOptions {
+function resolveOptions(opts: MarkedFormatOptions = {}): ResolvedOptions {
   return {
     typeObject: opts.typeObject ?? '.',
     typeArray: opts.typeArray ?? '@',
@@ -393,12 +393,12 @@ function createParser(opts: ResolvedOptions) {
 // =============================================================================
 
 /**
- * Stringify a value to compact format.
+ * Stringify a value to marked format.
  */
 export function stringify(
   value: unknown,
   standalone: boolean = false,
-  options: CompactFormatOptions = {},
+  options: MarkedFormatOptions = {},
 ): string {
   const opts = resolveOptions(options);
   const serialize = createSerializer(opts);
@@ -406,12 +406,12 @@ export function stringify(
 }
 
 /**
- * Parse a compact format string back to a value.
+ * Parse a marked format string back to a value.
  */
 export function parse<T = unknown>(
   input: string,
   standalone: boolean = false,
-  options: CompactFormatOptions = {},
+  options: MarkedFormatOptions = {},
 ): T {
   const opts = resolveOptions(options);
   const datePattern = buildDatePattern(opts);
@@ -475,9 +475,9 @@ export function parse<T = unknown>(
 // =============================================================================
 
 /**
- * Create a compact format with custom configuration.
+ * Create a marked format with custom configuration.
  */
-export function createFormat(options: CompactFormatOptions = {}): QueryStringFormat {
+export function createFormat(options: MarkedFormatOptions = {}): QueryStringFormat {
   const opts = resolveOptions(options);
   validateOptions(opts);
 
@@ -515,7 +515,7 @@ export function createFormat(options: CompactFormatOptions = {}): QueryStringFor
 // =============================================================================
 
 /**
- * Default compact format with standard configuration.
+ * Default marked format with standard configuration.
  *
  * - Type object: `.`
  * - Type array: `@`
@@ -526,6 +526,6 @@ export function createFormat(options: CompactFormatOptions = {}): QueryStringFor
  * - Escape: `/`
  * - Date prefix: `D`
  */
-export const compact: QueryStringFormat = createFormat();
+export const marked: QueryStringFormat = createFormat();
 
-export default compact;
+export default marked;

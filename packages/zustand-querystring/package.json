@@ -1,6 +1,6 @@
 {
   "name": "zustand-querystring",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "license": "MIT",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -25,25 +25,33 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
-    "./format/compact": {
-      "types": "./dist/format/compact.d.ts",
-      "import": "./dist/format/compact.mjs",
-      "require": "./dist/format/compact.js"
+    "./format/marked": {
+      "types": "./dist/format/marked.d.ts",
+      "import": "./dist/format/marked.mjs",
+      "require": "./dist/format/marked.js"
     },
     "./format/plain": {
       "types": "./dist/format/plain.d.ts",
       "import": "./dist/format/plain.mjs",
       "require": "./dist/format/plain.js"
     },
+    "./format/json": {
+      "types": "./dist/format/json.d.ts",
+      "import": "./dist/format/json.mjs",
+      "require": "./dist/format/json.js"
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
-      "format/compact": [
-        "./dist/format/compact.d.ts"
+      "format/marked": [
+        "./dist/format/marked.d.ts"
       ],
       "format/plain": [
         "./dist/format/plain.d.ts"
+      ],
+      "format/json": [
+        "./dist/format/json.d.ts"
       ]
     }
   },
@@ -56,8 +64,9 @@
     ],
     "entry": {
       "index": "src/index.ts",
-      "format/compact": "src/format/compact.ts",
-      "format/plain": "src/format/plain.ts"
+      "format/marked": "src/format/marked.ts",
+      "format/plain": "src/format/plain.ts",
+      "format/json": "src/format/json.ts"
     },
     "dts": true
   },

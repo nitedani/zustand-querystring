@@ -21,9 +21,9 @@ describe('plain format', () => {
       expect(result).toBe('a.b.c.d=deep');
     });
 
-    it('should stringify simple arrays with repeated keys', () => {
+    it('should stringify simple arrays with comma-separated values', () => {
       const result = plain.stringify({ tags: ['a', 'b', 'c'] });
-      expect(result).toBe('tags=a,tags=b,tags=c');
+      expect(result).toBe('tags=a,b,c');
     });
 
     it('should stringify empty arrays with marker', () => {
@@ -160,7 +160,7 @@ describe('plain format', () => {
     it('should return QueryStringParams format', () => {
       const result = plain.stringifyStandalone({ name: 'John', tags: ['a', 'b'] });
       expect(result.name).toEqual(['John']);
-      expect(result.tags).toEqual(['a', 'b']);
+      expect(result.tags).toEqual(['a,b']);
     });
 
     it('should handle nested objects', () => {
@@ -601,9 +601,10 @@ describe('plain format', () => {
     });
 
     it('should handle empty parts in namespaced string', () => {
-      // Test empty parts (consecutive separators)
-      const result = plain.parse('a=1,,b=2', { initialState: { a: 0, b: 0 } });
-      expect(result).toEqual({ a: 1, b: 2 });
+      // Test empty parts (consecutive separators) - with ',' as arraySep,
+      // 'a=1,,b=2' parses: a=1 then empty string, then b=2
+      const result = plain.parse('a=1,,b=2', { initialState: { a: [''], b: 0 } });
+      expect(result).toEqual({ a: ['1', ''], b: 2 });
     });
 
     it('should handle parse without context', () => {
