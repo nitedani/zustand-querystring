@@ -63,12 +63,11 @@ describe('plain format', () => {
       expect(result).toBe('text=a_,b_,c');
     });
 
-    it('should escape escape character', () => {
-      // Only escape _ when followed by special char (like ,)
-      // Input: a_,b -> _ followed by , needs escape -> __, then , needs escape -> _,
-      // Result: a___,b
+    it('should escape escape character only when needed', () => {
+      // Underscores don't need escaping - only special chars like , do
+      // Input: a_,b -> only , needs escape -> a__,b  (the _ before , is just kept)
       const result = plain.stringify({ path: 'a_,b' });
-      expect(result).toBe('path=a___,b');
+      expect(result).toBe('path=a__,b');
     });
 
     it('should stringify objects in arrays with indexed notation', () => {
@@ -154,8 +153,9 @@ describe('plain format', () => {
     });
 
     it('should handle escaped escape character', () => {
+      // __ is just two underscores, not an escape sequence
       const result = plain.parse('path=a__b__c', { initialState: { path: '' } });
-      expect(result).toEqual({ path: 'a_b_c' });
+      expect(result).toEqual({ path: 'a__b__c' });
     });
   });
 
