@@ -278,16 +278,6 @@ export function Playground() {
 
   return (
     <Stack gap="xl">
-      <div>
-        <Title order={1} mb="xs">
-          Playground
-        </Title>
-        <Text c="dimmed">
-          Experiment with different formats and modes. Watch how the URL changes
-          as you modify state.
-        </Text>
-      </div>
-
       <Card shadow="sm" padding="lg" radius="md" withBorder>
         <Group justify="space-between" align="center" mb="md">
           <Title order={4}>Configuration</Title>

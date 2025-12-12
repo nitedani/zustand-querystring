@@ -1,11 +1,11 @@
 import type { ParseContext, QueryStringFormat, QueryStringParams } from '../middleware.js';
 
 function encodeValue(input: unknown): string {
-  return encodeURIComponent(JSON.stringify(input));
+  return encodeURI(JSON.stringify(input));
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURIComponent(str));
+  return JSON.parse(decodeURI(str));
 }
 
 export const json: QueryStringFormat = {

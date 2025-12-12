@@ -28,14 +28,12 @@ export interface PlainFormatOptions {
   nestingSeparator?: string;
   /** Array separator: 'repeat' for repeated keys, or string to join values @default 'repeat' */
   arraySeparator?: 'repeat' | string;
-  /** Character used to escape special characters @default '/' */
+  /** Character used to escape special characters @default '_' */
   escapeChar?: string;
   /** String representation of null @default 'null' */
   nullString?: string;
   /** String representation of undefined @default 'undefined' */
   undefinedString?: string;
-  /** Marker for empty arrays @default '__empty__' */
-  emptyArrayMarker?: string;
 }
 
 interface ResolvedOptions {
@@ -45,7 +43,6 @@ interface ResolvedOptions {
   escape: string;
   nullStr: string;
   undefStr: string;
-  emptyMarker: string;
 }
 
 function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
@@ -53,10 +50,9 @@ function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
     entrySep: opts.entrySeparator ?? ',',
     nestingSep: opts.nestingSeparator ?? '.',
     arraySep: opts.arraySeparator ?? ',',
-    escape: opts.escapeChar ?? '/',
+    escape: opts.escapeChar ?? '_',
     nullStr: opts.nullString ?? 'null',
     undefStr: opts.undefinedString ?? 'undefined',
-    emptyMarker: opts.emptyArrayMarker ?? '__empty__',
   };
 }
 
@@ -80,6 +76,47 @@ function validateOptions(opts: ResolvedOptions): void {
   }
   if (arraySep !== 'repeat' && arraySep.length === 0) {
     throw new Error('arraySeparator cannot be empty');
+  }
+}
+
+// =============================================================================
+// URL ENCODING
+// =============================================================================
+
+/**
+ * Encode a string preserving our special markers unencoded.
+ * Uses encodeURIComponent for safety but keeps separators readable.
+ */
+function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
+  const markers = new Set([
+    opts.entrySep,
+    opts.nestingSep,
+    opts.escape,
+    '=',
+  ]);
+  if (opts.arraySep !== 'repeat') {
+    markers.add(opts.arraySep);
+  }
+
+  let result = '';
+  for (const char of str) {
+    if (markers.has(char)) {
+      result += char;
+    } else {
+      result += encodeURIComponent(char);
+    }
+  }
+  return result;
+}
+
+/**
+ * Decode a URL-encoded string.
+ */
+function decodeString(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
   }
 }
 
@@ -196,22 +233,35 @@ function parseValue(str: string, hint: unknown, opts: ResolvedOptions): unknown 
 
 /**
  * Escape special characters in a string.
- * Each special char (and the escape char itself) is prefixed with escape char.
+ * Only the special chars need escaping. The escape char itself only needs
+ * escaping when followed by a special char (to distinguish from escape sequence).
  */
 function escape(str: string, chars: string[], esc: string): string {
+  // Build set of chars that need escaping (special chars + escape char)
+  const allSpecial = [...chars, esc];
+  
   let result = '';
   let i = 0;
 
   while (i < str.length) {
+    let matched = false;
+    
     // Check if current position starts with escape char
     if (str.substring(i, i + esc.length) === esc) {
-      result += esc + esc;
+      // Only escape if followed by a special char (including another escape)
+      const nextPos = i + esc.length;
+      const needsEscape = allSpecial.some(c => str.substring(nextPos, nextPos + c.length) === c);
+      
+      if (needsEscape) {
+        result += esc + esc;
+      } else {
+        result += esc;
+      }
       i += esc.length;
       continue;
     }
 
     // Check if current position starts with any special char
-    let matched = false;
     for (const special of chars) {
       if (str.substring(i, i + special.length) === special) {
         result += esc + special;
@@ -232,22 +282,35 @@ function escape(str: string, chars: string[], esc: string): string {
 
 /**
  * Remove escape sequences from a string.
- * The sequence following an escape char is taken literally.
+ * Only treat escape char as escape when followed by a special char.
  */
-function unescape(str: string, esc: string): string {
+function unescape(str: string, esc: string, chars: string[]): string {
+  // Build set of chars that can follow escape char
+  const allSpecial = [...chars, esc];
+  
   let result = '';
   let i = 0;
 
   while (i < str.length) {
     // Check if current position starts with escape char
     if (str.substring(i, i + esc.length) === esc) {
-      i += esc.length;
-      // Take next character literally
-      if (i < str.length) {
-        result += str[i];
-        i++;
+      const nextPos = i + esc.length;
+      // Check if followed by a special char
+      const isEscapeSequence = allSpecial.some(c => str.substring(nextPos, nextPos + c.length) === c);
+      
+      if (isEscapeSequence && nextPos < str.length) {
+        // Skip escape char, take next char(s) literally
+        i = nextPos;
+        // Find which special char follows
+        for (const special of allSpecial) {
+          if (str.substring(i, i + special.length) === special) {
+            result += special;
+            i += special.length;
+            break;
+          }
+        }
+        continue;
       }
-      continue;
     }
 
     result += str[i];
@@ -259,22 +322,34 @@ function unescape(str: string, esc: string): string {
 
 /**
  * Split a string by separator, respecting escape sequences.
+ * Only treats escape char as escape when followed by sep or esc.
  */
 function splitEscaped(str: string, sep: string, esc: string): string[] {
   const parts: string[] = [];
   let current = '';
   let i = 0;
+  const specials = [sep, esc];
 
   while (i < str.length) {
     // Check for escape sequence
     if (str.substring(i, i + esc.length) === esc) {
-      current += str.substring(i, i + esc.length);
-      i += esc.length;
-      if (i < str.length) {
-        current += str[i];
-        i++;
+      const nextPos = i + esc.length;
+      const isEscapeSequence = specials.some(c => str.substring(nextPos, nextPos + c.length) === c);
+      
+      if (isEscapeSequence && nextPos < str.length) {
+        // This is an escape sequence - keep it as-is for later unescape
+        current += str.substring(i, i + esc.length);
+        i += esc.length;
+        // Add the escaped char
+        for (const special of specials) {
+          if (str.substring(i, i + special.length) === special) {
+            current += special;
+            i += special.length;
+            break;
+          }
+        }
+        continue;
       }
-      continue;
     }
 
     // Check for separator
@@ -295,14 +370,29 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
 
 /**
  * Find unescaped index of a character in a string.
+ * Only treats escape char as escape when followed by char or esc.
  * Returns -1 if not found.
  */
 function findUnescaped(str: string, char: string, esc: string): number {
   let i = 0;
+  const specials = [char, esc];
+  
   while (i < str.length) {
     if (str.substring(i, i + esc.length) === esc) {
-      i += esc.length + 1;
-      continue;
+      const nextPos = i + esc.length;
+      const isEscapeSequence = specials.some(c => str.substring(nextPos, nextPos + c.length) === c);
+      
+      if (isEscapeSequence) {
+        // Skip the escape sequence
+        i = nextPos;
+        for (const special of specials) {
+          if (str.substring(i, i + special.length) === special) {
+            i += special.length;
+            break;
+          }
+        }
+        continue;
+      }
     }
     if (str.substring(i, i + char.length) === char) {
       return i;
@@ -318,9 +408,10 @@ function findUnescaped(str: string, char: string, esc: string): number {
 
 /**
  * Escape a key segment for use in a dot-notation path.
+ * Escapes nesting separator, entry separator, and '=' (key-value separator).
  */
 function escapeKey(key: string, opts: ResolvedOptions): string {
-  return escape(key, [opts.nestingSep, opts.entrySep], opts.escape);
+  return escape(key, [opts.nestingSep, opts.entrySep, '='], opts.escape);
 }
 
 /**
@@ -328,7 +419,9 @@ function escapeKey(key: string, opts: ResolvedOptions): string {
  */
 function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
   const segments = splitEscaped(path, opts.nestingSep, opts.escape);
-  return segments.map((seg) => unescape(seg, opts.escape));
+  // Keys can have nestingSep, entrySep, and = escaped
+  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
+  return segments.map((seg) => unescape(seg, opts.escape, keySpecials));
 }
 
 /**
@@ -421,8 +514,8 @@ function flatten(obj: object, prefix: string, opts: ResolvedOptions): FlatEntrie
     // Arrays
     if (Array.isArray(value)) {
       if (value.length === 0) {
-        const escapedMarker = escape(opts.emptyMarker, valueEscapeChars, opts.escape);
-        result[fullKey] = [escapedMarker];
+        // Empty array: just the key with empty value
+        result[fullKey] = [''];
         continue;
       }
 
@@ -487,18 +580,24 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
-    // Unescape values
-    let values = rawValues.map((v) => unescape(v, opts.escape));
+    // Values can have entrySep and arraySep escaped
+    const valueSpecials: string[] = [opts.entrySep];
+    if (opts.arraySep !== 'repeat') {
+      valueSpecials.push(opts.arraySep);
+    }
 
-    // Empty array marker
-    if (values.length === 1 && values[0] === opts.emptyMarker) {
+    // Unescape values
+    let values = rawValues.map((v) => unescape(v, opts.escape, valueSpecials));
+
+    // Empty array: empty value with array hint
+    if (values.length === 1 && values[0] === '' && isArrayHint) {
       setAtPath(result, path, []);
       continue;
     }
 
     // Split by arraySep if needed (non-repeat mode with array hint and single value)
     if (opts.arraySep !== 'repeat' && isArrayHint && values.length === 1) {
-      values = splitEscaped(values[0], opts.arraySep, opts.escape).map((v) => unescape(v, opts.escape));
+      values = splitEscaped(values[0], opts.arraySep, opts.escape).map((v) => unescape(v, opts.escape, valueSpecials));
     }
 
     // Single value, not an array
@@ -529,7 +628,7 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
 function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
   if (!input) return {};
 
-  const decoded = decodeURI(input);
+  const decoded = decodeString(input);
   const entries: FlatEntries = {};
   const parts = splitEscaped(decoded, opts.entrySep, opts.escape);
 
@@ -574,11 +673,11 @@ function stringifyNamespaced(state: object, opts: ResolvedOptions): string {
     if (opts.arraySep === 'repeat') {
       // Repeated keys for arrays
       for (const value of values) {
-        parts.push(encodeURI(key) + '=' + encodeURI(value));
+        parts.push(encodePreservingMarkers(key, opts) + '=' + encodePreservingMarkers(value, opts));
       }
     } else {
       // Join array values with arraySep
-      parts.push(encodeURI(key) + '=' + encodeURI(values.join(opts.arraySep)));
+      parts.push(encodePreservingMarkers(key, opts) + '=' + encodePreservingMarkers(values.join(opts.arraySep), opts));
     }
   }
 
@@ -597,8 +696,8 @@ function stringifyStandalone(state: object, opts: ResolvedOptions): QueryStringP
   const result: QueryStringParams = {};
 
   for (const [key, values] of Object.entries(entries)) {
-    const encodedKey = encodeURI(key);
-    const encodedValues = values.map((v) => encodeURI(v));
+    const encodedKey = encodePreservingMarkers(key, opts);
+    const encodedValues = values.map((v) => encodePreservingMarkers(v, opts));
 
     if (opts.arraySep === 'repeat') {
       result[encodedKey] = encodedValues;
@@ -622,19 +721,8 @@ function parseStandalone(
   const entries: FlatEntries = {};
 
   for (const [key, values] of Object.entries(params)) {
-    let decodedKey: string;
-    try {
-      decodedKey = decodeURI(key);
-    } catch {
-      decodedKey = key;
-    }
-    entries[decodedKey] = values.map((v) => {
-      try {
-        return decodeURI(v);
-      } catch {
-        return v;
-      }
-    });
+    const decodedKey = decodeString(key);
+    entries[decodedKey] = values.map((v) => decodeString(v));
   }
 
   return unflatten(entries, initialState, opts);
@@ -681,6 +769,6 @@ export function createFormat(options: PlainFormatOptions = {}): QueryStringForma
  * - Entry separator: `,`
  * - Nesting separator: `.`
  * - Array separator: `,` (comma-separated values)
- * - Escape character: `/`
+ * - Escape character: `_`
  */
 export const plain: QueryStringFormat = createFormat();

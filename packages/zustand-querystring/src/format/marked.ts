@@ -36,7 +36,7 @@ export interface MarkedFormatOptions {
   separator?: string;
   /** Terminator for nested structures @default '~' */
   terminator?: string;
-  /** Escape character @default '/' */
+  /** Escape character @default '_' */
   escapeChar?: string;
   /** Prefix for date values @default 'D' */
   datePrefix?: string;
@@ -61,7 +61,7 @@ function resolveOptions(opts: MarkedFormatOptions = {}): ResolvedOptions {
     typePrimitive: opts.typePrimitive ?? ':',
     separator: opts.separator ?? ',',
     terminator: opts.terminator ?? '~',
-    escape: opts.escapeChar ?? '/',
+    escape: opts.escapeChar ?? '_',
     datePrefix: opts.datePrefix ?? 'D',
   };
 }
@@ -144,8 +144,36 @@ function buildDateStartPattern(opts: ResolvedOptions): RegExp {
 // HELPERS
 // =============================================================================
 
-function escapeStr(str: string, pattern: RegExp, escape: string): string {
-  return encodeURI(str.replace(pattern, `${escape}$1`));
+// Characters that are safe (not encoded by encodeURIComponent): A-Z a-z 0-9 - _ . ! ~ * ' ( )
+// Our default type markers: . @ = : , ~ /
+// We want to keep type markers unencoded, so we encode char-by-char and skip our markers
+function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
+  const markers = new Set([
+    opts.typeObject,
+    opts.typeArray, 
+    opts.typeString,
+    opts.typePrimitive,
+    opts.separator,
+    opts.terminator,
+    opts.escape,
+  ]);
+  
+  let result = '';
+  for (const char of str) {
+    if (markers.has(char)) {
+      // Keep marker unencoded
+      result += char;
+    } else {
+      // Encode the character
+      result += encodeURIComponent(char);
+    }
+  }
+  return result;
+}
+
+function escapeStr(str: string, pattern: RegExp, escape: string, opts: ResolvedOptions): string {
+  // First escape special chars within the string, then encode preserving markers
+  return encodePreservingMarkers(str.replace(pattern, `${escape}$1`), opts);
 }
 
 function cleanResult(str: string, standalone: boolean, opts: ResolvedOptions): string {
@@ -201,16 +229,26 @@ function createSerializer(opts: ResolvedOptions) {
       for (const [k, v] of Object.entries(value)) {
         const val = serialize(v, false, false);
         if (val || v === undefined) {
-          entries.push(`${escapeStr(k, keyEscape, opts.escape)}${val}`);
+          entries.push(`${escapeStr(k, keyEscape, opts.escape, opts)}${val}`);
         }
       }
       return `${opts.typeObject}${entries.join(opts.separator)}${opts.terminator}`;
     }
 
-    // String: escape date-like pattern
+    // String: escape date-like pattern and type markers at start
     const strVal = String(value);
-    let escaped = escapeStr(strVal, valueEscape, opts.escape);
+    let escaped = escapeStr(strVal, valueEscape, opts.escape, opts);
+    
+    // Escape if string starts with date prefix or any type marker (in standalone/array context)
     if (dateStartPattern.test(strVal)) {
+      escaped = opts.escape + escaped;
+    } else if (
+      (standalone || inArray) &&
+      (strVal.startsWith(opts.typeObject) ||
+        strVal.startsWith(opts.typeArray) ||
+        strVal.startsWith(opts.typePrimitive) ||
+        strVal.startsWith(opts.typeString))
+    ) {
       escaped = opts.escape + escaped;
     }
 
@@ -415,7 +453,7 @@ export function parse<T = unknown>(
 ): T {
   const opts = resolveOptions(options);
   const datePattern = buildDatePattern(opts);
-  const str = decodeURI(input);
+  const str = decodeURIComponent(input);
 
   if (str.length === 0) {
     return (standalone ? '' : {}) as T;
@@ -493,7 +531,7 @@ export function createFormat(options: MarkedFormatOptions = {}): QueryStringForm
     stringifyStandalone(state: object): QueryStringParams {
       const result: QueryStringParams = {};
       for (const [key, value] of Object.entries(state)) {
-        result[encodeURI(key)] = [stringify(value, true, options)];
+        result[encodeURIComponent(key)] = [stringify(value, true, options)];
       }
       return result;
     },
@@ -502,7 +540,7 @@ export function createFormat(options: MarkedFormatOptions = {}): QueryStringForm
       const result: Record<string, unknown> = {};
       for (const [key, values] of Object.entries(params)) {
         if (values.length > 0) {
-          result[decodeURI(key)] = parse(values[0], true, options);
+          result[decodeURIComponent(key)] = parse(values[0], true, options);
         }
       }
       return result;
@@ -523,7 +561,7 @@ export function createFormat(options: MarkedFormatOptions = {}): QueryStringForm
  * - Type primitive: `:`
  * - Separator: `,`
  * - Terminator: `~`
- * - Escape: `/`
+ * - Escape: `_`
  * - Date prefix: `D`
  */
 export const marked: QueryStringFormat = createFormat();

@@ -13,7 +13,7 @@ describe('plain format', () => {
     it('should stringify nested objects with dot notation', () => {
       const result = plain.stringify({ user: { name: 'John', email: 'john@example.com' } });
       expect(result).toContain('user.name=John');
-      expect(result).toContain('user.email=john@example.com');
+      expect(result).toContain('user.email=john%40example.com');
     });
 
     it('should stringify deeply nested objects', () => {
@@ -26,9 +26,9 @@ describe('plain format', () => {
       expect(result).toBe('tags=a,b,c');
     });
 
-    it('should stringify empty arrays with marker', () => {
+    it('should stringify empty arrays', () => {
       const result = plain.stringify({ items: [] });
-      expect(result).toBe('items=__empty__');
+      expect(result).toBe('items=');
     });
 
     it('should stringify null values', () => {
@@ -44,7 +44,7 @@ describe('plain format', () => {
     it('should stringify dates as ISO strings', () => {
       const date = new Date('2024-01-15T12:00:00.000Z');
       const result = plain.stringify({ created: date });
-      expect(result).toBe('created=2024-01-15T12:00:00.000Z');
+      expect(result).toBe('created=2024-01-15T12%3A00%3A00.000Z');
     });
 
     it('should stringify booleans', () => {
@@ -55,17 +55,20 @@ describe('plain format', () => {
 
     it('should escape dots in keys', () => {
       const result = plain.stringify({ 'my.key': 'value' });
-      expect(result).toBe('my/.key=value');
+      expect(result).toBe('my_.key=value');
     });
 
     it('should escape commas in values', () => {
       const result = plain.stringify({ text: 'a,b,c' });
-      expect(result).toBe('text=a/,b/,c');
+      expect(result).toBe('text=a_,b_,c');
     });
 
     it('should escape escape character', () => {
-      const result = plain.stringify({ path: 'a/b/c' });
-      expect(result).toBe('path=a//b//c');
+      // Only escape _ when followed by special char (like ,)
+      // Input: a_,b -> _ followed by , needs escape -> __, then , needs escape -> _,
+      // Result: a___,b
+      const result = plain.stringify({ path: 'a_,b' });
+      expect(result).toBe('path=a___,b');
     });
 
     it('should stringify objects in arrays with indexed notation', () => {
@@ -101,8 +104,8 @@ describe('plain format', () => {
       expect(result).toEqual({ tags: ['a', 'b', 'c'] });
     });
 
-    it('should parse empty arrays from marker', () => {
-      const result = plain.parse('items=__empty__', {
+    it('should parse empty arrays', () => {
+      const result = plain.parse('items=', {
         initialState: { items: [] }
       });
       expect(result).toEqual({ items: [] });
@@ -141,18 +144,18 @@ describe('plain format', () => {
     });
 
     it('should handle escaped dots in keys', () => {
-      const result = plain.parse('my/.key=value', { initialState: { 'my.key': '' } });
+      const result = plain.parse('my_.key=value', { initialState: { 'my.key': '' } });
       expect(result).toEqual({ 'my.key': 'value' });
     });
 
     it('should handle escaped commas in values', () => {
-      const result = plain.parse('text=a/,b/,c', { initialState: { text: '' } });
+      const result = plain.parse('text=a_,b_,c', { initialState: { text: '' } });
       expect(result).toEqual({ text: 'a,b,c' });
     });
 
     it('should handle escaped escape character', () => {
-      const result = plain.parse('path=a//b//c', { initialState: { path: '' } });
-      expect(result).toEqual({ path: 'a/b/c' });
+      const result = plain.parse('path=a__b__c', { initialState: { path: '' } });
+      expect(result).toEqual({ path: 'a_b_c' });
     });
   });
 
@@ -170,8 +173,8 @@ describe('plain format', () => {
 
     it('should URI encode values', () => {
       const result = plain.stringifyStandalone({ url: 'https://example.com' });
-      // Note: escapes / as // (escape char), then encodeURI doesn't change it
-      expect(result.url).toEqual(['https:////example.com']);
+      // : is encoded as %3A, / is encoded as %2F (not our escape char anymore)
+      expect(result.url).toEqual(['https%3A%2F%2Fexample.com']);
     });
   });
 
@@ -201,9 +204,9 @@ describe('plain format', () => {
     });
 
     it('should decode URI encoded values', () => {
-      // Note: values are escaped, then URI encoded
+      // Values are URI encoded
       const result = plain.parseStandalone(
-        { url: ['https:////example.com'] },
+        { url: ['https%3A%2F%2Fexample.com'] },
         { initialState: { url: '' } }
       );
       expect(result).toEqual({ url: 'https://example.com' });
@@ -352,16 +355,16 @@ describe('plain format', () => {
     });
 
     it('should allow custom nesting separator', () => {
-      const format = createFormat({ nestingSeparator: '_' });
+      const format = createFormat({ nestingSeparator: '/' });
       const result = format.stringify({ user: { name: 'John' } });
-      expect(result).toBe('user_name=John');
+      expect(result).toBe('user/name=John');
     });
 
     it('should allow custom escape character', () => {
       const format = createFormat({ escapeChar: '\\' });
       const result = format.stringify({ 'my.key': 'a,b' });
-      // encodeURI encodes backslash to %5C
-      expect(result).toBe('my%5C.key=a%5C,b');
+      // backslash is kept unencoded as the custom escape char marker
+      expect(result).toBe('my\\.key=a\\,b');
     });
 
     it('should allow custom null string', () => {
@@ -374,13 +377,6 @@ describe('plain format', () => {
       const format = createFormat({ undefinedString: 'UNDEF' });
       const result = format.stringify({ value: undefined });
       expect(result).toBe('value=UNDEF');
-    });
-
-    it('should allow custom empty array marker', () => {
-      const format = createFormat({ emptyArrayMarker: '[]' });
-      const result = format.stringify({ items: [] });
-      // encodeURI encodes brackets to %5B%5D
-      expect(result).toBe('items=%5B%5D');
     });
 
     it('should validate that entrySeparator and nestingSeparator are different', () => {
@@ -399,7 +395,7 @@ describe('plain format', () => {
     });
 
     it('should round-trip with custom options', () => {
-      const format = createFormat({ entrySeparator: '&', nestingSeparator: '_' });
+      const format = createFormat({ entrySeparator: '&', nestingSeparator: '/' });
       const obj = { user: { name: 'John', age: 30 }, tags: ['a', 'b'] };
       const serialized = format.stringify(obj);
       const parsed = format.parse(serialized, { initialState: obj });
@@ -589,9 +585,9 @@ describe('plain format', () => {
     });
 
     it('should handle escape char at end of string', () => {
-      // Test escape char at end of string in splitEscaped - escape is consumed
-      const result = plain.parse('key=value/', { initialState: { key: '' } });
-      expect((result as any).key).toBe('value');
+      // Trailing underscore is not an escape sequence, so it's kept
+      const result = plain.parse('key=value_', { initialState: { key: '' } });
+      expect((result as any).key).toBe('value_');
     });
 
     it('should handle multiple values without array hint', () => {

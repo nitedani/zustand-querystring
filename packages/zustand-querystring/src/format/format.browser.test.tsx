@@ -547,8 +547,8 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
           options: { entrySeparator: ';' },
         },
         {
-          name: 'underscore nesting separator',
-          options: { nestingSeparator: '_' },
+          name: 'slash nesting separator',
+          options: { nestingSeparator: '/' },
         },
         {
           name: 'backslash escape char',
@@ -562,11 +562,10 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
           name: 'all custom options',
           options: {
             entrySeparator: ';',
-            nestingSeparator: '_',
+            nestingSeparator: '/',
             escapeChar: '\\',
             nullString: 'nil',
             undefinedString: 'undef',
-            emptyArrayMarker: '[]',
           },
         },
       ];
@@ -614,7 +613,7 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
     it('should work with custom options in namespaced mode', async () => {
       const format = createPlainFormat({
         entrySeparator: ';',
-        nestingSeparator: '_',
+        nestingSeparator: '/',
         escapeChar: '\\',
       });
       const useStore = createComplexStore(format, 'data');

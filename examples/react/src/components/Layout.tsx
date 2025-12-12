@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import {
   AppShell,
   Group,
@@ -7,15 +7,7 @@ import {
   Code,
   Text,
   Container,
-  Box,
-  Button,
 } from "@mantine/core";
-
-const navItems = [
-  { label: "Overview", path: "/" },
-  { label: "Playground", path: "/playground" },
-  { label: "Format Comparison", path: "/formats" },
-];
 
 export function Layout() {
   const location = useLocation();
@@ -31,21 +23,14 @@ export function Layout() {
           <Group h="100%" justify="space-between">
             <Group gap="xs">
               <Title order={4}>zustand-querystring</Title>
-              <Code>demo</Code>
             </Group>
-            <Group gap="xs">
-              {navItems.map((item) => (
-                <Button
-                  key={item.path}
-                  component={NavLink}
-                  to={item.path}
-                  variant={location.pathname === item.path ? "filled" : "subtle"}
-                  size="sm"
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </Group>
+            <Anchor
+              href="https://github.com/nitedani/zustand-querystring"
+              target="_blank"
+              size="sm"
+            >
+              GitHub
+            </Anchor>
           </Group>
         </Container>
       </AppShell.Header>
@@ -58,17 +43,10 @@ export function Layout() {
 
       <AppShell.Footer>
         <Container size="xl" h="100%">
-          <Group justify="space-between" h="100%">
+          <Group justify="center" h="100%">
             <Text size="sm" c="dimmed">
               URL: <Code>{location.pathname}{location.search}</Code>
             </Text>
-            <Anchor
-              href="https://github.com/nitedani/zustand-querystring"
-              target="_blank"
-              size="sm"
-            >
-              GitHub
-            </Anchor>
           </Group>
         </Container>
       </AppShell.Footer>
