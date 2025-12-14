@@ -146,7 +146,7 @@ querystring(store, { format: plain })
 
 Type markers: `:` primitive, `=` string, `@` array, `.` object
 
-Delimiters: `,` separator, `~` terminator, `/` escape
+Delimiters: `,` separator, `~` terminator, `_` escape
 
 ```ts
 import { createFormat } from 'zustand-querystring/format/marked';
@@ -158,7 +158,7 @@ const format = createFormat({
   typePrimitive: ':',
   separator: ',',
   terminator: '~',
-  escapeChar: '/',
+  escapeChar: '_',
   datePrefix: 'D',
 });
 ```
@@ -174,10 +174,9 @@ const format = createFormat({
   entrySeparator: ',',      // between entries in namespaced mode
   nestingSeparator: '.',    // for nested keys
   arraySeparator: ',',      // or 'repeat' for ?tags=a&tags=b&tags=c
-  escapeChar: '/',
+  escapeChar: '_',
   nullString: 'null',
   undefinedString: 'undefined',
-  emptyArrayMarker: '__empty__',
 });
 ```
 
