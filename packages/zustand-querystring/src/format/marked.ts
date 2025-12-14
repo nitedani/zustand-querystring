@@ -122,14 +122,16 @@ function buildValueStopPattern(opts: ResolvedOptions): RegExp {
 }
 
 function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
+  // Only escape type markers and separator, NOT the escape char itself
   return new RegExp(
-    `([${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.escape)}${escapeRegex(opts.separator)}])`,
+    `([${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}])`,
     'g',
   );
 }
 
 function buildValueEscapePattern(opts: ResolvedOptions): RegExp {
-  return new RegExp(`([${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}${escapeRegex(opts.escape)}])`, 'g');
+  // Only escape separator and terminator, NOT the escape char itself
+  return new RegExp(`([${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}])`, 'g');
 }
 
 function buildDatePattern(opts: ResolvedOptions): RegExp {
@@ -208,7 +210,7 @@ function createSerializer(opts: ResolvedOptions) {
     if (typeof value === 'function') return '';
 
     if (typeof value === 'number') {
-      return `${opts.typePrimitive}${String(value).replace(/\./g, `${opts.escape}.`)}`;
+      return `${opts.typePrimitive}${value}`;
     }
 
     if (typeof value === 'boolean') {
@@ -302,18 +304,25 @@ function createParser(opts: ResolvedOptions) {
       let wasEscaped = false;
 
       while (pos < source.length) {
-        // Check for escape sequence
+        // Check for escape sequence - only if followed by a stop char or date prefix
         if (startsWith(tokens.escape)) {
-          if (checkEscape && source.slice(pos + tokens.escape.length, pos + tokens.escape.length + tokens.datePrefix.length) === tokens.datePrefix) {
-            wasEscaped = true;
+          const nextPos = pos + tokens.escape.length;
+          const nextChar = source.slice(nextPos, nextPos + 1);
+          const isEscapeSequence = stopPattern.test(nextChar);
+          const isDateEscape = checkEscape && source.slice(nextPos, nextPos + tokens.datePrefix.length) === tokens.datePrefix;
+          
+          if (isEscapeSequence || isDateEscape) {
+            if (isDateEscape) {
+              wasEscaped = true;
+            }
+            advance(tokens.escape.length);
+            /* v8 ignore next 4 -- @preserve: defensive - handles escape char at very end of source */
+            if (pos < source.length) {
+              result += peek();
+              advance();
+            }
+            continue;
           }
-          advance(tokens.escape.length);
-          /* v8 ignore next 4 -- @preserve: defensive - handles escape char at very end of source */
-          if (pos < source.length) {
-            result += peek();
-            advance();
-          }
-          continue;
         }
 
         const ch = peek();
