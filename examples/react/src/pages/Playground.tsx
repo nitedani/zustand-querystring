@@ -37,7 +37,6 @@ interface SettingsState {
     escapeChar: string;
     nullString: string;
     undefinedString: string;
-    emptyArrayMarker: string;
   };
   // Marked format options
   markedOptions: {
@@ -61,10 +60,9 @@ const defaultPlainOptions = {
   entrySeparator: ",",
   nestingSeparator: ".",
   arraySeparator: ",",
-  escapeChar: "/",
+  escapeChar: "_",
   nullString: "null",
   undefinedString: "undefined",
-  emptyArrayMarker: "__empty__",
 };
 
 const defaultMarkedOptions = {
@@ -74,7 +72,7 @@ const defaultMarkedOptions = {
   typePrimitive: ":",
   separator: ",",
   terminator: "~",
-  escapeChar: "/",
+  escapeChar: "_",
   datePrefix: "D",
 };
 
@@ -380,12 +378,6 @@ export function Playground() {
                 onChange={(e) => settings.setPlainOptions({ undefinedString: e.target.value })}
                 size="xs"
               />
-              <TextInput
-                label="Empty Array Marker"
-                value={plainOptions.emptyArrayMarker}
-                onChange={(e) => settings.setPlainOptions({ emptyArrayMarker: e.target.value })}
-                size="xs"
-              />
             </Group>
           </>
         ) : (
@@ -487,7 +479,7 @@ export function Playground() {
 
             <TagsInput
               label="Tags"
-              value={state.tags}
+              value={state.tags.map(String)}
               onChange={state.setTags}
               placeholder="Add tags..."
             />
@@ -578,10 +570,9 @@ export function Playground() {
             const hasCustomPlainOptions = formatType === "plain" && (
               plainOptions.entrySeparator !== "," ||
               plainOptions.nestingSeparator !== "." ||
-              plainOptions.escapeChar !== "/" ||
+              plainOptions.escapeChar !== "_" ||
               plainOptions.nullString !== "null" ||
-              plainOptions.undefinedString !== "undefined" ||
-              plainOptions.emptyArrayMarker !== "__empty__"
+              plainOptions.undefinedString !== "undefined"
             );
             
             const needsCreateFormat = hasCustomMarkedOptions || hasCustomPlainOptions;
@@ -596,17 +587,16 @@ export function Playground() {
                 if (markedOptions.typePrimitive !== ":") opts.push(`  typePrimitive: "${markedOptions.typePrimitive}"`);
                 if (markedOptions.separator !== ",") opts.push(`  separator: "${markedOptions.separator}"`);
                 if (markedOptions.terminator !== "~") opts.push(`  terminator: "${markedOptions.terminator}"`);
-                if (markedOptions.escapeChar !== "/") opts.push(`  escapeChar: "${markedOptions.escapeChar}"`);
+                if (markedOptions.escapeChar !== "_") opts.push(`  escapeChar: "${markedOptions.escapeChar}"`);
                 if (markedOptions.datePrefix !== "D") opts.push(`  datePrefix: "${markedOptions.datePrefix}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               } else {
                 const opts: string[] = [];
                 if (plainOptions.entrySeparator !== ",") opts.push(`  entrySeparator: "${plainOptions.entrySeparator}"`);
                 if (plainOptions.nestingSeparator !== ".") opts.push(`  nestingSeparator: "${plainOptions.nestingSeparator}"`);
-                if (plainOptions.escapeChar !== "/") opts.push(`  escapeChar: "${plainOptions.escapeChar}"`);
+                if (plainOptions.escapeChar !== "_") opts.push(`  escapeChar: "${plainOptions.escapeChar}"`);
                 if (plainOptions.nullString !== "null") opts.push(`  nullString: "${plainOptions.nullString}"`);
                 if (plainOptions.undefinedString !== "undefined") opts.push(`  undefinedString: "${plainOptions.undefinedString}"`);
-                if (plainOptions.emptyArrayMarker !== "__empty__") opts.push(`  emptyArrayMarker: "${plainOptions.emptyArrayMarker}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               }
             }
