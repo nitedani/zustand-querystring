@@ -379,6 +379,30 @@ describe('plain format', () => {
       expect(result).toBe('value=UNDEF');
     });
 
+    it('should allow custom infinity string', () => {
+      const format = createFormat({ infinityString: 'INF' });
+      const result = format.stringify({ value: Infinity });
+      expect(result).toBe('value=INF');
+      const parsed = format.parse('value=INF', { initialState: { value: 0 } });
+      expect((parsed as any).value).toBe(Infinity);
+    });
+
+    it('should allow custom negative infinity string', () => {
+      const format = createFormat({ negativeInfinityString: 'NEG_INF' });
+      const result = format.stringify({ value: -Infinity });
+      expect(result).toBe('value=NEG_INF');
+      const parsed = format.parse('value=NEG_INF', { initialState: { value: 0 } });
+      expect((parsed as any).value).toBe(-Infinity);
+    });
+
+    it('should allow custom NaN string', () => {
+      const format = createFormat({ nanString: 'NOT_A_NUMBER' });
+      const result = format.stringify({ value: NaN });
+      expect(result).toBe('value=NOT_A_NUMBER');
+      const parsed = format.parse('value=NOT_A_NUMBER', { initialState: { value: 0 } });
+      expect((parsed as any).value).toBeNaN();
+    });
+
     it('should validate that entrySeparator and nestingSeparator are different', () => {
       expect(() => createFormat({ entrySeparator: '.', nestingSeparator: '.' }))
         .toThrow('entrySeparator and nestingSeparator cannot be the same');
@@ -452,6 +476,51 @@ describe('plain format', () => {
       const serialized = plain.stringify(obj);
       const parsed = plain.parse(serialized, { initialState: obj });
       expect((parsed as any).pi).toBeCloseTo(3.14159);
+    });
+
+    it('should handle scientific notation', () => {
+      const obj = { big: 1e10, small: 1.5e-3, negative: -2.5e4 };
+      const serialized = plain.stringify(obj);
+      const parsed = plain.parse(serialized, { initialState: obj });
+      expect((parsed as any).big).toBe(1e10);
+      expect((parsed as any).small).toBeCloseTo(1.5e-3);
+      expect((parsed as any).negative).toBe(-2.5e4);
+    });
+
+    it('should handle Infinity', () => {
+      const obj = { value: Infinity };
+      const serialized = plain.stringify(obj);
+      expect(serialized).toBe('value=Infinity');
+      const parsed = plain.parse(serialized, { initialState: obj });
+      expect((parsed as any).value).toBe(Infinity);
+    });
+
+    it('should handle -Infinity', () => {
+      const obj = { value: -Infinity };
+      const serialized = plain.stringify(obj);
+      expect(serialized).toBe('value=-Infinity');
+      const parsed = plain.parse(serialized, { initialState: obj });
+      expect((parsed as any).value).toBe(-Infinity);
+    });
+
+    it('should handle NaN', () => {
+      const obj = { value: NaN };
+      const serialized = plain.stringify(obj);
+      expect(serialized).toBe('value=NaN');
+      const parsed = plain.parse(serialized, { initialState: obj });
+      expect((parsed as any).value).toBeNaN();
+    });
+
+    it('should auto-parse special numbers without hint', () => {
+      const parsed = plain.parse('a=Infinity,b=-Infinity,c=NaN');
+      expect((parsed as any).a).toBe(Infinity);
+      expect((parsed as any).b).toBe(-Infinity);
+      expect((parsed as any).c).toBeNaN();
+    });
+
+    it('should auto-parse scientific notation without hint', () => {
+      const parsed = plain.parse('value=1.5e10');
+      expect((parsed as any).value).toBe(1.5e10);
     });
 
     it('should skip function values', () => {
@@ -615,19 +684,17 @@ describe('plain format', () => {
       expect(result).toEqual({ name: 'John' });
     });
 
-    it('should handle Infinity as number value', () => {
-      // Test isFinite check - Infinity should return null from tryParseNumber
+    it('should handle Infinity with number hint', () => {
+      // Plain format supports Infinity, -Infinity, and NaN as special number values
       const result = plain.parse('value=Infinity', { initialState: { value: 0 } });
-      // Since 'Infinity' matches NUMBER_RE pattern but isFinite returns false
-      // Actually Infinity doesn't match the pattern, let me test differently
-      expect(result).toEqual({ value: 'Infinity' });
+      expect(result).toEqual({ value: Infinity });
     });
 
     it('should handle invalid ISO date that matches pattern', () => {
-      // Test date that matches ISO pattern but creates invalid Date
+      // Date string matches ISO pattern but creates an Invalid Date
+      // Plain format's tryParseDate returns null for invalid dates, so it stays as string
       const result = plain.parse('date=2024-99-99T00:00:00.000Z', { initialState: { date: new Date() } });
-      // The date matches pattern but may be invalid depending on browser
-      expect((result as any).date).toBeDefined();
+      expect(result).toEqual({ date: '2024-99-99T00:00:00.000Z' });
     });
   });
 

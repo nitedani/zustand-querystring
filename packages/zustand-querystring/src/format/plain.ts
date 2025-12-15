@@ -34,6 +34,12 @@ export interface PlainFormatOptions {
   nullString?: string;
   /** String representation of undefined @default 'undefined' */
   undefinedString?: string;
+  /** String representation of Infinity @default 'Infinity' */
+  infinityString?: string;
+  /** String representation of -Infinity @default '-Infinity' */
+  negativeInfinityString?: string;
+  /** String representation of NaN @default 'NaN' */
+  nanString?: string;
 }
 
 interface ResolvedOptions {
@@ -43,6 +49,9 @@ interface ResolvedOptions {
   escape: string;
   nullStr: string;
   undefStr: string;
+  infStr: string;
+  negInfStr: string;
+  nanStr: string;
 }
 
 function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
@@ -53,6 +62,9 @@ function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
     escape: opts.escapeChar ?? '_',
     nullStr: opts.nullString ?? 'null',
     undefStr: opts.undefinedString ?? 'undefined',
+    infStr: opts.infinityString ?? 'Infinity',
+    negInfStr: opts.negativeInfinityString ?? '-Infinity',
+    nanStr: opts.nanString ?? 'NaN',
   };
 }
 
@@ -137,7 +149,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 // =============================================================================
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-const NUMBER_RE = /^-?\d+(\.\d+)?$/;
+// Supports: integers, decimals, scientific notation (1e10, 1.5e-3, etc.)
+const NUMBER_RE = /^-?(\d+\.?\d*|\d*\.?\d+)([eE][+-]?\d+)?$/;
 
 function tryParseBoolean(str: string): boolean | null {
   if (str === 'true') return true;
@@ -145,10 +158,15 @@ function tryParseBoolean(str: string): boolean | null {
   return null;
 }
 
-function tryParseNumber(str: string): number | null {
+function tryParseNumber(str: string, opts: ResolvedOptions): number | null {
+  // Check special number strings first
+  if (str === opts.infStr) return Infinity;
+  if (str === opts.negInfStr) return -Infinity;
+  if (str === opts.nanStr) return NaN;
+  
+  // Check regular number pattern
   if (!NUMBER_RE.test(str)) return null;
   const n = parseFloat(str);
-  /* v8 ignore next -- @preserve: defensive - regex already filters non-finite number strings */
   return isFinite(n) ? n : null;
 }
 
@@ -166,7 +184,12 @@ function serializeValue(value: unknown, opts: ResolvedOptions): string {
   if (value === null) return opts.nullStr;
   if (value === undefined) return opts.undefStr;
   if (typeof value === 'boolean') return String(value);
-  if (typeof value === 'number') return String(value);
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return opts.nanStr;
+    if (value === Infinity) return opts.infStr;
+    if (value === -Infinity) return opts.negInfStr;
+    return String(value);
+  }
   if (isDate(value)) return value.toISOString();
   return String(value);
 }
@@ -194,8 +217,8 @@ function parseValue(str: string, hint: unknown, opts: ResolvedOptions): unknown 
     if (typeof hint === 'string') return str;
 
     if (typeof hint === 'number') {
-      const n = tryParseNumber(str);
-      if (n !== null) return n;
+      const n = tryParseNumber(str, opts);
+      if (n !== null || Number.isNaN(n)) return n;
     }
 
     if (typeof hint === 'boolean') {
@@ -221,8 +244,8 @@ function parseValue(str: string, hint: unknown, opts: ResolvedOptions): unknown 
   const d = tryParseDate(str);
   if (d !== null) return d;
 
-  const n = tryParseNumber(str);
-  if (n !== null) return n;
+  const n = tryParseNumber(str, opts);
+  if (n !== null || Number.isNaN(n)) return n;
 
   return str;
 }

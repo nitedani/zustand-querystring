@@ -171,12 +171,15 @@ Dot notation for nesting, comma-separated arrays.
 import { createFormat } from 'zustand-querystring/format/plain';
 
 const format = createFormat({
-  entrySeparator: ',',      // between entries in namespaced mode
-  nestingSeparator: '.',    // for nested keys
-  arraySeparator: ',',      // or 'repeat' for ?tags=a&tags=b&tags=c
+  entrySeparator: ',',           // between entries in namespaced mode
+  nestingSeparator: '.',         // for nested keys
+  arraySeparator: ',',           // or 'repeat' for ?tags=a&tags=b&tags=c
   escapeChar: '_',
   nullString: 'null',
   undefinedString: 'undefined',
+  infinityString: 'Infinity',    // string representation of Infinity
+  negativeInfinityString: '-Infinity',
+  nanString: 'NaN',
 });
 ```
 

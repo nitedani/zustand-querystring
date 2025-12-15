@@ -37,6 +37,9 @@ interface SettingsState {
     escapeChar: string;
     nullString: string;
     undefinedString: string;
+    infinityString: string;
+    negativeInfinityString: string;
+    nanString: string;
   };
   // Marked format options
   markedOptions: {
@@ -63,6 +66,9 @@ const defaultPlainOptions = {
   escapeChar: "_",
   nullString: "null",
   undefinedString: "undefined",
+  infinityString: "Infinity",
+  negativeInfinityString: "-Infinity",
+  nanString: "NaN",
 };
 
 const defaultMarkedOptions = {
@@ -379,6 +385,26 @@ export function Playground() {
                 size="xs"
               />
             </Group>
+            <Group grow align="flex-start">
+              <TextInput
+                label="Infinity String"
+                value={plainOptions.infinityString}
+                onChange={(e) => settings.setPlainOptions({ infinityString: e.target.value })}
+                size="xs"
+              />
+              <TextInput
+                label="-Infinity String"
+                value={plainOptions.negativeInfinityString}
+                onChange={(e) => settings.setPlainOptions({ negativeInfinityString: e.target.value })}
+                size="xs"
+              />
+              <TextInput
+                label="NaN String"
+                value={plainOptions.nanString}
+                onChange={(e) => settings.setPlainOptions({ nanString: e.target.value })}
+                size="xs"
+              />
+            </Group>
           </>
         ) : (
           <>
@@ -563,7 +589,7 @@ export function Playground() {
               markedOptions.typePrimitive !== ":" ||
               markedOptions.separator !== "," ||
               markedOptions.terminator !== "~" ||
-              markedOptions.escapeChar !== "/" ||
+              markedOptions.escapeChar !== "_" ||
               markedOptions.datePrefix !== "D"
             );
             
@@ -572,7 +598,10 @@ export function Playground() {
               plainOptions.nestingSeparator !== "." ||
               plainOptions.escapeChar !== "_" ||
               plainOptions.nullString !== "null" ||
-              plainOptions.undefinedString !== "undefined"
+              plainOptions.undefinedString !== "undefined" ||
+              plainOptions.infinityString !== "Infinity" ||
+              plainOptions.negativeInfinityString !== "-Infinity" ||
+              plainOptions.nanString !== "NaN"
             );
             
             const needsCreateFormat = hasCustomMarkedOptions || hasCustomPlainOptions;
@@ -597,6 +626,9 @@ export function Playground() {
                 if (plainOptions.escapeChar !== "_") opts.push(`  escapeChar: "${plainOptions.escapeChar}"`);
                 if (plainOptions.nullString !== "null") opts.push(`  nullString: "${plainOptions.nullString}"`);
                 if (plainOptions.undefinedString !== "undefined") opts.push(`  undefinedString: "${plainOptions.undefinedString}"`);
+                if (plainOptions.infinityString !== "Infinity") opts.push(`  infinityString: "${plainOptions.infinityString}"`);
+                if (plainOptions.negativeInfinityString !== "-Infinity") opts.push(`  negativeInfinityString: "${plainOptions.negativeInfinityString}"`);
+                if (plainOptions.nanString !== "NaN") opts.push(`  nanString: "${plainOptions.nanString}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               }
             }
