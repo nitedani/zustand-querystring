@@ -131,7 +131,7 @@ Three built-in formats:
 | Format | Example Output |
 |--------|----------------|
 | `marked` | `count:5,tags@a,b~` |
-| `plain` | `count=5&tags=a,b` |
+| `plain` | `count=5&tags=a&tags=b` |
 | `json` | `count=5&tags=%5B%22a%22%5D` |
 
 ```ts
@@ -165,7 +165,7 @@ const format = createFormat({
 
 ### Plain Format
 
-Dot notation for nesting, comma-separated arrays.
+Dot notation for nesting, repeated keys for arrays.
 
 ```ts
 import { createFormat } from 'zustand-querystring/format/plain';
@@ -173,7 +173,7 @@ import { createFormat } from 'zustand-querystring/format/plain';
 const format = createFormat({
   entrySeparator: ',',           // between entries in namespaced mode
   nestingSeparator: '.',         // for nested keys
-  arraySeparator: ',',           // or 'repeat' for ?tags=a&tags=b&tags=c
+  arraySeparator: 'repeat',      // 'repeat' for ?tags=a&tags=b, or ',' for ?tags=a,b
   escapeChar: '_',
   nullString: 'null',
   undefinedString: 'undefined',
@@ -182,6 +182,8 @@ const format = createFormat({
   nanString: 'NaN',
 });
 ```
+
+> **Note on `arraySeparator: ','`**: With comma-separated arrays and dynamic keys (e.g., `initialState: { filters: {} }`), a single array value like `os=CentOS` is indistinguishable from a scalar string. Use `'repeat'` for dynamic keys, or normalize with `Array.isArray(val) ? val : [val]`.
 
 ### JSON Format
 
@@ -301,4 +303,4 @@ import type {
 
 ---
 
-[Playground](https://stackblitz.com/github/nitedani/zustand-querystring/tree/main/examples/react) · [GitHub](https://github.com/nitedani/zustand-querystring)
+[Playground](https://zustand-querystring.nitedani.workers.dev) · [GitHub](https://github.com/nitedani/zustand-querystring)
