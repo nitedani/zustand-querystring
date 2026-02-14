@@ -816,3 +816,128 @@ describe('plain format', () => {
     });
   });
 });
+
+describe('plain format - validation errors', () => {
+  it('should throw when arraySeparator equals nestingSeparator', () => {
+    expect(() => createFormat({ arraySeparator: '.', nestingSeparator: '.' }))
+      .toThrow('arraySeparator cannot be the same as nestingSeparator');
+  });
+
+  it('should throw when arraySeparator equals escapeChar', () => {
+    expect(() => createFormat({ arraySeparator: '_', escapeChar: '_' }))
+      .toThrow('arraySeparator cannot be the same as escapeChar');
+  });
+
+  it('should throw when arraySeparator is empty string', () => {
+    expect(() => createFormat({ arraySeparator: '' }))
+      .toThrow('arraySeparator cannot be empty');
+  });
+});
+
+describe('plain format - arraySeparator: "repeat" in namespaced mode', () => {
+  const fmt = createFormat({ arraySeparator: 'repeat' });
+
+  it('should stringify arrays as repeated keys in namespaced mode', () => {
+    const result = fmt.stringify({ tags: ['a', 'b', 'c'] });
+    // With repeat, each array element gets its own key=value
+    expect(result).toContain('tags=a');
+    expect(result).toContain('tags=b');
+    expect(result).toContain('tags=c');
+  });
+
+  it('should round-trip arrays in namespaced mode', () => {
+    const obj = { tags: ['x', 'y'], name: 'test' };
+    const str = fmt.stringify(obj);
+    const parsed = fmt.parse(str, { initialState: obj });
+    expect(parsed).toEqual(obj);
+  });
+});
+
+describe('plain format - arraySeparator: "repeat" in standalone mode', () => {
+  const fmt = createFormat({ arraySeparator: 'repeat' });
+
+  it('should stringify arrays as repeated keys in standalone mode', () => {
+    const params = fmt.stringifyStandalone({ tags: ['a', 'b'] });
+    expect(params['tags']).toEqual(['a', 'b']);
+  });
+
+  it('should round-trip arrays in standalone mode', () => {
+    const obj = { tags: ['x', 'y'], name: 'test' };
+    const params = fmt.stringifyStandalone(obj);
+    const parsed = fmt.parseStandalone(params, { initialState: obj });
+    expect(parsed).toEqual(obj);
+  });
+});
+
+describe('plain format - dynamic filter keys (no array hint)', () => {
+  // Reproduces: filters.gpus_.architecture=Blackwell,Ada parsed as single string
+  const initialState = { query: '', filters: {} as Record<string, string[]> };
+
+  it('should split comma-separated values into array even without hint (standalone)', () => {
+    const params = { 'filters.gpus_.architecture': ['Blackwell,Ada'], 'query': ['ubuntu'] };
+    const parsed = plain.parseStandalone(params, { initialState }) as any;
+    expect(parsed.filters['gpus.architecture']).toEqual(['Blackwell', 'Ada']);
+    expect(parsed.query).toBe('ubuntu');
+  });
+
+  it('should NOT split escaped commas (standalone)', () => {
+    // "_," is an escaped comma — should remain literal
+    const params = { 'search': ['hello_,%20world'] };
+    const parsed = plain.parseStandalone(params, { initialState: { search: '' } }) as any;
+    expect(parsed.search).toBe('hello, world');
+  });
+
+  it('should split comma-separated values into array even without hint (namespaced)', () => {
+    const str = 'filters.gpus_.architecture=Blackwell,Ada,query=ubuntu';
+    const parsed = plain.parse(str, { initialState }) as any;
+    expect(parsed.filters['gpus.architecture']).toEqual(['Blackwell', 'Ada']);
+    expect(parsed.query).toBe('ubuntu');
+  });
+
+  it('should work with colon nesting separator', () => {
+    const fmt = createFormat({ nestingSeparator: ':', arraySeparator: ',' });
+    const params = { 'filters:gpus.architecture': ['Blackwell,Ada'] };
+    const parsed = fmt.parseStandalone(params, { initialState }) as any;
+    expect(parsed.filters['gpus.architecture']).toEqual(['Blackwell', 'Ada']);
+  });
+
+  it('should round-trip dynamic filter keys (standalone)', () => {
+    const state = { query: 'ubuntu', filters: { 'gpus.architecture': ['Blackwell', 'Ada'] } };
+    const params = plain.stringifyStandalone(state);
+    const parsed = plain.parseStandalone(params, { initialState });
+    expect(parsed).toEqual(state);
+  });
+});
+
+describe('plain format - findUnescaped with escape sequences', () => {
+  // Exercises the findUnescaped branch that skips escaped chars (L375-378)
+  it('should parse namespaced entry where key contains escaped =', () => {
+    // key "a_=b" has an escaped "=" — the parser must skip it and find the real "="
+    const fmt = createFormat();
+    const parsed = fmt.parse('a_==hello', { initialState: { 'a=': '' } }) as any;
+    expect(parsed['a=']).toBe('hello');
+  });
+
+  it('should parse namespaced entry where value contains escaped entry separator', () => {
+    const fmt = createFormat();
+    // value "a_,b" has escaped "," — should be kept as literal comma
+    const parsed = fmt.parse('text=a_,b', { initialState: { text: '' } }) as any;
+    expect(parsed.text).toBe('a,b');
+  });
+});
+
+describe('plain format - non-finite number parsing', () => {
+  it('should return null for numbers that parse to Infinity via parseFloat', () => {
+    // "1e999" matches NUMBER_RE but parseFloat returns Infinity → isFinite fails → null
+    // Without a hint, this falls through to string
+    const params = { val: ['1e999'] };
+    const parsed = plain.parseStandalone(params, { initialState: { val: '' } }) as any;
+    expect(parsed.val).toBe('1e999');
+  });
+
+  it('should auto-parse 1e999 as string when there is no hint', () => {
+    const parsed = plain.parse('val=1e999') as any;
+    // auto-parse: tryParseNumber returns null (non-finite) → kept as string
+    expect(parsed.val).toBe('1e999');
+  });
+});

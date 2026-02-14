@@ -251,6 +251,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       api,
     );
 
+    // Track previously managed URL keys so we can remove orphaned params
+    // when dynamic state keys disappear (e.g., filters reset from populated to {}).
+    let previouslyManagedKeys = new Set<string>();
+
     const setQuery = () => {
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
@@ -269,7 +273,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (standalone) {
         // Stringify the full selected state to get all managed keys
         const allParams = format.stringifyStandalone(selectedState as object);
-        managedKeys = new Set(Object.keys(allParams).map(k => defaultedOptions.prefix + k));
+        const currentKeys = new Set(Object.keys(allParams).map(k => defaultedOptions.prefix + k));
+        
+        // managedKeys = current keys ∪ previously managed keys
+        // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
+        // the old URL params are still recognized as ours and get removed.
+        managedKeys = new Set([...Array.from(currentKeys), ...Array.from(previouslyManagedKeys)]);
+        previouslyManagedKeys = currentKeys;
         
         // Stringify compacted state for values to write (with prefix)
         const compactedParams = format.stringifyStandalone(newCompacted);
@@ -355,6 +365,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       setQuery();
     };
     const initialized = initialize(new URL(window.location.href), initialState);
+    // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
+    // if the user's first action is clearing dynamic keys, they can still be removed.
+    if (standalone) {
+      const initSelected = getSelectedState(initialized, new URL(window.location.href).pathname);
+      const initParams = format.stringifyStandalone(initSelected as object);
+      previouslyManagedKeys = new Set(Object.keys(initParams).map(k => defaultedOptions.prefix + k));
+    }
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {

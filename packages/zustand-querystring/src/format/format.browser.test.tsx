@@ -186,8 +186,11 @@ const unicodeState = {
   created: new Date(0),
 };
 
-// Clean up URL before each test
-beforeEach(() => {
+// Clean up URL before each test.
+// The 150ms delay lets pending setTimeout(setQuery, 100) from previous stores drain
+// so they don't corrupt the next test's URL.
+beforeEach(async () => {
+  await new Promise((r) => setTimeout(r, 150));
   window.history.replaceState({}, '', window.location.pathname);
 });
 
@@ -930,6 +933,264 @@ describe('Edge Cases and Regression Tests', () => {
       await page.getByRole('button', { name: 'Set' }).click();
       await expect.element(page.getByTestId('mixed')).toHaveTextContent('["text",42,true,"more",0,false]');
       await expect.element(page.getByTestId('types')).toHaveTextContent('string,number,boolean,string,number,boolean');
+    });
+  });
+});
+
+// =============================================================================
+// DYNAMIC FILTER KEYS WITH DOTTED NAMES AND ARRAYS
+// (Reproduces GitHub issue: filters with dynamic keys like "gpus.architecture")
+// =============================================================================
+
+describe('Dynamic filter keys with dotted names and arrays', () => {
+  interface FilterState {
+    query: string;
+    filters: Record<string, string[]>;
+    setQuery: (query: string) => void;
+    setFilters: (filters: Record<string, string[]>) => void;
+    clearFilters: () => void;
+  }
+
+  const filterInitialState = {
+    query: '',
+    filters: {} as Record<string, string[]>,
+  };
+
+  function createFilterStore(format: any, key: string | false) {
+    return create<FilterState>()(
+      querystring(
+        (set) => ({
+          ...filterInitialState,
+          setQuery: (query) => set({ query }),
+          setFilters: (filters) => set({ filters }),
+          clearFilters: () => set({ filters: {} }),
+        }),
+        { key, format }
+      )
+    );
+  }
+
+  function FilterDisplay({ store }: { store: ReturnType<typeof createFilterStore> }) {
+    const state = store();
+    return (
+      <div>
+        <span data-testid="query">{state.query}</span>
+        <span data-testid="filters">{JSON.stringify(state.filters)}</span>
+        <span data-testid="url">{window.location.search}</span>
+        <button onClick={() => {
+          state.setQuery('ubuntu');
+          state.setFilters({ 'gpus.architecture': ['Blackwell', 'Ada'] });
+        }}>Set Filters</button>
+        <button onClick={() => state.clearFilters()}>Clear Filters</button>
+        <button onClick={() => state.setQuery('')}>Clear Query</button>
+      </div>
+    );
+  }
+
+  describe('plain format (default, arraySep=",")', () => {
+    it('should serialize dotted filter keys with array values', async () => {
+      const useStore = createFilterStore(plain, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should restore filter array from URL on mount (comma-separated)', async () => {
+      // Pre-set URL with comma-separated array (what stringifyStandalone produces)
+      const params = plain.stringifyStandalone({
+        query: 'ubuntu',
+        filters: { 'gpus.architecture': ['Blackwell', 'Ada'] },
+      });
+      const urlParts: string[] = [];
+      for (const [key, values] of Object.entries(params)) {
+        for (const value of values) {
+          urlParts.push(`${key}=${value}`);
+        }
+      }
+      window.history.replaceState({}, '', `?${urlParts.join('&')}`);
+
+      const useStore = createFilterStore(plain, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      // This is the key assertion: the array should be parsed as two values, not one string
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should clear filters from URL when reset to {}', async () => {
+      const useStore = createFilterStore(plain, false);
+      render(<FilterDisplay store={useStore} />);
+
+      // Set filters
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+
+      // Verify URL has filter params
+      const urlAfterSet = window.location.search;
+      expect(urlAfterSet).toContain('filters');
+
+      // Clear filters
+      await page.getByRole('button', { name: 'Clear Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
+
+      // URL should no longer contain filter params
+      const urlAfterClear = window.location.search;
+      expect(urlAfterClear).not.toContain('filters');
+    });
+  });
+
+  describe('plain format with arraySeparator: "repeat"', () => {
+    it('should serialize dotted filter keys as repeated params', async () => {
+      const format = createPlainFormat({ arraySeparator: 'repeat' });
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should restore filter array from URL on mount (repeated keys)', async () => {
+      const format = createPlainFormat({ arraySeparator: 'repeat' });
+      const params = format.stringifyStandalone({
+        query: 'ubuntu',
+        filters: { 'gpus.architecture': ['Blackwell', 'Ada'] },
+      });
+      const urlParts: string[] = [];
+      for (const [key, values] of Object.entries(params)) {
+        for (const value of values) {
+          urlParts.push(`${key}=${value}`);
+        }
+      }
+      window.history.replaceState({}, '', `?${urlParts.join('&')}`);
+
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should clear filters from URL when reset to {}', async () => {
+      const format = createPlainFormat({ arraySeparator: 'repeat' });
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      expect(window.location.search).toContain('filters');
+
+      await page.getByRole('button', { name: 'Clear Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
+      expect(window.location.search).not.toContain('filters');
+    });
+  });
+
+  describe('plain format with nestingSeparator: ":", arraySeparator: "repeat"', () => {
+    it('should use colon for nesting and not escape dots in filter keys', async () => {
+      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+
+      // With ':' as nesting separator, dots in keys should NOT be escaped
+      expect(window.location.search).toContain('gpus.architecture');
+      expect(window.location.search).not.toContain('gpus_.architecture');
+    });
+
+    it('should restore from URL on mount', async () => {
+      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
+      window.history.replaceState({}, '', '?query=ubuntu&filters:gpus.architecture=Blackwell&filters:gpus.architecture=Ada');
+
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should clear filters from URL when reset to {}', async () => {
+      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+
+      await page.getByRole('button', { name: 'Clear Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
+      expect(window.location.search).not.toContain('filters');
+    });
+  });
+
+  describe('plain format with nestingSeparator: ":", arraySeparator: ","', () => {
+    it('should serialize and restore comma-separated array with colon nesting', async () => {
+      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: ',' });
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should restore comma-separated array from URL on mount', async () => {
+      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: ',' });
+      window.history.replaceState({}, '', '?query=ubuntu&filters:gpus.architecture=Blackwell,Ada');
+
+      const useStore = createFilterStore(format, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      // The key assertion: comma-joined values should be parsed as array
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+  });
+
+  describe('marked format (for comparison)', () => {
+    it('should handle dotted filter keys with arrays', async () => {
+      const useStore = createFilterStore(marked, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should restore from URL on mount', async () => {
+      const params = marked.stringifyStandalone({
+        query: 'ubuntu',
+        filters: { 'gpus.architecture': ['Blackwell', 'Ada'] },
+      });
+      const urlParts: string[] = [];
+      for (const [key, values] of Object.entries(params)) {
+        for (const value of values) {
+          urlParts.push(`${key}=${value}`);
+        }
+      }
+      window.history.replaceState({}, '', `?${urlParts.join('&')}`);
+
+      const useStore = createFilterStore(marked, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+    });
+
+    it('should clear filters from URL when reset to {}', async () => {
+      const useStore = createFilterStore(marked, false);
+      render(<FilterDisplay store={useStore} />);
+
+      await page.getByRole('button', { name: 'Set Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      expect(window.location.search).toContain('filters');
+
+      await page.getByRole('button', { name: 'Clear Filters' }).click();
+      await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
+      expect(window.location.search).not.toContain('filters');
     });
   });
 });

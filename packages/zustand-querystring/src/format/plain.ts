@@ -564,37 +564,58 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
-    // Values can have entrySep and arraySep escaped
+    // Characters that may be escaped in values
     const valueSpecials: string[] = [opts.entrySep];
     if (opts.arraySep !== 'repeat') {
       valueSpecials.push(opts.arraySep);
     }
 
-    // Unescape values
-    let values = rawValues.map((v) => unescape(v, opts.escape, valueSpecials));
+    const unescapeValue = (v: string) => unescape(v, opts.escape, valueSpecials);
 
-    // Empty array: empty value with array hint
+    // ── Step 1: Determine if this is an array ──
+    //
+    // Three ways a value can be an array:
+    //   a) Multiple raw values (arraySep='repeat' mode, e.g. ?tag=a&tag=b)
+    //   b) A single raw value containing unescaped arraySep (e.g. "Blackwell,Ada")
+    //   c) initialState says it's an array (isArrayHint)
+    //
+    // Escaped separators (e.g. "_,") are NOT split — splitEscaped skips them.
+    // So an unescaped separator always means "array boundary", even without a hint.
+    //
+    // We must split BEFORE unescaping, otherwise "_," becomes "," and looks
+    // like a real separator.
+
+    let values: string[];
+    if (opts.arraySep !== 'repeat' && rawValues.length === 1) {
+      // (b) Try splitting the single raw value on unescaped arraySep
+      const parts = splitEscaped(rawValues[0], opts.arraySep, opts.escape);
+      // (c) Or initialState says it's an array
+      const isArray = parts.length > 1 || isArrayHint;
+      values = isArray
+        ? parts.map(unescapeValue)        // split into array elements, then unescape each
+        : [unescapeValue(rawValues[0])];  // single scalar, just unescape
+    } else {
+      // (a) Already multiple raw values (repeat mode, e.g. ?tag=a&tag=b)
+      values = rawValues.map(unescapeValue);
+    }
+
+    // ── Step 2: Store the parsed value ──
+
+    // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
       setAtPath(result, path, []);
       continue;
     }
 
-    // Split by arraySep if needed (non-repeat mode with array hint and single value)
-    if (opts.arraySep !== 'repeat' && isArrayHint && values.length === 1) {
-      values = splitEscaped(values[0], opts.arraySep, opts.escape).map((v) => unescape(v, opts.escape, valueSpecials));
-    }
-
-    // Single value, not an array
+    // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      const parsed = parseValue(values[0], hint, opts);
-      setAtPath(result, path, parsed);
+      setAtPath(result, path, parseValue(values[0], hint, opts));
       continue;
     }
 
-    // Multiple values or array hint
-    const elementHint = Array.isArray(hint) ? hint[0] : undefined;
-    const parsedArray = values.map((v) => parseValue(v, elementHint, opts));
-    setAtPath(result, path, parsedArray);
+    // Array (multiple values, or single value with array hint)
+    const elementHint = isArrayHint ? hint[0] : undefined;
+    setAtPath(result, path, values.map((v) => parseValue(v, elementHint, opts)));
   }
 
   return result;
