@@ -58,7 +58,7 @@ function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
   return {
     entrySep: opts.entrySeparator ?? ',',
     nestingSep: opts.nestingSeparator ?? '.',
-    arraySep: opts.arraySeparator ?? ',',
+    arraySep: opts.arraySeparator ?? 'repeat',
     escape: opts.escapeChar ?? '_',
     nullStr: opts.nullString ?? 'null',
     undefStr: opts.undefinedString ?? 'undefined',
@@ -773,7 +773,7 @@ export function createFormat(options: PlainFormatOptions = {}): QueryStringForma
  *
  * - Entry separator: `,`
  * - Nesting separator: `.`
- * - Array separator: `,` (comma-separated values)
+ * - Array separator: `repeat` (repeated keys, e.g. `?tag=a&tag=b`)
  * - Escape character: `_`
  */
 export const plain: QueryStringFormat = createFormat();

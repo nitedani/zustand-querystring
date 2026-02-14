@@ -21,9 +21,9 @@ describe('plain format', () => {
       expect(result).toBe('a.b.c.d=deep');
     });
 
-    it('should stringify simple arrays with comma-separated values', () => {
+    it('should stringify simple arrays with repeated keys', () => {
       const result = plain.stringify({ tags: ['a', 'b', 'c'] });
-      expect(result).toBe('tags=a,b,c');
+      expect(result).toBe('tags=a,tags=b,tags=c');
     });
 
     it('should stringify empty arrays', () => {
@@ -163,7 +163,7 @@ describe('plain format', () => {
     it('should return QueryStringParams format', () => {
       const result = plain.stringifyStandalone({ name: 'John', tags: ['a', 'b'] });
       expect(result.name).toEqual(['John']);
-      expect(result.tags).toEqual(['a,b']);
+      expect(result.tags).toEqual(['a', 'b']);
     });
 
     it('should handle nested objects', () => {
@@ -666,10 +666,11 @@ describe('plain format', () => {
     });
 
     it('should handle empty parts in namespaced string', () => {
-      // Test empty parts (consecutive separators) - with ',' as arraySep,
-      // 'a=1,,b=2' parses: a=1 then empty string, then b=2
-      const result = plain.parse('a=1,,b=2', { initialState: { a: [''], b: 0 } });
-      expect(result).toEqual({ a: ['1', ''], b: 2 });
+      // With default arraySep='repeat', commas are entry separators.
+      // 'a=1,,b=2': entry "a=1", empty continuation, then "b=2".
+      // The empty part is a continuation of a's value → a gets "1,"
+      const result = plain.parse('a=1,,b=2', { initialState: { a: '', b: 0 } });
+      expect(result).toEqual({ a: '1,', b: 2 });
     });
 
     it('should handle parse without context', () => {
@@ -874,22 +875,25 @@ describe('plain format - dynamic filter keys (no array hint)', () => {
   const initialState = { query: '', filters: {} as Record<string, string[]> };
 
   it('should split comma-separated values into array even without hint (standalone)', () => {
+    const commaFmt = createFormat({ arraySeparator: ',' });
     const params = { 'filters.gpus_.architecture': ['Blackwell,Ada'], 'query': ['ubuntu'] };
-    const parsed = plain.parseStandalone(params, { initialState }) as any;
+    const parsed = commaFmt.parseStandalone(params, { initialState }) as any;
     expect(parsed.filters['gpus.architecture']).toEqual(['Blackwell', 'Ada']);
     expect(parsed.query).toBe('ubuntu');
   });
 
   it('should NOT split escaped commas (standalone)', () => {
+    const commaFmt = createFormat({ arraySeparator: ',' });
     // "_," is an escaped comma — should remain literal
     const params = { 'search': ['hello_,%20world'] };
-    const parsed = plain.parseStandalone(params, { initialState: { search: '' } }) as any;
+    const parsed = commaFmt.parseStandalone(params, { initialState: { search: '' } }) as any;
     expect(parsed.search).toBe('hello, world');
   });
 
   it('should split comma-separated values into array even without hint (namespaced)', () => {
+    const commaFmt = createFormat({ arraySeparator: ',' });
     const str = 'filters.gpus_.architecture=Blackwell,Ada,query=ubuntu';
-    const parsed = plain.parse(str, { initialState }) as any;
+    const parsed = commaFmt.parse(str, { initialState }) as any;
     expect(parsed.filters['gpus.architecture']).toEqual(['Blackwell', 'Ada']);
     expect(parsed.query).toBe('ubuntu');
   });

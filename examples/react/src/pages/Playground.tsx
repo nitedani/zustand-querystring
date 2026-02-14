@@ -22,7 +22,31 @@ import {
   Divider,
   TagsInput,
   NumberInput,
+  Chip,
 } from "@mantine/core";
+
+// Available filter options for the dynamic filters demo
+const DYNAMIC_FILTER_OPTIONS: Record<string, (string | number)[]> = {
+  "gpus.architecture": ["Blackwell", "Ada", "Ampere", "Hopper"],
+  "gpus.memory": [8, 16, 24, 48, 80],
+  "os": ["Ubuntu", "CentOS", "Windows"],
+};
+
+// ─── Workaround: comma-based arraySeparator + dynamic keys ──────────────────
+//
+// When using a non-repeat arraySeparator (e.g. ',') with dynamic keys like
+// Record<string, (string|number)[]>, the parser can't distinguish a single-
+// element array from a scalar string (e.g. os=CentOS — is it "CentOS" or
+// ["CentOS"]?). This only affects dynamic keys where initialState has no
+// type hint. With arraySeparator='repeat' (the default) there's no ambiguity.
+//
+// These helpers normalize the parsed value to always be an array.
+
+/** Ensure a value that may have been parsed as a scalar is always an array. */
+function asArray<T>(value: unknown): T[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value as T];
+}
 
 // Settings store - persisted under "settings" key in marked format
 interface SettingsState {
@@ -125,6 +149,8 @@ interface PlaygroundState {
     minPrice: number;
     maxPrice: number;
   };
+  // Dynamic filters: Record<string, (string|number)[]> with dotted keys
+  dynamicFilters: Record<string, (string | number)[]>;
   // Actions
   setSearch: (v: string) => void;
   setCount: (v: number) => void;
@@ -133,6 +159,8 @@ interface PlaygroundState {
   setCategory: (v: string) => void;
   setMinPrice: (v: number) => void;
   setMaxPrice: (v: number) => void;
+  toggleDynamicFilter: (key: string, value: string | number) => void;
+  clearDynamicFilters: () => void;
   reset: () => void;
 }
 
@@ -140,12 +168,13 @@ const initialState = {
   search: "",
   count: 0,
   enabled: false,
-  tags: [],
+  tags: [] as string[],
   filters: {
     category: "",
     minPrice: 0,
     maxPrice: 1000,
   },
+  dynamicFilters: {} as Record<string, (string | number)[]>,
 };
 
 type FormatType = "marked" | "plain" | "json";
@@ -170,6 +199,21 @@ function createPlaygroundStore(
           set((s) => ({ filters: { ...s.filters, minPrice } })),
         setMaxPrice: (maxPrice) =>
           set((s) => ({ filters: { ...s.filters, maxPrice } })),
+        toggleDynamicFilter: (key, value) =>
+          set((s) => {
+            const current = asArray<string | number>(s.dynamicFilters[key]);
+            const next = current.includes(value)
+              ? current.filter((v) => v !== value)
+              : [...current, value];
+            const newFilters = { ...s.dynamicFilters };
+            if (next.length === 0) {
+              delete newFilters[key];
+            } else {
+              newFilters[key] = next;
+            }
+            return { dynamicFilters: newFilters };
+          }),
+        clearDynamicFilters: () => set({ dynamicFilters: {} }),
         reset: () => set(initialState),
       }),
       {
@@ -182,6 +226,7 @@ function createPlaygroundStore(
           enabled: true,
           tags: true,
           filters: true,
+          dynamicFilters: true,
         }),
       }
     )
@@ -220,7 +265,8 @@ export function Playground() {
     enabled: boolean;
     tags: string[];
     filters: { category: string; minPrice: number; maxPrice: number };
-  }>({ ...initialState, tags: [], filters: { ...initialState.filters } });
+    dynamicFilters: Record<string, (string | number)[]>;
+  }>({ ...initialState, tags: [], filters: { ...initialState.filters }, dynamicFilters: {} });
   const prevConfigRef = useRef({ formatType, mode, prefix, plainOptions, markedOptions });
   const prevStoreRef = useRef<UseBoundStore<StoreApi<PlaygroundState>> | null>(
     null
@@ -253,6 +299,7 @@ export function Playground() {
         enabled: s.enabled,
         tags: [...s.tags],
         filters: { ...s.filters },
+        dynamicFilters: { ...s.dynamicFilters },
       });
     }
 
@@ -269,8 +316,9 @@ export function Playground() {
       enabled: state.enabled,
       tags: state.tags,
       filters: state.filters,
+      dynamicFilters: state.dynamicFilters,
     };
-  }, [state.search, state.count, state.enabled, state.tags, state.filters]);
+  }, [state.search, state.count, state.enabled, state.tags, state.filters, state.dynamicFilters]);
 
   const stateSnapshot = {
     search: state.search,
@@ -278,6 +326,7 @@ export function Playground() {
     enabled: state.enabled,
     tags: state.tags,
     filters: state.filters,
+    dynamicFilters: state.dynamicFilters,
   };
 
   return (
@@ -533,6 +582,49 @@ export function Playground() {
                 min={0}
               />
             </Group>
+
+            <Divider label="Dynamic filters (dotted keys)" labelPosition="left" />
+
+            <Group justify="space-between" align="center">
+              <Text size="sm" c="dimmed">
+                <Code>Record&lt;string, (string | number)[]&gt;</Code> with keys like <Code>gpus.architecture</Code>
+              </Text>
+              <Button variant="subtle" size="xs" onClick={state.clearDynamicFilters}>
+                Clear
+              </Button>
+            </Group>
+
+            {Object.entries(DYNAMIC_FILTER_OPTIONS).map(([filterKey, options]) => {
+              const values = asArray<string | number>(state.dynamicFilters[filterKey]);
+              return (
+              <div key={filterKey}>
+                <Text size="sm" fw={500} mb="xs">
+                  {filterKey}
+                </Text>
+                <Chip.Group
+                  multiple
+                  value={values.map(String)}
+                  onChange={(selected) => {
+                    const current = values.map(String);
+                    const added = (selected as string[]).filter((v) => !current.includes(v));
+                    const removed = current.filter((v) => !(selected as string[]).includes(v));
+                    // Resolve back to the original typed value (number or string)
+                    const resolve = (s: string) => options.find((o) => String(o) === s) ?? s;
+                    for (const v of added) state.toggleDynamicFilter(filterKey, resolve(v));
+                    for (const v of removed) state.toggleDynamicFilter(filterKey, resolve(v));
+                  }}
+                >
+                  <Group gap="xs">
+                    {options.map((opt) => (
+                      <Chip key={String(opt)} value={String(opt)} size="sm">
+                        {String(opt)}
+                      </Chip>
+                    ))}
+                  </Group>
+                </Chip.Group>
+              </div>
+              );
+            })}
           </Stack>
         </Card>
 
@@ -650,6 +742,7 @@ ${formatConfig ? formatConfig + "\n\n" : ""}const useStore = create(
         enabled: true,
         tags: true,
         filters: true,
+        dynamicFilters: true,
       }),
     }
   )
@@ -657,6 +750,7 @@ ${formatConfig ? formatConfig + "\n\n" : ""}const useStore = create(
           })()}
         </Code>
       </Card>
+
     </Stack>
   );
 }
