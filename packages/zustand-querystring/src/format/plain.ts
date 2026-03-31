@@ -15,7 +15,11 @@
  * - Standalone: each field as separate param (key: false)
  */
 
-import type { ParseContext, QueryStringFormat, QueryStringParams } from '../middleware.js';
+import type {
+  ParseContext,
+  QueryStringFormat,
+  QueryStringParams,
+} from '../middleware.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -72,16 +76,24 @@ function validateOptions(opts: ResolvedOptions): void {
   const { entrySep, nestingSep, arraySep, escape } = opts;
 
   if (entrySep === nestingSep) {
-    throw new Error(`entrySeparator and nestingSeparator cannot be the same: '${entrySep}'`);
+    throw new Error(
+      `entrySeparator and nestingSeparator cannot be the same: '${entrySep}'`,
+    );
   }
   if (escape === entrySep || escape === nestingSep) {
-    throw new Error(`escapeChar cannot be the same as a separator: '${escape}'`);
+    throw new Error(
+      `escapeChar cannot be the same as a separator: '${escape}'`,
+    );
   }
   if (arraySep !== 'repeat' && arraySep === nestingSep) {
-    throw new Error(`arraySeparator cannot be the same as nestingSeparator: '${arraySep}'`);
+    throw new Error(
+      `arraySeparator cannot be the same as nestingSeparator: '${arraySep}'`,
+    );
   }
   if (arraySep !== 'repeat' && arraySep === escape) {
-    throw new Error(`arraySeparator cannot be the same as escapeChar: '${arraySep}'`);
+    throw new Error(
+      `arraySeparator cannot be the same as escapeChar: '${arraySep}'`,
+    );
   }
   if (entrySep.length === 0 || nestingSep.length === 0 || escape.length === 0) {
     throw new Error('Separators and escape character cannot be empty');
@@ -100,12 +112,7 @@ function validateOptions(opts: ResolvedOptions): void {
  * Uses encodeURIComponent for safety but keeps separators readable.
  */
 function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
-  const markers = new Set([
-    opts.entrySep,
-    opts.nestingSep,
-    opts.escape,
-    '=',
-  ]);
+  const markers = new Set([opts.entrySep, opts.nestingSep, opts.escape, '=']);
   if (opts.arraySep !== 'repeat') {
     markers.add(opts.arraySep);
   }
@@ -141,7 +148,12 @@ function isDate(value: unknown): value is Date {
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && !isDate(value);
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !isDate(value)
+  );
 }
 
 // =============================================================================
@@ -163,7 +175,7 @@ function tryParseNumber(str: string, opts: ResolvedOptions): number | null {
   if (str === opts.infStr) return Infinity;
   if (str === opts.negInfStr) return -Infinity;
   if (str === opts.nanStr) return NaN;
-  
+
   // Check regular number pattern
   if (!NUMBER_RE.test(str)) return null;
   const n = parseFloat(str);
@@ -206,7 +218,11 @@ function serializeValue(value: unknown, opts: ResolvedOptions): string {
  * 2. If type hint exists, coerce to that type
  * 3. Auto-parse: boolean → date → number → string
  */
-function parseValue(str: string, hint: unknown, opts: ResolvedOptions): unknown {
+function parseValue(
+  str: string,
+  hint: unknown,
+  opts: ResolvedOptions,
+): unknown {
   // Special strings
   if (str === opts.nullStr) return null;
   if (str === opts.undefStr) return undefined;
@@ -297,8 +313,10 @@ function unescape(str: string, esc: string, chars: string[]): string {
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
       // Check if followed by a special char (NOT another escape)
-      const isEscapeSequence = chars.some(c => str.substring(nextPos, nextPos + c.length) === c);
-      
+      const isEscapeSequence = chars.some(
+        c => str.substring(nextPos, nextPos + c.length) === c,
+      );
+
       if (isEscapeSequence && nextPos < str.length) {
         // Skip escape char, take next char(s) literally
         i = nextPos;
@@ -334,8 +352,9 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
     // Check for escape sequence (only _ followed by separator)
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
-      const isEscapeSequence = str.substring(nextPos, nextPos + sep.length) === sep;
-      
+      const isEscapeSequence =
+        str.substring(nextPos, nextPos + sep.length) === sep;
+
       if (isEscapeSequence && nextPos < str.length) {
         // This is an escape sequence - keep it as-is for later unescape
         current += esc + sep;
@@ -367,7 +386,7 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
  */
 function findUnescaped(str: string, char: string, esc: string): number {
   let i = 0;
-  
+
   while (i < str.length) {
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
@@ -405,7 +424,7 @@ function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
   const segments = splitEscaped(path, opts.nestingSep, opts.escape);
   // Keys can have nestingSep, entrySep, and = escaped
   const keySpecials = [opts.nestingSep, opts.entrySep, '='];
-  return segments.map((seg) => unescape(seg, opts.escape, keySpecials));
+  return segments.map(seg => unescape(seg, opts.escape, keySpecials));
 }
 
 /**
@@ -415,7 +434,11 @@ function getHintAtPath(state: object, path: string[]): unknown {
   let current: unknown = state;
 
   for (const key of path) {
-    if (current === null || current === undefined || typeof current !== 'object') {
+    if (
+      current === null ||
+      current === undefined ||
+      typeof current !== 'object'
+    ) {
       return undefined;
     }
 
@@ -433,7 +456,11 @@ function getHintAtPath(state: object, path: string[]): unknown {
 /**
  * Set a value at a path in an object, creating intermediate structures.
  */
-function setAtPath(obj: Record<string, unknown>, path: string[], value: unknown): void {
+function setAtPath(
+  obj: Record<string, unknown>,
+  path: string[],
+  value: unknown,
+): void {
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
@@ -466,7 +493,11 @@ type FlatEntries = Record<string, string[]>;
 /**
  * Flatten an object to dot-notation key-value pairs.
  */
-function flatten(obj: object, prefix: string, opts: ResolvedOptions): FlatEntries {
+function flatten(
+  obj: object,
+  prefix: string,
+  opts: ResolvedOptions,
+): FlatEntries {
   const result: FlatEntries = {};
   // Characters to escape in values
   const valueEscapeChars = [opts.entrySep];
@@ -503,7 +534,7 @@ function flatten(obj: object, prefix: string, opts: ResolvedOptions): FlatEntrie
         continue;
       }
 
-      const hasObjects = value.some((item) => isObject(item));
+      const hasObjects = value.some(item => isObject(item));
 
       if (hasObjects) {
         // Array of objects: use indexed keys
@@ -515,13 +546,17 @@ function flatten(obj: object, prefix: string, opts: ResolvedOptions): FlatEntrie
             Object.assign(result, flatten(item, indexedKey, opts));
           } else {
             const serialized = serializeValue(item, opts);
-            const escapedValue = escape(serialized, valueEscapeChars, opts.escape);
+            const escapedValue = escape(
+              serialized,
+              valueEscapeChars,
+              opts.escape,
+            );
             result[indexedKey] = [escapedValue];
           }
         }
       } else {
         // Simple array
-        result[fullKey] = value.map((item) => {
+        result[fullKey] = value.map(item => {
           const serialized = serializeValue(item, opts);
           return escape(serialized, valueEscapeChars, opts.escape);
         });
@@ -546,7 +581,11 @@ function flatten(obj: object, prefix: string, opts: ResolvedOptions): FlatEntrie
 /**
  * Unflatten entries back to a nested object.
  */
-function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOptions): object {
+function unflatten(
+  entries: FlatEntries,
+  initialState: object,
+  opts: ResolvedOptions,
+): object {
   const result: Record<string, unknown> = {};
 
   // Sort by path depth (shorter first)
@@ -570,7 +609,8 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
       valueSpecials.push(opts.arraySep);
     }
 
-    const unescapeValue = (v: string) => unescape(v, opts.escape, valueSpecials);
+    const unescapeValue = (v: string) =>
+      unescape(v, opts.escape, valueSpecials);
 
     // ── Step 1: Determine if this is an array ──
     //
@@ -592,8 +632,8 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
       // (c) Or initialState says it's an array
       const isArray = parts.length > 1 || isArrayHint;
       values = isArray
-        ? parts.map(unescapeValue)        // split into array elements, then unescape each
-        : [unescapeValue(rawValues[0])];  // single scalar, just unescape
+        ? parts.map(unescapeValue) // split into array elements, then unescape each
+        : [unescapeValue(rawValues[0])]; // single scalar, just unescape
     } else {
       // (a) Already multiple raw values (repeat mode, e.g. ?tag=a&tag=b)
       values = rawValues.map(unescapeValue);
@@ -615,7 +655,11 @@ function unflatten(entries: FlatEntries, initialState: object, opts: ResolvedOpt
 
     // Array (multiple values, or single value with array hint)
     const elementHint = isArrayHint ? hint[0] : undefined;
-    setAtPath(result, path, values.map((v) => parseValue(v, elementHint, opts)));
+    setAtPath(
+      result,
+      path,
+      values.map(v => parseValue(v, elementHint, opts)),
+    );
   }
 
   return result;
@@ -678,11 +722,19 @@ function stringifyNamespaced(state: object, opts: ResolvedOptions): string {
     if (opts.arraySep === 'repeat') {
       // Repeated keys for arrays
       for (const value of values) {
-        parts.push(encodePreservingMarkers(key, opts) + '=' + encodePreservingMarkers(value, opts));
+        parts.push(
+          encodePreservingMarkers(key, opts) +
+            '=' +
+            encodePreservingMarkers(value, opts),
+        );
       }
     } else {
       // Join array values with arraySep
-      parts.push(encodePreservingMarkers(key, opts) + '=' + encodePreservingMarkers(values.join(opts.arraySep), opts));
+      parts.push(
+        encodePreservingMarkers(key, opts) +
+          '=' +
+          encodePreservingMarkers(values.join(opts.arraySep), opts),
+      );
     }
   }
 
@@ -696,13 +748,16 @@ function stringifyNamespaced(state: object, opts: ResolvedOptions): string {
 /**
  * Stringify to standalone URL params.
  */
-function stringifyStandalone(state: object, opts: ResolvedOptions): QueryStringParams {
+function stringifyStandalone(
+  state: object,
+  opts: ResolvedOptions,
+): QueryStringParams {
   const entries = flatten(state, '', opts);
   const result: QueryStringParams = {};
 
   for (const [key, values] of Object.entries(entries)) {
     const encodedKey = encodePreservingMarkers(key, opts);
-    const encodedValues = values.map((v) => encodePreservingMarkers(v, opts));
+    const encodedValues = values.map(v => encodePreservingMarkers(v, opts));
 
     if (opts.arraySep === 'repeat') {
       result[encodedKey] = encodedValues;
@@ -721,13 +776,13 @@ function stringifyStandalone(state: object, opts: ResolvedOptions): QueryStringP
 function parseStandalone(
   params: QueryStringParams,
   initialState: object,
-  opts: ResolvedOptions
+  opts: ResolvedOptions,
 ): object {
   const entries: FlatEntries = {};
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeString(key);
-    entries[decodedKey] = values.map((v) => decodeString(v));
+    entries[decodedKey] = values.map(v => decodeString(v));
   }
 
   return unflatten(entries, initialState, opts);
@@ -740,7 +795,9 @@ function parseStandalone(
 /**
  * Create a plain format with custom configuration.
  */
-export function createFormat(options: PlainFormatOptions = {}): QueryStringFormat {
+export function createFormat(
+  options: PlainFormatOptions = {},
+): QueryStringFormat {
   const opts = resolveOptions(options);
   validateOptions(opts);
 

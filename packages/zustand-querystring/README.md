@@ -14,16 +14,16 @@ import { querystring } from 'zustand-querystring';
 
 const useStore = create(
   querystring(
-    (set) => ({
+    set => ({
       search: '',
       page: 1,
-      setSearch: (search) => set({ search }),
-      setPage: (page) => set({ page }),
+      setSearch: search => set({ search }),
+      setPage: page => set({ page }),
     }),
     {
       select: () => ({ search: true, page: true }),
-    }
-  )
+    },
+  ),
 );
 // URL: ?search=hello&page=2
 ```
@@ -34,14 +34,15 @@ const useStore = create(
 
 ```ts
 querystring(storeCreator, {
-  select: undefined,    // which fields to sync
-  key: false,           // false | 'state'
-  prefix: '',           // prefix for URL params
-  format: marked,       // serialization format
-  syncNull: false,      // sync null values
+  select: undefined, // which fields to sync
+  key: false, // false | 'state'
+  prefix: '', // prefix for URL params
+  format: marked, // serialization format
+  map: undefined, // bidirectional store ↔ URL mapping
+  syncNull: false, // sync null values
   syncUndefined: false, // sync undefined values
-  url: undefined,       // request URL for SSR
-})
+  url: undefined, // request URL for SSR
+});
 ```
 
 ### `select`
@@ -50,14 +51,14 @@ Controls which state fields sync to URL. Receives pathname, returns object with 
 
 ```ts
 // All fields
-select: () => ({ search: true, page: true, filters: true })
+select: () => ({ search: true, page: true, filters: true });
 
 // Route-based
-select: (pathname) => ({
+select: pathname => ({
   search: true,
   filters: pathname.startsWith('/products'),
   adminSettings: pathname.startsWith('/admin'),
-})
+});
 
 // Nested fields
 select: () => ({
@@ -65,7 +66,7 @@ select: () => ({
     name: true,
     settings: { theme: true },
   },
-})
+});
 ```
 
 ### `key`
@@ -84,8 +85,8 @@ select: () => ({
 Adds prefix to all params. Use when multiple stores share URL.
 
 ```ts
-querystring(storeA, { prefix: 'a_', select: () => ({ search: true }) })
-querystring(storeB, { prefix: 'b_', select: () => ({ filter: true }) })
+querystring(storeA, { prefix: 'a_', select: () => ({ search: true }) });
+querystring(storeB, { prefix: 'b_', select: () => ({ filter: true }) });
 // URL: ?a_search=hello&b_filter=active
 ```
 
@@ -93,12 +94,68 @@ querystring(storeB, { prefix: 'b_', select: () => ({ filter: true }) })
 
 By default, `null` and `undefined` reset to initial state (removed from URL). Set to `true` to write them.
 
+### `map`
+
+Bidirectional mapping between store state and URL state. Use when the URL should represent a different shape than the store — e.g., a store keyed by dynamic IDs where the URL should only reflect the active entry.
+
+`to` receives the selected state and pathname, returns the URL shape. `from` receives the parsed URL state and pathname, returns store state to merge. Types flow automatically: `from`'s parameter type is inferred from `to`'s return type.
+
+```ts
+interface Store {
+  filtersByOperation: Record<string, { filters: string[] }>;
+  aggregationByOperation: Record<string, string>;
+  setFilters: (opId: string, filters: string[]) => void;
+}
+
+const useStore = create<Store>()(
+  querystring(
+    set => ({
+      filtersByOperation: {},
+      aggregationByOperation: {},
+      setFilters: (opId, filters) =>
+        set(s => ({
+          filtersByOperation: { ...s.filtersByOperation, [opId]: { filters } },
+        })),
+    }),
+    {
+      key: 'state',
+      select: pathname => ({
+        filtersByOperation: pathname.startsWith('/view/'),
+        aggregationByOperation: pathname.startsWith('/view/'),
+      }),
+      map: {
+        to: (state, pathname) => {
+          const id = pathname.split('/').pop()!;
+          return {
+            filters: state.filtersByOperation?.[id]?.filters,
+            aggregation: state.aggregationByOperation?.[id],
+          };
+        },
+        from: (urlState, pathname) => {
+          // urlState is typed as { filters: string[] | undefined, aggregation: string | undefined }
+          const id = pathname.split('/').pop()!;
+          return {
+            ...(urlState.filters
+              ? { filtersByOperation: { [id]: { filters: urlState.filters } } }
+              : {}),
+            ...(urlState.aggregation
+              ? { aggregationByOperation: { [id]: urlState.aggregation } }
+              : {}),
+          };
+        },
+      },
+    },
+  ),
+);
+// On /view/DAM_v1 → URL: ?state=filters@price_>10~,aggregation=daily
+```
+
 ### `url`
 
 For SSR, pass the request URL:
 
 ```ts
-querystring(store, { url: request.url, select: () => ({ search: true }) })
+querystring(store, { url: request.url, select: () => ({ search: true }) });
 ```
 
 ---
@@ -118,6 +175,7 @@ Only values **different from initial state** are written to URL:
 ```
 
 Type handling:
+
 - Objects: recursively diffed
 - Arrays, Dates: compared as whole values
 - Functions: never synced
@@ -128,18 +186,18 @@ Type handling:
 
 Three built-in formats:
 
-| Format | Example Output |
-|--------|----------------|
-| `marked` | `count:5,tags@a,b~` |
-| `plain` | `count=5&tags=a&tags=b` |
-| `json` | `count=5&tags=%5B%22a%22%5D` |
+| Format   | Example Output               |
+| -------- | ---------------------------- |
+| `marked` | `count:5,tags@a,b~`          |
+| `plain`  | `count=5&tags=a&tags=b`      |
+| `json`   | `count=5&tags=%5B%22a%22%5D` |
 
 ```ts
 import { marked } from 'zustand-querystring/format/marked';
 import { plain } from 'zustand-querystring/format/plain';
 import { json } from 'zustand-querystring/format/json';
 
-querystring(store, { format: plain })
+querystring(store, { format: plain });
 ```
 
 ### Marked Format (default)
@@ -171,13 +229,13 @@ Dot notation for nesting, repeated keys for arrays.
 import { createFormat } from 'zustand-querystring/format/plain';
 
 const format = createFormat({
-  entrySeparator: ',',           // between entries in namespaced mode
-  nestingSeparator: '.',         // for nested keys
-  arraySeparator: 'repeat',      // 'repeat' for ?tags=a&tags=b, or ',' for ?tags=a,b
+  entrySeparator: ',', // between entries in namespaced mode
+  nestingSeparator: '.', // for nested keys
+  arraySeparator: 'repeat', // 'repeat' for ?tags=a&tags=b, or ',' for ?tags=a,b
   escapeChar: '_',
   nullString: 'null',
   undefinedString: 'undefined',
-  infinityString: 'Infinity',    // string representation of Infinity
+  infinityString: 'Infinity', // string representation of Infinity
   negativeInfinityString: '-Infinity',
   nanString: 'NaN',
 });
@@ -196,7 +254,11 @@ URL-encoded JSON. No configuration.
 Implement `QueryStringFormat`:
 
 ```ts
-import type { QueryStringFormat, QueryStringParams, ParseContext } from 'zustand-querystring';
+import type {
+  QueryStringFormat,
+  QueryStringParams,
+  ParseContext,
+} from 'zustand-querystring';
 
 const myFormat: QueryStringFormat = {
   // For key: 'state' (namespaced mode)
@@ -224,10 +286,11 @@ const myFormat: QueryStringFormat = {
   },
 };
 
-querystring(store, { format: myFormat })
+querystring(store, { format: myFormat });
 ```
 
 Types:
+
 - `QueryStringParams` = `Record<string, string[]>` (values always arrays)
 - `ctx.initialState` available for type coercion
 
@@ -240,14 +303,14 @@ Types:
 ```ts
 const useStore = create(
   querystring(
-    (set) => ({
+    set => ({
       query: '',
       page: 1,
-      setQuery: (query) => set({ query, page: 1 }), // reset page on new query
-      setPage: (page) => set({ page }),
+      setQuery: query => set({ query, page: 1 }), // reset page on new query
+      setPage: page => set({ page }),
     }),
-    { select: () => ({ query: true, page: true }) }
-  )
+    { select: () => ({ query: true, page: true }) },
+  ),
 );
 ```
 
@@ -258,14 +321,14 @@ const useFilters = create(
   querystring(filtersStore, {
     prefix: 'f_',
     select: () => ({ category: true, price: true }),
-  })
+  }),
 );
 
 const usePagination = create(
   querystring(paginationStore, {
     prefix: 'p_',
     select: () => ({ page: true, limit: true }),
-  })
+  }),
 );
 // URL: ?f_category=shoes&f_price=100&p_page=2&p_limit=20
 ```
@@ -295,6 +358,7 @@ import { json } from 'zustand-querystring/format/json';
 // Types
 import type {
   QueryStringOptions,
+  QueryStringMap,
   QueryStringFormat,
   QueryStringParams,
   ParseContext,

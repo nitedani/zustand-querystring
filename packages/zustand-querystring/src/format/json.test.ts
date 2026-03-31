@@ -53,7 +53,11 @@ describe('json format', () => {
     });
 
     it('should round-trip special characters', () => {
-      const obj = { text: 'hello, world!', path: 'a/b/c', query: 'foo=bar&baz=qux' };
+      const obj = {
+        text: 'hello, world!',
+        path: 'a/b/c',
+        query: 'foo=bar&baz=qux',
+      };
       const encoded = json.stringify(obj);
       expect(json.parse(encoded)).toEqual(obj);
     });
@@ -106,7 +110,11 @@ describe('json format', () => {
     });
 
     it('should round-trip special characters', () => {
-      const obj = { text: 'hello, world!', path: 'a/b/c', query: 'foo=bar&baz=qux' };
+      const obj = {
+        text: 'hello, world!',
+        path: 'a/b/c',
+        query: 'foo=bar&baz=qux',
+      };
       const params = json.stringifyStandalone(obj);
       const result = json.parseStandalone(params, { initialState: {} });
       expect(result).toEqual(obj);

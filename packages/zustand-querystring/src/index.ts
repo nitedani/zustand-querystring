@@ -1,6 +1,7 @@
 export {
   querystring,
   QueryStringOptions,
+  QueryStringMap,
   QueryStringFormat,
   QueryStringFormatNamespaced,
   QueryStringFormatStandalone,

@@ -1,4 +1,8 @@
-import type { ParseContext, QueryStringFormat, QueryStringParams } from '../middleware.js';
+import type {
+  ParseContext,
+  QueryStringFormat,
+  QueryStringParams,
+} from '../middleware.js';
 
 function encodeValue(input: unknown): string {
   return encodeURI(JSON.stringify(input));

@@ -1,10 +1,10 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { create, StoreApi, UseBoundStore } from "zustand";
+import { querystring, QueryStringFormat } from "zustand-querystring";
 import {
-  querystring,
-  QueryStringFormat,
-} from "zustand-querystring";
-import { marked, createFormat as createMarkedFormat } from "zustand-querystring/format/marked";
+  marked,
+  createFormat as createMarkedFormat,
+} from "zustand-querystring/format/marked";
 import { createFormat as createPlainFormat } from "zustand-querystring/format/plain";
 import { json } from "zustand-querystring/format/json";
 import {
@@ -29,7 +29,7 @@ import {
 const DYNAMIC_FILTER_OPTIONS: Record<string, (string | number)[]> = {
   "gpus.architecture": ["Blackwell", "Ada", "Ampere", "Hopper"],
   "gpus.memory": [8, 16, 24, 48, 80],
-  "os": ["Ubuntu", "CentOS", "Windows"],
+  os: ["Ubuntu", "CentOS", "Windows"],
 };
 
 // ─── Workaround: comma-based arraySeparator + dynamic keys ──────────────────
@@ -132,8 +132,8 @@ const useSettings = create<SettingsState>()(
         plainOptions: true,
         markedOptions: true,
       }),
-    }
-  )
+    },
+  ),
 );
 
 // Playground state store - format/mode/prefix controlled by settings
@@ -183,7 +183,7 @@ type ModeType = "namespaced" | "standalone";
 function createPlaygroundStore(
   format: QueryStringFormat,
   mode: ModeType,
-  prefix: string
+  prefix: string,
 ): UseBoundStore<StoreApi<PlaygroundState>> {
   return create<PlaygroundState>()(
     querystring(
@@ -228,14 +228,20 @@ function createPlaygroundStore(
           filters: true,
           dynamicFilters: true,
         }),
-      }
-    )
+      },
+    ),
   );
 }
 
 export function Playground() {
   const settings = useSettings();
-  const { format: formatType, mode, prefix, plainOptions, markedOptions } = settings;
+  const {
+    format: formatType,
+    mode,
+    prefix,
+    plainOptions,
+    markedOptions,
+  } = settings;
   const [formatError, setFormatError] = useState<string | null>(null);
   const lastValidFormatRef = useRef<QueryStringFormat>(marked);
 
@@ -266,10 +272,21 @@ export function Playground() {
     tags: string[];
     filters: { category: string; minPrice: number; maxPrice: number };
     dynamicFilters: Record<string, (string | number)[]>;
-  }>({ ...initialState, tags: [], filters: { ...initialState.filters }, dynamicFilters: {} });
-  const prevConfigRef = useRef({ formatType, mode, prefix, plainOptions, markedOptions });
+  }>({
+    ...initialState,
+    tags: [],
+    filters: { ...initialState.filters },
+    dynamicFilters: {},
+  });
+  const prevConfigRef = useRef({
+    formatType,
+    mode,
+    prefix,
+    plainOptions,
+    markedOptions,
+  });
   const prevStoreRef = useRef<UseBoundStore<StoreApi<PlaygroundState>> | null>(
-    null
+    null,
   );
 
   const useStore = useMemo(() => {
@@ -277,8 +294,10 @@ export function Playground() {
       prevConfigRef.current.formatType !== formatType ||
       prevConfigRef.current.mode !== mode ||
       prevConfigRef.current.prefix !== prefix ||
-      JSON.stringify(prevConfigRef.current.plainOptions) !== JSON.stringify(plainOptions) ||
-      JSON.stringify(prevConfigRef.current.markedOptions) !== JSON.stringify(markedOptions);
+      JSON.stringify(prevConfigRef.current.plainOptions) !==
+        JSON.stringify(plainOptions) ||
+      JSON.stringify(prevConfigRef.current.markedOptions) !==
+        JSON.stringify(markedOptions);
 
     // If config changed, reset the OLD store first to clear URL
     if (configChanged && prevStoreRef.current) {
@@ -290,7 +309,13 @@ export function Playground() {
     prevStoreRef.current = store;
 
     if (configChanged) {
-      prevConfigRef.current = { formatType, mode, prefix, plainOptions, markedOptions };
+      prevConfigRef.current = {
+        formatType,
+        mode,
+        prefix,
+        plainOptions,
+        markedOptions,
+      };
       // Restore saved state
       const s = savedStateRef.current;
       store.setState({
@@ -318,7 +343,14 @@ export function Playground() {
       filters: state.filters,
       dynamicFilters: state.dynamicFilters,
     };
-  }, [state.search, state.count, state.enabled, state.tags, state.filters, state.dynamicFilters]);
+  }, [
+    state.search,
+    state.count,
+    state.enabled,
+    state.tags,
+    state.filters,
+    state.dynamicFilters,
+  ]);
 
   const stateSnapshot = {
     search: state.search,
@@ -347,7 +379,9 @@ export function Playground() {
             </Text>
             <SegmentedControl
               value={formatType}
-              onChange={(v) => settings.setFormat(v as "marked" | "plain" | "json")}
+              onChange={(v) =>
+                settings.setFormat(v as "marked" | "plain" | "json")
+              }
               data={[
                 { label: "Marked", value: "marked" },
                 { label: "Plain", value: "plain" },
@@ -386,139 +420,191 @@ export function Playground() {
 
         {formatType !== "json" && (
           <>
-            <Divider my="md" label={`${formatType === "marked" ? "Marked" : "Plain"} Options`} labelPosition="left" />
-            
+            <Divider
+              my="md"
+              label={`${formatType === "marked" ? "Marked" : "Plain"} Options`}
+              labelPosition="left"
+            />
+
             {formatType === "plain" ? (
               <>
                 <Group grow align="flex-start">
-              <TextInput
-                label="Entry Separator"
-                value={plainOptions.entrySeparator}
-                onChange={(e) => settings.setPlainOptions({ entrySeparator: e.target.value })}
-                size="xs"
-                error={!plainOptions.entrySeparator}
-              />
-              <TextInput
-                label="Nesting Separator"
-                value={plainOptions.nestingSeparator}
-                onChange={(e) => settings.setPlainOptions({ nestingSeparator: e.target.value })}
-                size="xs"
-                error={!plainOptions.nestingSeparator}
-              />
-              <TextInput
-                label="Escape Char"
-                value={plainOptions.escapeChar}
-                onChange={(e) => settings.setPlainOptions({ escapeChar: e.target.value })}
-                size="xs"
-                error={!plainOptions.escapeChar}
-              />
-              <TextInput
-                label="Array Separator"
-                value={plainOptions.arraySeparator}
-                onChange={(e) => settings.setPlainOptions({ arraySeparator: e.target.value })}
-                size="xs"
-                error={!plainOptions.arraySeparator}
-              />
-            </Group>
-            <Group grow align="flex-start" mt="sm">
-              <TextInput
-                label="Null String"
-                value={plainOptions.nullString}
-                onChange={(e) => settings.setPlainOptions({ nullString: e.target.value })}
-                size="xs"
-              />
-              <TextInput
-                label="Undefined String"
-                value={plainOptions.undefinedString}
-                onChange={(e) => settings.setPlainOptions({ undefinedString: e.target.value })}
-                size="xs"
-              />
-            </Group>
-            <Group grow align="flex-start">
-              <TextInput
-                label="Infinity String"
-                value={plainOptions.infinityString}
-                onChange={(e) => settings.setPlainOptions({ infinityString: e.target.value })}
-                size="xs"
-              />
-              <TextInput
-                label="-Infinity String"
-                value={plainOptions.negativeInfinityString}
-                onChange={(e) => settings.setPlainOptions({ negativeInfinityString: e.target.value })}
-                size="xs"
-              />
-              <TextInput
-                label="NaN String"
-                value={plainOptions.nanString}
-                onChange={(e) => settings.setPlainOptions({ nanString: e.target.value })}
-                size="xs"
-              />
-            </Group>
-          </>
-        ) : (
-          <>
-            <Group grow align="flex-start">
-              <TextInput
-                label="Type Object"
-                value={markedOptions.typeObject}
-                onChange={(e) => settings.setMarkedOptions({ typeObject: e.target.value })}
-                size="xs"
-                error={!markedOptions.typeObject}
-              />
-              <TextInput
-                label="Type Array"
-                value={markedOptions.typeArray}
-                onChange={(e) => settings.setMarkedOptions({ typeArray: e.target.value })}
-                size="xs"
-                error={!markedOptions.typeArray}
-              />
-              <TextInput
-                label="Type String"
-                value={markedOptions.typeString}
-                onChange={(e) => settings.setMarkedOptions({ typeString: e.target.value })}
-                size="xs"
-                error={!markedOptions.typeString}
-              />
-              <TextInput
-                label="Type Primitive"
-                value={markedOptions.typePrimitive}
-                onChange={(e) => settings.setMarkedOptions({ typePrimitive: e.target.value })}
-                size="xs"
-                error={!markedOptions.typePrimitive}
-              />
-            </Group>
-            <Group grow align="flex-start" mt="sm">
-              <TextInput
-                label="Separator"
-                value={markedOptions.separator}
-                onChange={(e) => settings.setMarkedOptions({ separator: e.target.value })}
-                size="xs"
-                error={!markedOptions.separator}
-              />
-              <TextInput
-                label="Terminator"
-                value={markedOptions.terminator}
-                onChange={(e) => settings.setMarkedOptions({ terminator: e.target.value })}
-                size="xs"
-                error={!markedOptions.terminator}
-              />
-              <TextInput
-                label="Escape Char"
-                value={markedOptions.escapeChar}
-                onChange={(e) => settings.setMarkedOptions({ escapeChar: e.target.value })}
-                size="xs"
-                error={!markedOptions.escapeChar}
-              />
-              <TextInput
-                label="Date Prefix"
-                value={markedOptions.datePrefix}
-                onChange={(e) => settings.setMarkedOptions({ datePrefix: e.target.value })}
-                size="xs"
-                error={!markedOptions.datePrefix}
-              />
-            </Group>
-          </>
-        )}
+                  <TextInput
+                    label="Entry Separator"
+                    value={plainOptions.entrySeparator}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        entrySeparator: e.target.value,
+                      })
+                    }
+                    size="xs"
+                    error={!plainOptions.entrySeparator}
+                  />
+                  <TextInput
+                    label="Nesting Separator"
+                    value={plainOptions.nestingSeparator}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        nestingSeparator: e.target.value,
+                      })
+                    }
+                    size="xs"
+                    error={!plainOptions.nestingSeparator}
+                  />
+                  <TextInput
+                    label="Escape Char"
+                    value={plainOptions.escapeChar}
+                    onChange={(e) =>
+                      settings.setPlainOptions({ escapeChar: e.target.value })
+                    }
+                    size="xs"
+                    error={!plainOptions.escapeChar}
+                  />
+                  <TextInput
+                    label="Array Separator"
+                    value={plainOptions.arraySeparator}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        arraySeparator: e.target.value,
+                      })
+                    }
+                    size="xs"
+                    error={!plainOptions.arraySeparator}
+                  />
+                </Group>
+                <Group grow align="flex-start" mt="sm">
+                  <TextInput
+                    label="Null String"
+                    value={plainOptions.nullString}
+                    onChange={(e) =>
+                      settings.setPlainOptions({ nullString: e.target.value })
+                    }
+                    size="xs"
+                  />
+                  <TextInput
+                    label="Undefined String"
+                    value={plainOptions.undefinedString}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        undefinedString: e.target.value,
+                      })
+                    }
+                    size="xs"
+                  />
+                </Group>
+                <Group grow align="flex-start">
+                  <TextInput
+                    label="Infinity String"
+                    value={plainOptions.infinityString}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        infinityString: e.target.value,
+                      })
+                    }
+                    size="xs"
+                  />
+                  <TextInput
+                    label="-Infinity String"
+                    value={plainOptions.negativeInfinityString}
+                    onChange={(e) =>
+                      settings.setPlainOptions({
+                        negativeInfinityString: e.target.value,
+                      })
+                    }
+                    size="xs"
+                  />
+                  <TextInput
+                    label="NaN String"
+                    value={plainOptions.nanString}
+                    onChange={(e) =>
+                      settings.setPlainOptions({ nanString: e.target.value })
+                    }
+                    size="xs"
+                  />
+                </Group>
+              </>
+            ) : (
+              <>
+                <Group grow align="flex-start">
+                  <TextInput
+                    label="Type Object"
+                    value={markedOptions.typeObject}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ typeObject: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.typeObject}
+                  />
+                  <TextInput
+                    label="Type Array"
+                    value={markedOptions.typeArray}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ typeArray: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.typeArray}
+                  />
+                  <TextInput
+                    label="Type String"
+                    value={markedOptions.typeString}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ typeString: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.typeString}
+                  />
+                  <TextInput
+                    label="Type Primitive"
+                    value={markedOptions.typePrimitive}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({
+                        typePrimitive: e.target.value,
+                      })
+                    }
+                    size="xs"
+                    error={!markedOptions.typePrimitive}
+                  />
+                </Group>
+                <Group grow align="flex-start" mt="sm">
+                  <TextInput
+                    label="Separator"
+                    value={markedOptions.separator}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ separator: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.separator}
+                  />
+                  <TextInput
+                    label="Terminator"
+                    value={markedOptions.terminator}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ terminator: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.terminator}
+                  />
+                  <TextInput
+                    label="Escape Char"
+                    value={markedOptions.escapeChar}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ escapeChar: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.escapeChar}
+                  />
+                  <TextInput
+                    label="Date Prefix"
+                    value={markedOptions.datePrefix}
+                    onChange={(e) =>
+                      settings.setMarkedOptions({ datePrefix: e.target.value })
+                    }
+                    size="xs"
+                    error={!markedOptions.datePrefix}
+                  />
+                </Group>
+              </>
+            )}
           </>
         )}
       </Card>
@@ -583,48 +669,67 @@ export function Playground() {
               />
             </Group>
 
-            <Divider label="Dynamic filters (dotted keys)" labelPosition="left" />
+            <Divider
+              label="Dynamic filters (dotted keys)"
+              labelPosition="left"
+            />
 
             <Group justify="space-between" align="center">
               <Text size="sm" c="dimmed">
-                <Code>Record&lt;string, (string | number)[]&gt;</Code> with keys like <Code>gpus.architecture</Code>
+                <Code>Record&lt;string, (string | number)[]&gt;</Code> with keys
+                like <Code>gpus.architecture</Code>
               </Text>
-              <Button variant="subtle" size="xs" onClick={state.clearDynamicFilters}>
+              <Button
+                variant="subtle"
+                size="xs"
+                onClick={state.clearDynamicFilters}
+              >
                 Clear
               </Button>
             </Group>
 
-            {Object.entries(DYNAMIC_FILTER_OPTIONS).map(([filterKey, options]) => {
-              const values = asArray<string | number>(state.dynamicFilters[filterKey]);
-              return (
-              <div key={filterKey}>
-                <Text size="sm" fw={500} mb="xs">
-                  {filterKey}
-                </Text>
-                <Chip.Group
-                  multiple
-                  value={values.map(String)}
-                  onChange={(selected) => {
-                    const current = values.map(String);
-                    const added = (selected as string[]).filter((v) => !current.includes(v));
-                    const removed = current.filter((v) => !(selected as string[]).includes(v));
-                    // Resolve back to the original typed value (number or string)
-                    const resolve = (s: string) => options.find((o) => String(o) === s) ?? s;
-                    for (const v of added) state.toggleDynamicFilter(filterKey, resolve(v));
-                    for (const v of removed) state.toggleDynamicFilter(filterKey, resolve(v));
-                  }}
-                >
-                  <Group gap="xs">
-                    {options.map((opt) => (
-                      <Chip key={String(opt)} value={String(opt)} size="sm">
-                        {String(opt)}
-                      </Chip>
-                    ))}
-                  </Group>
-                </Chip.Group>
-              </div>
-              );
-            })}
+            {Object.entries(DYNAMIC_FILTER_OPTIONS).map(
+              ([filterKey, options]) => {
+                const values = asArray<string | number>(
+                  state.dynamicFilters[filterKey],
+                );
+                return (
+                  <div key={filterKey}>
+                    <Text size="sm" fw={500} mb="xs">
+                      {filterKey}
+                    </Text>
+                    <Chip.Group
+                      multiple
+                      value={values.map(String)}
+                      onChange={(selected) => {
+                        const current = values.map(String);
+                        const added = (selected as string[]).filter(
+                          (v) => !current.includes(v),
+                        );
+                        const removed = current.filter(
+                          (v) => !(selected as string[]).includes(v),
+                        );
+                        // Resolve back to the original typed value (number or string)
+                        const resolve = (s: string) =>
+                          options.find((o) => String(o) === s) ?? s;
+                        for (const v of added)
+                          state.toggleDynamicFilter(filterKey, resolve(v));
+                        for (const v of removed)
+                          state.toggleDynamicFilter(filterKey, resolve(v));
+                      }}
+                    >
+                      <Group gap="xs">
+                        {options.map((opt) => (
+                          <Chip key={String(opt)} value={String(opt)} size="sm">
+                            {String(opt)}
+                          </Chip>
+                        ))}
+                      </Group>
+                    </Chip.Group>
+                  </div>
+                );
+              },
+            )}
           </Stack>
         </Card>
 
@@ -648,7 +753,7 @@ export function Playground() {
                 if (!search) return "(empty)";
                 const parts = search.slice(1).split("&");
                 const filtered = parts.filter(
-                  (p) => !p.startsWith("settings=")
+                  (p) => !p.startsWith("settings="),
                 );
                 return filtered.length > 0
                   ? `?${filtered.join("&")}`
@@ -670,63 +775,93 @@ export function Playground() {
         </Title>
         <Code block>
           {(() => {
-            const formatImport = formatType === "marked" 
-              ? "import { createFormat } from 'zustand-querystring/format/marked';"
-              : "import { createFormat } from 'zustand-querystring/format/plain';";
-            
-            const hasCustomMarkedOptions = formatType === "marked" && (
-              markedOptions.typeObject !== "." ||
-              markedOptions.typeArray !== "@" ||
-              markedOptions.typeString !== "=" ||
-              markedOptions.typePrimitive !== ":" ||
-              markedOptions.separator !== "," ||
-              markedOptions.terminator !== "~" ||
-              markedOptions.escapeChar !== "_" ||
-              markedOptions.datePrefix !== "D"
-            );
-            
-            const hasCustomPlainOptions = formatType === "plain" && (
-              plainOptions.entrySeparator !== "," ||
-              plainOptions.nestingSeparator !== "." ||
-              plainOptions.escapeChar !== "_" ||
-              plainOptions.nullString !== "null" ||
-              plainOptions.undefinedString !== "undefined" ||
-              plainOptions.infinityString !== "Infinity" ||
-              plainOptions.negativeInfinityString !== "-Infinity" ||
-              plainOptions.nanString !== "NaN"
-            );
-            
-            const needsCreateFormat = hasCustomMarkedOptions || hasCustomPlainOptions;
-            
+            const formatImport =
+              formatType === "marked"
+                ? "import { createFormat } from 'zustand-querystring/format/marked';"
+                : "import { createFormat } from 'zustand-querystring/format/plain';";
+
+            const hasCustomMarkedOptions =
+              formatType === "marked" &&
+              (markedOptions.typeObject !== "." ||
+                markedOptions.typeArray !== "@" ||
+                markedOptions.typeString !== "=" ||
+                markedOptions.typePrimitive !== ":" ||
+                markedOptions.separator !== "," ||
+                markedOptions.terminator !== "~" ||
+                markedOptions.escapeChar !== "_" ||
+                markedOptions.datePrefix !== "D");
+
+            const hasCustomPlainOptions =
+              formatType === "plain" &&
+              (plainOptions.entrySeparator !== "," ||
+                plainOptions.nestingSeparator !== "." ||
+                plainOptions.escapeChar !== "_" ||
+                plainOptions.nullString !== "null" ||
+                plainOptions.undefinedString !== "undefined" ||
+                plainOptions.infinityString !== "Infinity" ||
+                plainOptions.negativeInfinityString !== "-Infinity" ||
+                plainOptions.nanString !== "NaN");
+
+            const needsCreateFormat =
+              hasCustomMarkedOptions || hasCustomPlainOptions;
+
             let formatConfig = "";
             if (needsCreateFormat) {
               if (formatType === "marked") {
                 const opts: string[] = [];
-                if (markedOptions.typeObject !== ".") opts.push(`  typeObject: "${markedOptions.typeObject}"`);
-                if (markedOptions.typeArray !== "@") opts.push(`  typeArray: "${markedOptions.typeArray}"`);
-                if (markedOptions.typeString !== "=") opts.push(`  typeString: "${markedOptions.typeString}"`);
-                if (markedOptions.typePrimitive !== ":") opts.push(`  typePrimitive: "${markedOptions.typePrimitive}"`);
-                if (markedOptions.separator !== ",") opts.push(`  separator: "${markedOptions.separator}"`);
-                if (markedOptions.terminator !== "~") opts.push(`  terminator: "${markedOptions.terminator}"`);
-                if (markedOptions.escapeChar !== "_") opts.push(`  escapeChar: "${markedOptions.escapeChar}"`);
-                if (markedOptions.datePrefix !== "D") opts.push(`  datePrefix: "${markedOptions.datePrefix}"`);
+                if (markedOptions.typeObject !== ".")
+                  opts.push(`  typeObject: "${markedOptions.typeObject}"`);
+                if (markedOptions.typeArray !== "@")
+                  opts.push(`  typeArray: "${markedOptions.typeArray}"`);
+                if (markedOptions.typeString !== "=")
+                  opts.push(`  typeString: "${markedOptions.typeString}"`);
+                if (markedOptions.typePrimitive !== ":")
+                  opts.push(
+                    `  typePrimitive: "${markedOptions.typePrimitive}"`,
+                  );
+                if (markedOptions.separator !== ",")
+                  opts.push(`  separator: "${markedOptions.separator}"`);
+                if (markedOptions.terminator !== "~")
+                  opts.push(`  terminator: "${markedOptions.terminator}"`);
+                if (markedOptions.escapeChar !== "_")
+                  opts.push(`  escapeChar: "${markedOptions.escapeChar}"`);
+                if (markedOptions.datePrefix !== "D")
+                  opts.push(`  datePrefix: "${markedOptions.datePrefix}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               } else {
                 const opts: string[] = [];
-                if (plainOptions.entrySeparator !== ",") opts.push(`  entrySeparator: "${plainOptions.entrySeparator}"`);
-                if (plainOptions.nestingSeparator !== ".") opts.push(`  nestingSeparator: "${plainOptions.nestingSeparator}"`);
-                if (plainOptions.escapeChar !== "_") opts.push(`  escapeChar: "${plainOptions.escapeChar}"`);
-                if (plainOptions.nullString !== "null") opts.push(`  nullString: "${plainOptions.nullString}"`);
-                if (plainOptions.undefinedString !== "undefined") opts.push(`  undefinedString: "${plainOptions.undefinedString}"`);
-                if (plainOptions.infinityString !== "Infinity") opts.push(`  infinityString: "${plainOptions.infinityString}"`);
-                if (plainOptions.negativeInfinityString !== "-Infinity") opts.push(`  negativeInfinityString: "${plainOptions.negativeInfinityString}"`);
-                if (plainOptions.nanString !== "NaN") opts.push(`  nanString: "${plainOptions.nanString}"`);
+                if (plainOptions.entrySeparator !== ",")
+                  opts.push(
+                    `  entrySeparator: "${plainOptions.entrySeparator}"`,
+                  );
+                if (plainOptions.nestingSeparator !== ".")
+                  opts.push(
+                    `  nestingSeparator: "${plainOptions.nestingSeparator}"`,
+                  );
+                if (plainOptions.escapeChar !== "_")
+                  opts.push(`  escapeChar: "${plainOptions.escapeChar}"`);
+                if (plainOptions.nullString !== "null")
+                  opts.push(`  nullString: "${plainOptions.nullString}"`);
+                if (plainOptions.undefinedString !== "undefined")
+                  opts.push(
+                    `  undefinedString: "${plainOptions.undefinedString}"`,
+                  );
+                if (plainOptions.infinityString !== "Infinity")
+                  opts.push(
+                    `  infinityString: "${plainOptions.infinityString}"`,
+                  );
+                if (plainOptions.negativeInfinityString !== "-Infinity")
+                  opts.push(
+                    `  negativeInfinityString: "${plainOptions.negativeInfinityString}"`,
+                  );
+                if (plainOptions.nanString !== "NaN")
+                  opts.push(`  nanString: "${plainOptions.nanString}"`);
                 formatConfig = `const format = createFormat({\n${opts.join(",\n")}\n});`;
               }
             }
-            
+
             const formatValue = needsCreateFormat ? "format" : formatType;
-            
+
             return `import { create } from 'zustand';
 import { querystring } from 'zustand-querystring';
 ${needsCreateFormat ? formatImport + "\n" : ""}
@@ -750,7 +885,6 @@ ${formatConfig ? formatConfig + "\n\n" : ""}const useStore = create(
           })()}
         </Code>
       </Card>
-
     </Stack>
   );
 }

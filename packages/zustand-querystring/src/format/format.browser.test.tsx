@@ -1,9 +1,9 @@
 /**
  * Comprehensive Browser Tests for URL State Serialization
- * 
+ *
  * These tests verify the full round-trip: state → URL → page refresh → state
  * with complex state objects that exercise all parser branches.
- * 
+ *
  * Test matrix:
  * - Formats: marked, plain
  * - Modes: standalone (key: false), namespaced (key: string)
@@ -33,12 +33,12 @@ interface ComplexState {
   active: boolean;
   verified: boolean;
   nothing: null;
-  
+
   // Arrays
   tags: string[];
   scores: number[];
   flags: boolean[];
-  
+
   // Nested objects
   user: {
     name: string;
@@ -53,17 +53,17 @@ interface ComplexState {
       };
     };
   };
-  
+
   // Array of objects
   items: Array<{
     id: number;
     name: string;
     active: boolean;
   }>;
-  
+
   // Date
   created: Date;
-  
+
   // Actions (excluded from serialization)
   setSearch: (search: string) => void;
   setCount: (count: number) => void;
@@ -152,9 +152,7 @@ const specialCharsState = {
       },
     },
   },
-  items: [
-    { id: 1, name: 'Item=1', active: true },
-  ],
+  items: [{ id: 1, name: 'Item=1', active: true }],
   created: new Date('2024-01-01T00:00:00.000Z'),
 };
 
@@ -190,7 +188,7 @@ const unicodeState = {
 // The 150ms delay lets pending setTimeout(setQuery, 100) from previous stores drain
 // so they don't corrupt the next test's URL.
 beforeEach(async () => {
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise(r => setTimeout(r, 150));
   window.history.replaceState({}, '', window.location.pathname);
 });
 
@@ -201,19 +199,23 @@ beforeEach(async () => {
 function createComplexStore(format: any, key: string | false) {
   return create<ComplexState>()(
     querystring(
-      (set) => ({
+      set => ({
         ...initialComplexState,
-        setSearch: (search) => set({ search }),
-        setCount: (count) => set({ count }),
-        setAll: (state) => set(state),
+        setSearch: search => set({ search }),
+        setCount: count => set({ count }),
+        setAll: state => set(state),
         reset: () => set(initialComplexState),
       }),
-      { key, format }
-    )
+      { key, format },
+    ),
   );
 }
 
-function ComplexStateDisplay({ store }: { store: ReturnType<typeof createComplexStore> }) {
+function ComplexStateDisplay({
+  store,
+}: {
+  store: ReturnType<typeof createComplexStore>;
+}) {
   const state = store();
   return (
     <div>
@@ -225,27 +227,45 @@ function ComplexStateDisplay({ store }: { store: ReturnType<typeof createComplex
       <span data-testid="active">{String(state.active)}</span>
       <span data-testid="active-type">{typeof state.active}</span>
       <span data-testid="verified">{String(state.verified)}</span>
-      <span data-testid="nothing">{state.nothing === null ? 'null' : 'not-null'}</span>
+      <span data-testid="nothing">
+        {state.nothing === null ? 'null' : 'not-null'}
+      </span>
       <span data-testid="tags">{JSON.stringify(state.tags)}</span>
       <span data-testid="scores">{JSON.stringify(state.scores)}</span>
-      <span data-testid="scores-types">{state.scores.map(s => typeof s).join(',')}</span>
+      <span data-testid="scores-types">
+        {state.scores.map(s => typeof s).join(',')}
+      </span>
       <span data-testid="flags">{JSON.stringify(state.flags)}</span>
-      <span data-testid="flags-types">{state.flags.map(f => typeof f).join(',')}</span>
+      <span data-testid="flags-types">
+        {state.flags.map(f => typeof f).join(',')}
+      </span>
       <span data-testid="user-name">{state.user.name}</span>
       <span data-testid="user-age">{state.user.age}</span>
       <span data-testid="user-age-type">{typeof state.user.age}</span>
       <span data-testid="user-email">{state.user.email}</span>
       <span data-testid="user-theme">{state.user.settings.theme}</span>
-      <span data-testid="user-notifications">{String(state.user.settings.notifications)}</span>
+      <span data-testid="user-notifications">
+        {String(state.user.settings.notifications)}
+      </span>
       <span data-testid="user-daily">{state.user.settings.limits.daily}</span>
-      <span data-testid="user-monthly">{state.user.settings.limits.monthly}</span>
+      <span data-testid="user-monthly">
+        {state.user.settings.limits.monthly}
+      </span>
       <span data-testid="items">{JSON.stringify(state.items)}</span>
       <span data-testid="items-length">{state.items.length}</span>
       <span data-testid="created">{state.created.getTime()}</span>
-      <span data-testid="created-is-date">{String(state.created instanceof Date)}</span>
-      <button onClick={() => state.setAll(complexTestState as any)}>Set Complex</button>
-      <button onClick={() => state.setAll(specialCharsState as any)}>Set Special</button>
-      <button onClick={() => state.setAll(unicodeState as any)}>Set Unicode</button>
+      <span data-testid="created-is-date">
+        {String(state.created instanceof Date)}
+      </span>
+      <button onClick={() => state.setAll(complexTestState as any)}>
+        Set Complex
+      </button>
+      <button onClick={() => state.setAll(specialCharsState as any)}>
+        Set Special
+      </button>
+      <button onClick={() => state.setAll(unicodeState as any)}>
+        Set Unicode
+      </button>
     </div>
   );
 }
@@ -259,57 +279,117 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
     describe('default configuration', () => {
       it('should round-trip complex state with all types', async () => {
         const useStore = createComplexStore(marked, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
-        
+
         // Verify all values
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('price')).toHaveTextContent('99.99');
-        await expect.element(page.getByTestId('price-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('active')).toHaveTextContent('true');
-        await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
-        await expect.element(page.getByTestId('verified')).toHaveTextContent('false');
-        await expect.element(page.getByTestId('nothing')).toHaveTextContent('null');
-        await expect.element(page.getByTestId('tags')).toHaveTextContent('["typescript","react","zustand"]');
-        await expect.element(page.getByTestId('scores')).toHaveTextContent('[100,85,92]');
-        await expect.element(page.getByTestId('scores-types')).toHaveTextContent('number,number,number');
-        await expect.element(page.getByTestId('flags')).toHaveTextContent('[true,false,true]');
-        await expect.element(page.getByTestId('flags-types')).toHaveTextContent('boolean,boolean,boolean');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
-        await expect.element(page.getByTestId('user-age')).toHaveTextContent('30');
-        await expect.element(page.getByTestId('user-age-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('user-theme')).toHaveTextContent('dark');
-        await expect.element(page.getByTestId('user-notifications')).toHaveTextContent('false');
-        await expect.element(page.getByTestId('user-daily')).toHaveTextContent('500');
-        await expect.element(page.getByTestId('user-monthly')).toHaveTextContent('5000');
-        await expect.element(page.getByTestId('items-length')).toHaveTextContent('2');
-        await expect.element(page.getByTestId('created-is-date')).toHaveTextContent('true');
+        await expect
+          .element(page.getByTestId('count-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('price'))
+          .toHaveTextContent('99.99');
+        await expect
+          .element(page.getByTestId('price-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('active'))
+          .toHaveTextContent('true');
+        await expect
+          .element(page.getByTestId('active-type'))
+          .toHaveTextContent('boolean');
+        await expect
+          .element(page.getByTestId('verified'))
+          .toHaveTextContent('false');
+        await expect
+          .element(page.getByTestId('nothing'))
+          .toHaveTextContent('null');
+        await expect
+          .element(page.getByTestId('tags'))
+          .toHaveTextContent('["typescript","react","zustand"]');
+        await expect
+          .element(page.getByTestId('scores'))
+          .toHaveTextContent('[100,85,92]');
+        await expect
+          .element(page.getByTestId('scores-types'))
+          .toHaveTextContent('number,number,number');
+        await expect
+          .element(page.getByTestId('flags'))
+          .toHaveTextContent('[true,false,true]');
+        await expect
+          .element(page.getByTestId('flags-types'))
+          .toHaveTextContent('boolean,boolean,boolean');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('John Doe');
+        await expect
+          .element(page.getByTestId('user-age'))
+          .toHaveTextContent('30');
+        await expect
+          .element(page.getByTestId('user-age-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('user-theme'))
+          .toHaveTextContent('dark');
+        await expect
+          .element(page.getByTestId('user-notifications'))
+          .toHaveTextContent('false');
+        await expect
+          .element(page.getByTestId('user-daily'))
+          .toHaveTextContent('500');
+        await expect
+          .element(page.getByTestId('user-monthly'))
+          .toHaveTextContent('5000');
+        await expect
+          .element(page.getByTestId('items-length'))
+          .toHaveTextContent('2');
+        await expect
+          .element(page.getByTestId('created-is-date'))
+          .toHaveTextContent('true');
       });
 
       it('should round-trip state with special characters', async () => {
         const useStore = createComplexStore(marked, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Special' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('test.@=:,~/value');
-        await expect.element(page.getByTestId('tags')).toHaveTextContent('["tag.with.dots","tag,with,commas","tag~with~tildes"]');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('José García');
-        await expect.element(page.getByTestId('user-theme')).toHaveTextContent('dark/light');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('test.@=:,~/value');
+        await expect
+          .element(page.getByTestId('tags'))
+          .toHaveTextContent(
+            '["tag.with.dots","tag,with,commas","tag~with~tildes"]',
+          );
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('José García');
+        await expect
+          .element(page.getByTestId('user-theme'))
+          .toHaveTextContent('dark/light');
       });
 
       it('should round-trip unicode characters', async () => {
         const useStore = createComplexStore(marked, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Unicode' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('你好世界 👋🌍 café');
-        await expect.element(page.getByTestId('tags')).toHaveTextContent('["日本語","العربية","한국어"]');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('Müller');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('你好世界 👋🌍 café');
+        await expect
+          .element(page.getByTestId('tags'))
+          .toHaveTextContent('["日本語","العربية","한국어"]');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('Müller');
       });
 
       it('should restore complex state from URL on mount', async () => {
@@ -326,23 +406,39 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
         const useStore = createComplexStore(marked, false);
         render(<ComplexStateDisplay store={useStore} />);
 
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('active')).toHaveTextContent('true');
-        await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
+        await expect
+          .element(page.getByTestId('count-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('active'))
+          .toHaveTextContent('true');
+        await expect
+          .element(page.getByTestId('active-type'))
+          .toHaveTextContent('boolean');
       });
     });
 
     describe('custom configuration', () => {
-      const customConfigs: Array<{ name: string; options: MarkedFormatOptions }> = [
+      const customConfigs: Array<{
+        name: string;
+        options: MarkedFormatOptions;
+      }> = [
         {
           name: 'alternative separators',
           options: { separator: ';', terminator: '!' },
         },
         {
           name: 'alternative type markers',
-          options: { typeObject: 'O', typeArray: 'A', typeString: 'S', typePrimitive: 'P' },
+          options: {
+            typeObject: 'O',
+            typeArray: 'A',
+            typeString: 'S',
+            typePrimitive: 'P',
+          },
         },
         {
           name: 'alternative escape char',
@@ -371,18 +467,34 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
         it(`should round-trip complex state with ${config.name}`, async () => {
           const format = createMarkedFormat(config.options);
           const useStore = createComplexStore(format, false);
-          
+
           render(<ComplexStateDisplay store={useStore} />);
           await page.getByRole('button', { name: 'Set Complex' }).click();
-          
-          await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
-          await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-          await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-          await expect.element(page.getByTestId('active')).toHaveTextContent('true');
-          await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
-          await expect.element(page.getByTestId('tags')).toHaveTextContent('["typescript","react","zustand"]');
-          await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
-          await expect.element(page.getByTestId('created-is-date')).toHaveTextContent('true');
+
+          await expect
+            .element(page.getByTestId('search'))
+            .toHaveTextContent('hello, world');
+          await expect
+            .element(page.getByTestId('count'))
+            .toHaveTextContent('42');
+          await expect
+            .element(page.getByTestId('count-type'))
+            .toHaveTextContent('number');
+          await expect
+            .element(page.getByTestId('active'))
+            .toHaveTextContent('true');
+          await expect
+            .element(page.getByTestId('active-type'))
+            .toHaveTextContent('boolean');
+          await expect
+            .element(page.getByTestId('tags'))
+            .toHaveTextContent('["typescript","react","zustand"]');
+          await expect
+            .element(page.getByTestId('user-name'))
+            .toHaveTextContent('John Doe');
+          await expect
+            .element(page.getByTestId('created-is-date'))
+            .toHaveTextContent('true');
         });
 
         it(`should restore state from URL with ${config.name}`, async () => {
@@ -399,9 +511,15 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
           const useStore = createComplexStore(format, false);
           render(<ComplexStateDisplay store={useStore} />);
 
-          await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
-          await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-          await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
+          await expect
+            .element(page.getByTestId('search'))
+            .toHaveTextContent('hello, world');
+          await expect
+            .element(page.getByTestId('count-type'))
+            .toHaveTextContent('number');
+          await expect
+            .element(page.getByTestId('active-type'))
+            .toHaveTextContent('boolean');
         });
       }
     });
@@ -411,23 +529,41 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
     describe('default configuration', () => {
       it('should round-trip complex state in single param', async () => {
         const useStore = createComplexStore(marked, 'state');
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
-        
+
         // URL should contain single 'state' param
         expect(window.location.search).toContain('state=');
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('price')).toHaveTextContent('99.99');
-        await expect.element(page.getByTestId('active')).toHaveTextContent('true');
-        await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
-        await expect.element(page.getByTestId('tags')).toHaveTextContent('["typescript","react","zustand"]');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
-        await expect.element(page.getByTestId('user-daily')).toHaveTextContent('500');
-        await expect.element(page.getByTestId('items-length')).toHaveTextContent('2');
+        await expect
+          .element(page.getByTestId('count-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('price'))
+          .toHaveTextContent('99.99');
+        await expect
+          .element(page.getByTestId('active'))
+          .toHaveTextContent('true');
+        await expect
+          .element(page.getByTestId('active-type'))
+          .toHaveTextContent('boolean');
+        await expect
+          .element(page.getByTestId('tags'))
+          .toHaveTextContent('["typescript","react","zustand"]');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('John Doe');
+        await expect
+          .element(page.getByTestId('user-daily'))
+          .toHaveTextContent('500');
+        await expect
+          .element(page.getByTestId('items-length'))
+          .toHaveTextContent('2');
       });
 
       it('should restore complex state from namespaced URL', async () => {
@@ -437,20 +573,30 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
         const useStore = createComplexStore(marked, 'state');
         render(<ComplexStateDisplay store={useStore} />);
 
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
+        await expect
+          .element(page.getByTestId('count-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('John Doe');
       });
 
       it('should handle special characters in namespaced mode', async () => {
         const useStore = createComplexStore(marked, 'state');
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Special' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('test.@=:,~/value');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('José García');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('test.@=:,~/value');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('José García');
       });
     });
 
@@ -467,14 +613,20 @@ describe('Marked Format - Comprehensive Browser Tests', () => {
           datePrefix: 'T',
         });
         const useStore = createComplexStore(format, 'mystate');
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
-        
+
         expect(window.location.search).toContain('mystate=');
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
-        await expect.element(page.getByTestId('count-type')).toHaveTextContent('number');
-        await expect.element(page.getByTestId('active-type')).toHaveTextContent('boolean');
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
+        await expect
+          .element(page.getByTestId('count-type'))
+          .toHaveTextContent('number');
+        await expect
+          .element(page.getByTestId('active-type'))
+          .toHaveTextContent('boolean');
       });
     });
   });
@@ -489,39 +641,63 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
     describe('default configuration', () => {
       it('should round-trip complex state', async () => {
         const useStore = createComplexStore(plain, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Complex' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('price')).toHaveTextContent('99.99');
-        await expect.element(page.getByTestId('active')).toHaveTextContent('true');
-        await expect.element(page.getByTestId('verified')).toHaveTextContent('false');
-        await expect.element(page.getByTestId('nothing')).toHaveTextContent('null');
-        await expect.element(page.getByTestId('tags')).toHaveTextContent('["typescript","react","zustand"]');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
-        await expect.element(page.getByTestId('user-theme')).toHaveTextContent('dark');
+        await expect
+          .element(page.getByTestId('price'))
+          .toHaveTextContent('99.99');
+        await expect
+          .element(page.getByTestId('active'))
+          .toHaveTextContent('true');
+        await expect
+          .element(page.getByTestId('verified'))
+          .toHaveTextContent('false');
+        await expect
+          .element(page.getByTestId('nothing'))
+          .toHaveTextContent('null');
+        await expect
+          .element(page.getByTestId('tags'))
+          .toHaveTextContent('["typescript","react","zustand"]');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('John Doe');
+        await expect
+          .element(page.getByTestId('user-theme'))
+          .toHaveTextContent('dark');
       });
 
       it('should round-trip special characters', async () => {
         const useStore = createComplexStore(plain, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Special' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('test.@=:,~/value');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('José García');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('test.@=:,~/value');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('José García');
       });
 
       it('should round-trip unicode', async () => {
         const useStore = createComplexStore(plain, false);
-        
+
         render(<ComplexStateDisplay store={useStore} />);
         await page.getByRole('button', { name: 'Set Unicode' }).click();
-        
-        await expect.element(page.getByTestId('search')).toHaveTextContent('你好世界 👋🌍 café');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('Müller');
+
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('你好世界 👋🌍 café');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('Müller');
       });
 
       it('should restore state from URL', async () => {
@@ -537,14 +713,21 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
         const useStore = createComplexStore(plain, false);
         render(<ComplexStateDisplay store={useStore} />);
 
-        await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+        await expect
+          .element(page.getByTestId('search'))
+          .toHaveTextContent('hello, world');
         await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-        await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
+        await expect
+          .element(page.getByTestId('user-name'))
+          .toHaveTextContent('John Doe');
       });
     });
 
     describe('custom configuration', () => {
-      const customConfigs: Array<{ name: string; options: PlainFormatOptions }> = [
+      const customConfigs: Array<{
+        name: string;
+        options: PlainFormatOptions;
+      }> = [
         {
           name: 'semicolon entry separator',
           options: { entrySeparator: ';' },
@@ -577,13 +760,19 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
         it(`should round-trip with ${config.name}`, async () => {
           const format = createPlainFormat(config.options);
           const useStore = createComplexStore(format, false);
-          
+
           render(<ComplexStateDisplay store={useStore} />);
           await page.getByRole('button', { name: 'Set Complex' }).click();
-          
-          await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
-          await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-          await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
+
+          await expect
+            .element(page.getByTestId('search'))
+            .toHaveTextContent('hello, world');
+          await expect
+            .element(page.getByTestId('count'))
+            .toHaveTextContent('42');
+          await expect
+            .element(page.getByTestId('user-name'))
+            .toHaveTextContent('John Doe');
         });
       }
     });
@@ -592,14 +781,18 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
   describe('namespaced mode (key: "state")', () => {
     it('should round-trip complex state in single param', async () => {
       const useStore = createComplexStore(plain, 'state');
-      
+
       render(<ComplexStateDisplay store={useStore} />);
       await page.getByRole('button', { name: 'Set Complex' }).click();
-      
+
       expect(window.location.search).toContain('state=');
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
       await expect.element(page.getByTestId('count')).toHaveTextContent('42');
-      await expect.element(page.getByTestId('user-name')).toHaveTextContent('John Doe');
+      await expect
+        .element(page.getByTestId('user-name'))
+        .toHaveTextContent('John Doe');
     });
 
     it('should restore from namespaced URL', async () => {
@@ -609,7 +802,9 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
       const useStore = createComplexStore(plain, 'state');
       render(<ComplexStateDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
       await expect.element(page.getByTestId('count')).toHaveTextContent('42');
     });
 
@@ -620,12 +815,14 @@ describe('Plain Format - Comprehensive Browser Tests', () => {
         escapeChar: '\\',
       });
       const useStore = createComplexStore(format, 'data');
-      
+
       render(<ComplexStateDisplay store={useStore} />);
       await page.getByRole('button', { name: 'Set Complex' }).click();
-      
+
       expect(window.location.search).toContain('data=');
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
     });
   });
 });
@@ -644,9 +841,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       const useStore = create<Store>()(
         querystring(
-          (set) => ({ text: 'initial', setText: (text) => set({ text }) }),
-          { key: false, format: marked }
-        )
+          set => ({ text: 'initial', setText: text => set({ text }) }),
+          { key: false, format: marked },
+        ),
       );
 
       function TestComponent() {
@@ -661,7 +858,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Clear' }).click();
-      await expect.element(page.getByTestId('text')).toHaveTextContent('(empty)');
+      await expect
+        .element(page.getByTestId('text'))
+        .toHaveTextContent('(empty)');
     });
 
     it('should handle empty array', async () => {
@@ -672,9 +871,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       const useStore = create<Store>()(
         querystring(
-          (set) => ({ items: ['a', 'b'], setItems: (items) => set({ items }) }),
-          { key: false, format: marked }
-        )
+          set => ({ items: ['a', 'b'], setItems: items => set({ items }) }),
+          { key: false, format: marked },
+        ),
       );
 
       function TestComponent() {
@@ -702,9 +901,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       const useStore = create<Store>()(
         querystring(
-          (set) => ({ search: '', setSearch: (search) => set({ search }) }),
-          { key: false, format: marked }
-        )
+          set => ({ search: '', setSearch: search => set({ search }) }),
+          { key: false, format: marked },
+        ),
       );
 
       function TestComponent() {
@@ -719,7 +918,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
     });
 
     it('marked: should restore comma in string from URL', async () => {
@@ -731,19 +932,18 @@ describe('Edge Cases and Regression Tests', () => {
       window.history.replaceState({}, '', `?search=${encoded.search[0]}`);
 
       const useStore = create<Store>()(
-        querystring(
-          () => ({ search: '' }),
-          { key: false, format: marked }
-        )
+        querystring(() => ({ search: '' }), { key: false, format: marked }),
       );
 
       function TestComponent() {
-        const search = useStore((s) => s.search);
+        const search = useStore(s => s.search);
         return <span data-testid="search">{search}</span>;
       }
 
       render(<TestComponent />);
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
     });
 
     it('plain: should preserve comma in string through round-trip', async () => {
@@ -754,9 +954,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       const useStore = create<Store>()(
         querystring(
-          (set) => ({ search: '', setSearch: (search) => set({ search }) }),
-          { key: false, format: plain }
-        )
+          set => ({ search: '', setSearch: search => set({ search }) }),
+          { key: false, format: plain },
+        ),
       );
 
       function TestComponent() {
@@ -771,7 +971,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('search')).toHaveTextContent('hello, world');
+      await expect
+        .element(page.getByTestId('search'))
+        .toHaveTextContent('hello, world');
     });
   });
 
@@ -783,10 +985,10 @@ describe('Edge Cases and Regression Tests', () => {
       }
 
       const useStore = create<Store>()(
-        querystring(
-          (set) => ({ price: 0, setPrice: (price) => set({ price }) }),
-          { key: false, format: marked }
-        )
+        querystring(set => ({ price: 0, setPrice: price => set({ price }) }), {
+          key: false,
+          format: marked,
+        }),
       );
 
       function TestComponent() {
@@ -802,8 +1004,12 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('price')).toHaveTextContent('99.99');
-      await expect.element(page.getByTestId('type')).toHaveTextContent('number');
+      await expect
+        .element(page.getByTestId('price'))
+        .toHaveTextContent('99.99');
+      await expect
+        .element(page.getByTestId('type'))
+        .toHaveTextContent('number');
     });
   });
 
@@ -815,10 +1021,10 @@ describe('Edge Cases and Regression Tests', () => {
       }
 
       const useStore = create<Store>()(
-        querystring(
-          (set) => ({ value: 0, setValue: (value) => set({ value }) }),
-          { key: false, format: marked }
-        )
+        querystring(set => ({ value: 0, setValue: value => set({ value }) }), {
+          key: false,
+          format: marked,
+        }),
       );
 
       function TestComponent() {
@@ -834,8 +1040,12 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('value')).toHaveTextContent('-42.5');
-      await expect.element(page.getByTestId('type')).toHaveTextContent('number');
+      await expect
+        .element(page.getByTestId('value'))
+        .toHaveTextContent('-42.5');
+      await expect
+        .element(page.getByTestId('type'))
+        .toHaveTextContent('number');
     });
   });
 
@@ -848,12 +1058,12 @@ describe('Edge Cases and Regression Tests', () => {
 
       const useStore = create<DeepState>()(
         querystring(
-          (set) => ({
+          set => ({
             a: { b: { c: { d: { e: '' } } } },
-            setE: (e) => set({ a: { b: { c: { d: { e } } } } }),
+            setE: e => set({ a: { b: { c: { d: { e } } } } }),
           }),
-          { key: false, format: marked }
-        )
+          { key: false, format: marked },
+        ),
       );
 
       function TestComponent() {
@@ -868,7 +1078,9 @@ describe('Edge Cases and Regression Tests', () => {
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('e')).toHaveTextContent('deep value');
+      await expect
+        .element(page.getByTestId('e'))
+        .toHaveTextContent('deep value');
     });
   });
 
@@ -880,10 +1092,10 @@ describe('Edge Cases and Regression Tests', () => {
       }
 
       const useStore = create<Store>()(
-        querystring(
-          (set) => ({ items: [], setItems: (items) => set({ items }) }),
-          { key: false, format: marked }
-        )
+        querystring(set => ({ items: [], setItems: items => set({ items }) }), {
+          key: false,
+          format: marked,
+        }),
       );
 
       function TestComponent() {
@@ -892,7 +1104,16 @@ describe('Edge Cases and Regression Tests', () => {
           <div>
             <span data-testid="items">{JSON.stringify(items)}</span>
             <span data-testid="count">{items.length}</span>
-            <button onClick={() => setItems([{ id: 1, name: 'A' }, { id: 2, name: 'B' }])}>Set</button>
+            <button
+              onClick={() =>
+                setItems([
+                  { id: 1, name: 'A' },
+                  { id: 2, name: 'B' },
+                ])
+              }
+            >
+              Set
+            </button>
           </div>
         );
       }
@@ -900,7 +1121,9 @@ describe('Edge Cases and Regression Tests', () => {
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
       await expect.element(page.getByTestId('count')).toHaveTextContent('2');
-      await expect.element(page.getByTestId('items')).toHaveTextContent('[{"id":1,"name":"A"},{"id":2,"name":"B"}]');
+      await expect
+        .element(page.getByTestId('items'))
+        .toHaveTextContent('[{"id":1,"name":"A"},{"id":2,"name":"B"}]');
     });
   });
 
@@ -912,10 +1135,10 @@ describe('Edge Cases and Regression Tests', () => {
       }
 
       const useStore = create<Store>()(
-        querystring(
-          (set) => ({ mixed: [], setMixed: (mixed) => set({ mixed }) }),
-          { key: false, format: marked }
-        )
+        querystring(set => ({ mixed: [], setMixed: mixed => set({ mixed }) }), {
+          key: false,
+          format: marked,
+        }),
       );
 
       function TestComponent() {
@@ -923,16 +1146,26 @@ describe('Edge Cases and Regression Tests', () => {
         return (
           <div>
             <span data-testid="mixed">{JSON.stringify(mixed)}</span>
-            <span data-testid="types">{mixed.map(m => typeof m).join(',')}</span>
-            <button onClick={() => setMixed(['text', 42, true, 'more', 0, false])}>Set</button>
+            <span data-testid="types">
+              {mixed.map(m => typeof m).join(',')}
+            </span>
+            <button
+              onClick={() => setMixed(['text', 42, true, 'more', 0, false])}
+            >
+              Set
+            </button>
           </div>
         );
       }
 
       render(<TestComponent />);
       await page.getByRole('button', { name: 'Set' }).click();
-      await expect.element(page.getByTestId('mixed')).toHaveTextContent('["text",42,true,"more",0,false]');
-      await expect.element(page.getByTestId('types')).toHaveTextContent('string,number,boolean,string,number,boolean');
+      await expect
+        .element(page.getByTestId('mixed'))
+        .toHaveTextContent('["text",42,true,"more",0,false]');
+      await expect
+        .element(page.getByTestId('types'))
+        .toHaveTextContent('string,number,boolean,string,number,boolean');
     });
   });
 });
@@ -959,28 +1192,36 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
   function createFilterStore(format: any, key: string | false) {
     return create<FilterState>()(
       querystring(
-        (set) => ({
+        set => ({
           ...filterInitialState,
-          setQuery: (query) => set({ query }),
-          setFilters: (filters) => set({ filters }),
+          setQuery: query => set({ query }),
+          setFilters: filters => set({ filters }),
           clearFilters: () => set({ filters: {} }),
         }),
-        { key, format }
-      )
+        { key, format },
+      ),
     );
   }
 
-  function FilterDisplay({ store }: { store: ReturnType<typeof createFilterStore> }) {
+  function FilterDisplay({
+    store,
+  }: {
+    store: ReturnType<typeof createFilterStore>;
+  }) {
     const state = store();
     return (
       <div>
         <span data-testid="query">{state.query}</span>
         <span data-testid="filters">{JSON.stringify(state.filters)}</span>
         <span data-testid="url">{window.location.search}</span>
-        <button onClick={() => {
-          state.setQuery('ubuntu');
-          state.setFilters({ 'gpus.architecture': ['Blackwell', 'Ada'] });
-        }}>Set Filters</button>
+        <button
+          onClick={() => {
+            state.setQuery('ubuntu');
+            state.setFilters({ 'gpus.architecture': ['Blackwell', 'Ada'] });
+          }}
+        >
+          Set Filters
+        </button>
         <button onClick={() => state.clearFilters()}>Clear Filters</button>
         <button onClick={() => state.setQuery('')}>Clear Query</button>
       </div>
@@ -993,8 +1234,12 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should restore filter array from URL on mount (comma-separated)', async () => {
@@ -1014,9 +1259,13 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       const useStore = createFilterStore(plain, false);
       render(<FilterDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
       // This is the key assertion: the array should be parsed as two values, not one string
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should clear filters from URL when reset to {}', async () => {
@@ -1025,7 +1274,9 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
 
       // Set filters
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
 
       // Verify URL has filter params
       const urlAfterSet = window.location.search;
@@ -1048,8 +1299,12 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should restore filter array from URL on mount (repeated keys)', async () => {
@@ -1069,8 +1324,12 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should clear filters from URL when reset to {}', async () => {
@@ -1079,7 +1338,9 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
       expect(window.location.search).toContain('filters');
 
       await page.getByRole('button', { name: 'Clear Filters' }).click();
@@ -1090,12 +1351,17 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
 
   describe('plain format with nestingSeparator: ":", arraySeparator: "repeat"', () => {
     it('should use colon for nesting and not escape dots in filter keys', async () => {
-      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
+      const format = createPlainFormat({
+        nestingSeparator: ':',
+        arraySeparator: 'repeat',
+      });
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
 
       // With ':' as nesting separator, dots in keys should NOT be escaped
       expect(window.location.search).toContain('gpus.architecture');
@@ -1103,23 +1369,39 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
     });
 
     it('should restore from URL on mount', async () => {
-      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
-      window.history.replaceState({}, '', '?query=ubuntu&filters:gpus.architecture=Blackwell&filters:gpus.architecture=Ada');
+      const format = createPlainFormat({
+        nestingSeparator: ':',
+        arraySeparator: 'repeat',
+      });
+      window.history.replaceState(
+        {},
+        '',
+        '?query=ubuntu&filters:gpus.architecture=Blackwell&filters:gpus.architecture=Ada',
+      );
 
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should clear filters from URL when reset to {}', async () => {
-      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: 'repeat' });
+      const format = createPlainFormat({
+        nestingSeparator: ':',
+        arraySeparator: 'repeat',
+      });
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
 
       await page.getByRole('button', { name: 'Clear Filters' }).click();
       await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
@@ -1129,24 +1411,40 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
 
   describe('plain format with nestingSeparator: ":", arraySeparator: ","', () => {
     it('should serialize and restore comma-separated array with colon nesting', async () => {
-      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: ',' });
+      const format = createPlainFormat({
+        nestingSeparator: ':',
+        arraySeparator: ',',
+      });
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should restore comma-separated array from URL on mount', async () => {
-      const format = createPlainFormat({ nestingSeparator: ':', arraySeparator: ',' });
-      window.history.replaceState({}, '', '?query=ubuntu&filters:gpus.architecture=Blackwell,Ada');
+      const format = createPlainFormat({
+        nestingSeparator: ':',
+        arraySeparator: ',',
+      });
+      window.history.replaceState(
+        {},
+        '',
+        '?query=ubuntu&filters:gpus.architecture=Blackwell,Ada',
+      );
 
       const useStore = createFilterStore(format, false);
       render(<FilterDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
       // The key assertion: comma-joined values should be parsed as array
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
   });
 
@@ -1156,8 +1454,12 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should restore from URL on mount', async () => {
@@ -1176,8 +1478,12 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       const useStore = createFilterStore(marked, false);
       render(<FilterDisplay store={useStore} />);
 
-      await expect.element(page.getByTestId('query')).toHaveTextContent('ubuntu');
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('query'))
+        .toHaveTextContent('ubuntu');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
     });
 
     it('should clear filters from URL when reset to {}', async () => {
@@ -1185,12 +1491,185 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
       render(<FilterDisplay store={useStore} />);
 
       await page.getByRole('button', { name: 'Set Filters' }).click();
-      await expect.element(page.getByTestId('filters')).toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
+      await expect
+        .element(page.getByTestId('filters'))
+        .toHaveTextContent('{"gpus.architecture":["Blackwell","Ada"]}');
       expect(window.location.search).toContain('filters');
 
       await page.getByRole('button', { name: 'Clear Filters' }).click();
       await expect.element(page.getByTestId('filters')).toHaveTextContent('{}');
       expect(window.location.search).not.toContain('filters');
+    });
+  });
+});
+
+// =============================================================================
+// MAP OPTION - Bidirectional mapping between store state and URL state
+// =============================================================================
+
+describe('map option', () => {
+  // Simulates a store keyed by dynamic operation ID where the URL should only
+  // reflect the "active" entry based on the pathname.
+  interface OperationStore {
+    filtersByOperation: Record<string, { filters: string[] }>;
+    aggregationByOperation: Record<string, string>;
+    setFilters: (opId: string, filters: string[]) => void;
+    setAggregation: (opId: string, level: string) => void;
+  }
+
+  function getOpIdFromPathname(pathname: string): string {
+    const match = pathname.match(/\/view\/([^/?]+)/);
+    return match ? match[1] : 'default';
+  }
+
+  function createMappedStore() {
+    return create<OperationStore>()(
+      querystring(
+        set => ({
+          filtersByOperation: {},
+          aggregationByOperation: {},
+          setFilters: (opId, filters) =>
+            set(state => ({
+              filtersByOperation: {
+                ...state.filtersByOperation,
+                [opId]: { filters },
+              },
+            })),
+          setAggregation: (opId, level) =>
+            set(state => ({
+              aggregationByOperation: {
+                ...state.aggregationByOperation,
+                [opId]: level,
+              },
+            })),
+        }),
+        {
+          key: 'state',
+          select: pathname => ({
+            filtersByOperation: pathname.startsWith('/view/'),
+            aggregationByOperation: pathname.startsWith('/view/'),
+          }),
+          map: {
+            to: (state, pathname) => {
+              const opId = getOpIdFromPathname(pathname);
+              return {
+                filters: state.filtersByOperation?.[opId]?.filters,
+                aggregation: state.aggregationByOperation?.[opId],
+              };
+            },
+            from: (urlState, pathname) => {
+              const opId = getOpIdFromPathname(pathname);
+              return {
+                ...(urlState.filters
+                  ? {
+                      filtersByOperation: {
+                        [opId]: { filters: urlState.filters },
+                      },
+                    }
+                  : {}),
+                ...(urlState.aggregation
+                  ? {
+                      aggregationByOperation: { [opId]: urlState.aggregation },
+                    }
+                  : {}),
+              };
+            },
+          },
+        },
+      ),
+    );
+  }
+
+  function MappedDisplay({
+    store,
+  }: {
+    store: ReturnType<typeof createMappedStore>;
+  }) {
+    const state = store();
+    const opId = getOpIdFromPathname(window.location.pathname);
+    const filters = state.filtersByOperation[opId]?.filters ?? [];
+    const aggregation = state.aggregationByOperation[opId] ?? '';
+    return (
+      <div>
+        <span data-testid="filters">{JSON.stringify(filters)}</span>
+        <span data-testid="aggregation">{aggregation}</span>
+        <span data-testid="url">{window.location.search}</span>
+        <button
+          onClick={() =>
+            state.setFilters(opId, ['price > 10', 'active = true'])
+          }
+        >
+          Set Filters
+        </button>
+        <button onClick={() => state.setAggregation(opId, 'hourly')}>
+          Set Aggregation
+        </button>
+      </div>
+    );
+  }
+
+  it('should serialize mapped state to URL', async () => {
+    window.history.replaceState({}, '', '/view/DAM_v1');
+    const useStore = createMappedStore();
+    render(<MappedDisplay store={useStore} />);
+
+    await page.getByRole('button', { name: 'Set Filters' }).click();
+    await expect
+      .element(page.getByTestId('filters'))
+      .toHaveTextContent('["price > 10","active = true"]');
+
+    // URL should contain the mapped shape (filters, not filtersByOperation)
+    const search = window.location.search;
+    expect(search).toContain('state=');
+    expect(search).not.toContain('filtersByOperation');
+  });
+
+  it('should restore mapped state from URL on mount', async () => {
+    // Pre-set URL with mapped state using marked format
+    const { stringify } = await import('./marked.js');
+    const encoded = stringify({
+      filters: ['region = HU', 'date > 2024'],
+      aggregation: 'daily',
+    });
+    window.history.replaceState({}, '', `/view/IDC_v1?state=${encoded}`);
+
+    const useStore = createMappedStore();
+    render(<MappedDisplay store={useStore} />);
+
+    await expect
+      .element(page.getByTestId('filters'))
+      .toHaveTextContent('["region = HU","date > 2024"]');
+    await expect
+      .element(page.getByTestId('aggregation'))
+      .toHaveTextContent('daily');
+  });
+
+  it('should not sync when select returns false for path', async () => {
+    window.history.replaceState({}, '', '/home');
+    const useStore = createMappedStore();
+    render(<MappedDisplay store={useStore} />);
+
+    await page.getByRole('button', { name: 'Set Filters' }).click();
+
+    // URL should NOT contain state since /home doesn't match select
+    expect(window.location.search).not.toContain('state=');
+  });
+
+  it('should handle multiple operations independently', async () => {
+    window.history.replaceState({}, '', '/view/DAM_v1');
+    const useStore = createMappedStore();
+    render(<MappedDisplay store={useStore} />);
+
+    // Set filters for DAM_v1
+    await page.getByRole('button', { name: 'Set Filters' }).click();
+    await expect
+      .element(page.getByTestId('filters'))
+      .toHaveTextContent('["price > 10","active = true"]');
+
+    // Store should have DAM_v1 entry
+    const storeState = useStore.getState();
+    expect(storeState.filtersByOperation['DAM_v1']).toEqual({
+      filters: ['price > 10', 'active = true'],
     });
   });
 });

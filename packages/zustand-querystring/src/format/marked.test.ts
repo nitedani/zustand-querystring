@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { stringify, parse, marked, createFormat, type MarkedFormatOptions } from './marked';
+import {
+  stringify,
+  parse,
+  marked,
+  createFormat,
+  type MarkedFormatOptions,
+} from './marked';
 
 // Helper to run tests in both modes
 function testBothModes(name: string, testFn: (standalone: boolean) => void) {
@@ -82,14 +88,11 @@ describe('marked format', () => {
       },
     );
 
-    testBothModes(
-      'should handle string with comma and space',
-      standalone => {
-        const obj = { text: 'hello, world' };
-        const encoded = stringify(obj, standalone);
-        expect(parse(encoded, standalone)).toEqual(obj);
-      },
-    );
+    testBothModes('should handle string with comma and space', standalone => {
+      const obj = { text: 'hello, world' };
+      const encoded = stringify(obj, standalone);
+      expect(parse(encoded, standalone)).toEqual(obj);
+    });
 
     testBothModes('should handle empty objects', standalone => {
       const obj = {};
@@ -1182,14 +1185,17 @@ describe('marked format', () => {
 
         expect(parsed.user.name).toBe('Alice');
         expect(parsed.user.tags).toEqual(['admin', 'user']);
-        expect(parsed.user.settings).toEqual({ theme: 'dark', notifications: true });
+        expect(parsed.user.settings).toEqual({
+          theme: 'dark',
+          notifications: true,
+        });
         expect(parsed.count).toBe(42);
         expect(parsed.created).toBeInstanceOf(Date);
       });
 
       it('should handle special characters in values', () => {
         const state = {
-          'key$with$dollar': 'value;with;semicolons',
+          key$with$dollar: 'value;with;semicolons',
           'key#with#hash': 'value|with|pipes',
         };
         const encoded = stringify(state, false, customOpts);
@@ -1306,34 +1312,34 @@ describe('marked format', () => {
 
   describe('URI encoding', () => {
     describe('should properly encode special characters in values', () => {
-      testBothModes('space in string value', (standalone) => {
+      testBothModes('space in string value', standalone => {
         const obj = { text: 'hello world' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%20');
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('accented characters in string value', (standalone) => {
+      testBothModes('accented characters in string value', standalone => {
         const obj = { text: 'café' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%C3%A9'); // é encoded
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('Hungarian characters', (standalone) => {
+      testBothModes('Hungarian characters', standalone => {
         const obj = { text: 'árvíztűrő tükörfúrógép' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%C3%A1'); // á encoded
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('emoji in string value', (standalone) => {
+      testBothModes('emoji in string value', standalone => {
         const obj = { text: '👋🌍' };
         const encoded = stringify(obj, standalone);
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('Chinese characters', (standalone) => {
+      testBothModes('Chinese characters', standalone => {
         const obj = { text: '你好世界' };
         const encoded = stringify(obj, standalone);
         expect(parse(encoded, standalone)).toEqual(obj);
@@ -1341,21 +1347,21 @@ describe('marked format', () => {
     });
 
     describe('should properly encode special characters in keys', () => {
-      testBothModes('space in key', (standalone) => {
+      testBothModes('space in key', standalone => {
         const obj = { 'hello world': 'value' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%20');
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('accented characters in key', (standalone) => {
+      testBothModes('accented characters in key', standalone => {
         const obj = { café: 'coffee' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%C3%A9'); // é encoded
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('Hungarian characters in key', (standalone) => {
+      testBothModes('Hungarian characters in key', standalone => {
         const obj = { árvíz: 'flood' };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%C3%A1'); // á encoded
@@ -1364,14 +1370,14 @@ describe('marked format', () => {
     });
 
     describe('should properly encode in arrays', () => {
-      testBothModes('space in array element', (standalone) => {
+      testBothModes('space in array element', standalone => {
         const obj = { items: ['hello world', 'foo bar'] };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%20');
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('accented characters in array', (standalone) => {
+      testBothModes('accented characters in array', standalone => {
         const obj = { items: ['café', 'naïve', 'résumé'] };
         const encoded = stringify(obj, standalone);
         expect(parse(encoded, standalone)).toEqual(obj);
@@ -1379,14 +1385,14 @@ describe('marked format', () => {
     });
 
     describe('should properly encode in nested objects', () => {
-      testBothModes('space in nested value', (standalone) => {
+      testBothModes('space in nested value', standalone => {
         const obj = { nested: { text: 'hello world' } };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%20');
         expect(parse(encoded, standalone)).toEqual(obj);
       });
 
-      testBothModes('space in nested key', (standalone) => {
+      testBothModes('space in nested key', standalone => {
         const obj = { nested: { 'hello world': 'value' } };
         const encoded = stringify(obj, standalone);
         expect(encoded).toContain('%20');
@@ -1395,22 +1401,28 @@ describe('marked format', () => {
     });
 
     describe('output should be valid URL component', () => {
-      testBothModes('encoded output should not contain raw spaces', (standalone) => {
-        const obj = { 'key with space': 'value with space', arr: ['item with space'] };
-        const encoded = stringify(obj, standalone);
-        expect(encoded).not.toContain(' ');
-        expect(parse(encoded, standalone)).toEqual(obj);
-      });
+      testBothModes(
+        'encoded output should not contain raw spaces',
+        standalone => {
+          const obj = {
+            'key with space': 'value with space',
+            arr: ['item with space'],
+          };
+          const encoded = stringify(obj, standalone);
+          expect(encoded).not.toContain(' ');
+          expect(parse(encoded, standalone)).toEqual(obj);
+        },
+      );
 
-      testBothModes('should round-trip through URL', (standalone) => {
+      testBothModes('should round-trip through URL', standalone => {
         const obj = { text: 'hello world', key: 'árvíztűrő' };
         const encoded = stringify(obj, standalone);
-        
+
         // Simulate URL param round-trip
         const url = new URL('http://example.com');
         url.searchParams.set('state', encoded);
         const fromUrl = url.searchParams.get('state')!;
-        
+
         expect(parse(fromUrl, standalone)).toEqual(obj);
       });
     });
@@ -1420,7 +1432,7 @@ describe('marked format', () => {
         const state = { 'key with space': 'value' };
         const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
-        
+
         expect(keys[0]).toBe('key%20with%20space');
         expect(keys[0]).not.toContain(' ');
       });
@@ -1429,7 +1441,7 @@ describe('marked format', () => {
         const state = { café: 'coffee' };
         const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
-        
+
         expect(keys[0]).toBe('caf%C3%A9');
         expect(keys[0]).not.toContain('é');
       });
@@ -1438,27 +1450,31 @@ describe('marked format', () => {
         const state = { árvíz: 'flood' };
         const params = marked.stringifyStandalone(state);
         const keys = Object.keys(params);
-        
+
         expect(keys[0]).toContain('%C3%A1'); // á encoded
       });
 
       it('should round-trip keys with special characters', () => {
-        const state = { 'key with space': 'value', 'café': 'coffee', 'árvíz': 'flood' };
+        const state = {
+          'key with space': 'value',
+          café: 'coffee',
+          árvíz: 'flood',
+        };
         const params = marked.stringifyStandalone(state);
         const parsed = marked.parseStandalone(params, { initialState: {} });
-        
+
         expect(parsed).toEqual(state);
       });
 
       it('should produce URL-safe keys that can be used directly', () => {
         const state = { 'hello world': 'test value', nested: { deep: 1 } };
         const params = marked.stringifyStandalone(state);
-        
+
         // All keys should be URL-safe (no raw spaces, no raw unicode)
         for (const key of Object.keys(params)) {
           expect(key).not.toMatch(/[\s\u0080-\uFFFF]/);
         }
-        
+
         // Values should also be encoded
         for (const values of Object.values(params)) {
           for (const value of values) {

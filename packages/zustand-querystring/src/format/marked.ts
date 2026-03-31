@@ -17,7 +17,11 @@
  * - Standalone: each field as separate param
  */
 
-import type { QueryStringFormat, QueryStringParams, ParseContext } from '../middleware.js';
+import type {
+  QueryStringFormat,
+  QueryStringParams,
+  ParseContext,
+} from '../middleware.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -99,7 +103,9 @@ function validateOptions(opts: ResolvedOptions): void {
 
   // Date prefix shouldn't conflict with type markers
   if (seen.has(opts.datePrefix)) {
-    throw new Error(`datePrefix '${opts.datePrefix}' conflicts with another token`);
+    throw new Error(
+      `datePrefix '${opts.datePrefix}' conflicts with another token`,
+    );
   }
 }
 
@@ -118,7 +124,9 @@ function buildKeyStopPattern(opts: ResolvedOptions): RegExp {
 }
 
 function buildValueStopPattern(opts: ResolvedOptions): RegExp {
-  return new RegExp(`[${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`);
+  return new RegExp(
+    `[${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
+  );
 }
 
 function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
@@ -131,7 +139,10 @@ function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
 
 function buildValueEscapePattern(opts: ResolvedOptions): RegExp {
   // Only escape separator and terminator, NOT the escape char itself
-  return new RegExp(`([${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}])`, 'g');
+  return new RegExp(
+    `([${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}])`,
+    'g',
+  );
 }
 
 function buildDatePattern(opts: ResolvedOptions): RegExp {
@@ -152,14 +163,14 @@ function buildDateStartPattern(opts: ResolvedOptions): RegExp {
 function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
   const markers = new Set([
     opts.typeObject,
-    opts.typeArray, 
+    opts.typeArray,
     opts.typeString,
     opts.typePrimitive,
     opts.separator,
     opts.terminator,
     opts.escape,
   ]);
-  
+
   let result = '';
   for (const char of str) {
     if (markers.has(char)) {
@@ -173,17 +184,28 @@ function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
   return result;
 }
 
-function escapeStr(str: string, pattern: RegExp, escape: string, opts: ResolvedOptions): string {
+function escapeStr(
+  str: string,
+  pattern: RegExp,
+  escape: string,
+  opts: ResolvedOptions,
+): string {
   // First escape special chars within the string, then encode preserving markers
   return encodePreservingMarkers(str.replace(pattern, `${escape}$1`), opts);
 }
 
-function cleanResult(str: string, standalone: boolean, opts: ResolvedOptions): string {
+function cleanResult(
+  str: string,
+  standalone: boolean,
+  opts: ResolvedOptions,
+): string {
   while (str.endsWith(opts.terminator)) {
     str = str.slice(0, -opts.terminator.length);
   }
 
-  const datePattern = new RegExp(`^${escapeRegex(opts.typeString)}${escapeRegex(opts.datePrefix)}-?\\d+$`);
+  const datePattern = new RegExp(
+    `^${escapeRegex(opts.typeString)}${escapeRegex(opts.datePrefix)}-?\\d+$`,
+  );
   if (standalone && datePattern.test(str)) {
     return str.slice(opts.typeString.length);
   }
@@ -204,7 +226,11 @@ function createSerializer(opts: ResolvedOptions) {
   const valueEscape = buildValueEscapePattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
 
-  function serialize(value: unknown, standalone: boolean, inArray: boolean = false): string {
+  function serialize(
+    value: unknown,
+    standalone: boolean,
+    inArray: boolean = false,
+  ): string {
     if (value === null) return `${opts.typePrimitive}null`;
     if (value === undefined) return `${opts.typePrimitive}undefined`;
     if (typeof value === 'function') return '';
@@ -222,7 +248,7 @@ function createSerializer(opts: ResolvedOptions) {
     }
 
     if (Array.isArray(value)) {
-      const items = value.map((v) => serialize(v, standalone, true));
+      const items = value.map(v => serialize(v, standalone, true));
       return `${opts.typeArray}${items.join(opts.separator)}${opts.terminator}`;
     }
 
@@ -240,7 +266,7 @@ function createSerializer(opts: ResolvedOptions) {
     // String: escape date-like pattern and type markers at start
     const strVal = String(value);
     let escaped = escapeStr(strVal, valueEscape, opts.escape, opts);
-    
+
     // Escape if string starts with date prefix or any type marker (in standalone/array context)
     if (dateStartPattern.test(strVal)) {
       escaped = opts.escape + escaped;
@@ -309,8 +335,11 @@ function createParser(opts: ResolvedOptions) {
           const nextPos = pos + tokens.escape.length;
           const nextChar = source.slice(nextPos, nextPos + 1);
           const isEscapeSequence = stopPattern.test(nextChar);
-          const isDateEscape = checkEscape && source.slice(nextPos, nextPos + tokens.datePrefix.length) === tokens.datePrefix;
-          
+          const isDateEscape =
+            checkEscape &&
+            source.slice(nextPos, nextPos + tokens.datePrefix.length) ===
+              tokens.datePrefix;
+
           if (isEscapeSequence || isDateEscape) {
             if (isDateEscape) {
               wasEscaped = true;
@@ -388,7 +417,10 @@ function createParser(opts: ResolvedOptions) {
         }
       }
 
-      if (lastWasSeparator && (startsWith(tokens.terminator) || pos >= source.length)) {
+      if (
+        lastWasSeparator &&
+        (startsWith(tokens.terminator) || pos >= source.length)
+      ) {
         result.push('');
       }
 
@@ -401,7 +433,11 @@ function createParser(opts: ResolvedOptions) {
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, false);
         result[key] = parseValue();
-        if (pos < source.length && !startsWith(tokens.terminator) && startsWith(tokens.separator)) {
+        if (
+          pos < source.length &&
+          !startsWith(tokens.terminator) &&
+          startsWith(tokens.separator)
+        ) {
           advance(tokens.separator.length);
         }
       }
@@ -489,7 +525,10 @@ export function parse<T = unknown>(
     // Unescape the string value - remove escape characters before special chars
     let result = '';
     for (let i = 0; i < str.length; i++) {
-      if (str.slice(i, i + opts.escape.length) === opts.escape && i + opts.escape.length < str.length) {
+      if (
+        str.slice(i, i + opts.escape.length) === opts.escape &&
+        i + opts.escape.length < str.length
+      ) {
         // Skip escape char, take next char literally
         i += opts.escape.length - 1;
         result += str[i + 1];
@@ -501,7 +540,12 @@ export function parse<T = unknown>(
     return result as T;
   } else {
     // Build pattern for detecting if this looks like object data
-    const escapedMarkers = [opts.typeString, opts.typePrimitive, opts.typeArray, opts.typeObject]
+    const escapedMarkers = [
+      opts.typeString,
+      opts.typePrimitive,
+      opts.typeArray,
+      opts.typeObject,
+    ]
       .map(escapeRegex)
       .join('');
     const escapedEscape = escapeRegex(opts.escape);
@@ -510,7 +554,9 @@ export function parse<T = unknown>(
     const objectPattern = new RegExp(
       `[^${escapedEscape}${escapedMarkers}${escapedSeparator}${escapedTerminator}][${escapedMarkers}]`,
     );
-    source = objectPattern.test(str) ? `${opts.typeObject}${str}` : `${opts.typeString}${str}`;
+    source = objectPattern.test(str)
+      ? `${opts.typeObject}${str}`
+      : `${opts.typeString}${str}`;
   }
 
   const parseSource = createParser(opts);
@@ -524,7 +570,9 @@ export function parse<T = unknown>(
 /**
  * Create a marked format with custom configuration.
  */
-export function createFormat(options: MarkedFormatOptions = {}): QueryStringFormat {
+export function createFormat(
+  options: MarkedFormatOptions = {},
+): QueryStringFormat {
   const opts = resolveOptions(options);
   validateOptions(opts);
 

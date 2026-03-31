@@ -13,11 +13,7 @@ export function Layout() {
   const location = useLocation();
 
   return (
-    <AppShell
-      header={{ height: 60 }}
-      footer={{ height: 50 }}
-      padding="md"
-    >
+    <AppShell header={{ height: 60 }} footer={{ height: 50 }} padding="md">
       <AppShell.Header>
         <Container size="xl" h="100%">
           <Group h="100%" justify="space-between">
@@ -45,7 +41,11 @@ export function Layout() {
         <Container size="xl" h="100%">
           <Group justify="center" h="100%">
             <Text size="sm" c="dimmed">
-              URL: <Code>{location.pathname}{location.search}</Code>
+              URL:{" "}
+              <Code>
+                {location.pathname}
+                {location.search}
+              </Code>
             </Text>
           </Group>
         </Container>

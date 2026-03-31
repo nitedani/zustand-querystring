@@ -15,9 +15,7 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <Layout />,
-    children: [
-      { index: true, element: <Playground /> },
-    ],
+    children: [{ index: true, element: <Playground /> }],
   },
 ]);
 
@@ -26,5 +24,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <RouterProvider router={router} />
     </MantineProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

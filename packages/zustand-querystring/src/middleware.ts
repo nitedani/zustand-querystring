@@ -8,6 +8,19 @@ type DeepSelect<T> = T extends object
     }
   : boolean;
 
+/** Maps T to only the fields marked as selected in S. `false` excludes, everything else includes. */
+type ApplySelect<T, S> = [S] extends [false]
+  ? never
+  : S extends object
+    ? T extends object
+      ? {
+          [P in keyof S & keyof T as [ApplySelect<T[P], S[P]>] extends [never]
+            ? never
+            : P]: ApplySelect<T[P], S[P]>;
+        }
+      : never
+    : T;
+
 export interface QueryStringParam {
   key: string;
   value: string | string[];
@@ -39,31 +52,51 @@ export interface QueryStringFormatStandalone {
 }
 
 /** Full format implementing both modes */
-export type QueryStringFormat = QueryStringFormatNamespaced & QueryStringFormatStandalone;
+export type QueryStringFormat = QueryStringFormatNamespaced &
+  QueryStringFormatStandalone;
 
 /** Conditional format type based on key option */
-export type QueryStringFormatFor<K extends string | false> = 
-  K extends false 
-    ? QueryStringFormatStandalone 
-    : QueryStringFormatNamespaced;
+export type QueryStringFormatFor<K extends string | false> = K extends false
+  ? QueryStringFormatStandalone
+  : QueryStringFormatNamespaced;
 
-export interface QueryStringOptions<T, K extends string | false = string | false> {
+/**
+ * Bidirectional mapping between store state and URL state.
+ * `to` runs before serialization (store → URL), `from` after deserialization (URL → store).
+ * S is inferred from `select` via `ApplySelect` — only selected fields are visible.
+ * U is inferred from `to`'s return type and flows into `from`'s parameter.
+ */
+export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
+  to: (state: S, pathname: string) => U;
+  from: (urlState: U, pathname: string) => Partial<S>;
+}
+
+export interface QueryStringOptions<
+  T,
+  K extends string | false = string | false,
+  S extends DeepSelect<T> = DeepSelect<T>,
+  U extends object = Record<string, unknown>,
+> {
   url?: string;
-  select?: (pathname: string) => DeepSelect<T>;
+  select?: (pathname: string) => S;
   key?: K;
   prefix?: string;
   format?: QueryStringFormatFor<K>;
   syncNull?: boolean;
   syncUndefined?: boolean;
+  /** Bidirectional mapping between store state shape and URL state shape. */
+  map?: QueryStringMap<ApplySelect<T, S>, U>;
 }
 
 type QueryString = <
   T,
   Mps extends [StoreMutatorIdentifier, unknown][] = [],
   Mcs extends [StoreMutatorIdentifier, unknown][] = [],
+  const S extends DeepSelect<T> = DeepSelect<T>,
+  U extends object = Record<string, unknown>,
 >(
   initializer: StateCreator<T, Mps, Mcs>,
-  options?: QueryStringOptions<T>,
+  options?: QueryStringOptions<T, string | false, S, U>,
 ) => StateCreator<T, Mps, Mcs>;
 
 type QueryStringImpl = <T>(
@@ -135,7 +168,7 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
 
 const parseSearchString = (search: string): QueryStringParams => {
   const result: QueryStringParams = {};
-  
+
   search
     .slice(search.startsWith('?') ? 1 : 0)
     .split('&')
@@ -145,13 +178,13 @@ const parseSearchString = (search: string): QueryStringParams => {
       if (eqIndex === -1) return;
       const key = param.slice(0, eqIndex);
       const value = param.slice(eqIndex + 1);
-      
+
       if (!result[key]) {
         result[key] = [];
       }
       result[key].push(value);
     });
-  
+
   return result;
 };
 
@@ -176,7 +209,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const getStateFromUrl = (url: URL, initialState: object) => {
     const params = parseSearchString(url.search);
-    
+
     if (standalone) {
       // Standalone mode: filter by prefix and strip it from keys
       let filteredParams = params;
@@ -193,7 +226,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return Object.keys(result).length > 0 ? result : null;
     } else {
       // Namespaced mode: look for prefix + key directly
-      const fullKey = defaultedOptions.prefix + (defaultedOptions.key as string);
+      const fullKey =
+        defaultedOptions.prefix + (defaultedOptions.key as string);
       const values = params[fullKey];
       if (values && values.length > 0) {
         try {
@@ -216,13 +250,37 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state ?? {};
   };
 
+  // Widen to object-level types for internal use — the public API
+  // (QueryStringOptions<T, K, U>) ensures type safety at the call site.
+  const map = defaultedOptions.map as
+    | QueryStringMap<object, object>
+    | undefined;
+
+  /** Apply map.to if configured, otherwise pass through */
+  const applyMapTo = (state: object, pathname: string): object => {
+    return map ? map.to(state, pathname) : state;
+  };
+
+  /** Apply map.from if configured, otherwise pass through */
+  const applyMapFrom = (urlState: object, pathname: string): object => {
+    return map ? map.from(urlState, pathname) : urlState;
+  };
+
   const initialize = (url: URL, initialState) => {
     try {
-      const stateFromUrl = getStateFromUrl(url, initialState);
+      // When map is used, getStateFromUrl returns the URL-shape state.
+      // We need the mapped initial state for type inference in parsing.
+      const mappedInitial = applyMapTo(
+        getSelectedState(initialState, url.pathname),
+        url.pathname,
+      );
+      const stateFromUrl = getStateFromUrl(url, mappedInitial);
       if (!stateFromUrl) {
         return initialState;
       }
-      const selected = getSelectedState(stateFromUrl, url.pathname);
+      // stateFromUrl is in URL shape — map.from converts it back to store shape
+      const storeState = applyMapFrom(stateFromUrl, url.pathname);
+      const selected = getSelectedState(storeState, url.pathname);
       const merged = mergeWith(
         {},
         initialState,
@@ -255,12 +313,23 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
     let previouslyManagedKeys = new Set<string>();
 
+    // Pre-compute the mapped initial state for diffing when map is used
+    const getMappedInitial = (pathname: string) => {
+      if (defaultedOptions.map) {
+        return applyMapTo(getSelectedState(initialState, pathname), pathname);
+      }
+      return initialState;
+    };
+
     const setQuery = () => {
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
+      // When map is used, transform to URL shape before compacting
+      const stateForUrl = applyMapTo(selectedState, url.pathname);
+      const mappedInitial = getMappedInitial(url.pathname);
       const { output: newCompacted } = compact(
-        selectedState,
-        initialState,
+        stateForUrl,
+        mappedInitial,
         defaultedOptions.syncNull,
         defaultedOptions.syncUndefined,
       );
@@ -269,18 +338,23 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // Get the key-value pairs based on mode
       let stateParams: QueryStringParams;
       let managedKeys: Set<string>;
-      
+
       if (standalone) {
         // Stringify the full selected state to get all managed keys
-        const allParams = format.stringifyStandalone(selectedState as object);
-        const currentKeys = new Set(Object.keys(allParams).map(k => defaultedOptions.prefix + k));
-        
+        const allParams = format.stringifyStandalone(stateForUrl as object);
+        const currentKeys = new Set(
+          Object.keys(allParams).map(k => defaultedOptions.prefix + k),
+        );
+
         // managedKeys = current keys ∪ previously managed keys
         // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
         // the old URL params are still recognized as ours and get removed.
-        managedKeys = new Set([...Array.from(currentKeys), ...Array.from(previouslyManagedKeys)]);
+        managedKeys = new Set([
+          ...Array.from(currentKeys),
+          ...Array.from(previouslyManagedKeys),
+        ]);
         previouslyManagedKeys = currentKeys;
-        
+
         // Stringify compacted state for values to write (with prefix)
         const compactedParams = format.stringifyStandalone(newCompacted);
         stateParams = {};
@@ -289,7 +363,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         }
       } else {
         // Namespaced mode: single key (with prefix)
-        const fullKey = defaultedOptions.prefix + (defaultedOptions.key as string);
+        const fullKey =
+          defaultedOptions.prefix + (defaultedOptions.key as string);
         if (Object.keys(newCompacted).length > 0) {
           stateParams = { [fullKey]: [format.stringify(newCompacted)] };
         } else {
@@ -368,9 +443,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     if (standalone) {
-      const initSelected = getSelectedState(initialized, new URL(window.location.href).pathname);
+      const initSelected = getSelectedState(
+        initialized,
+        new URL(window.location.href).pathname,
+      );
       const initParams = format.stringifyStandalone(initSelected as object);
-      previouslyManagedKeys = new Set(Object.keys(initParams).map(k => defaultedOptions.prefix + k));
+      previouslyManagedKeys = new Set(
+        Object.keys(initParams).map(k => defaultedOptions.prefix + k),
+      );
     }
     api.getInitialState = () => initialized;
     return initialized;
