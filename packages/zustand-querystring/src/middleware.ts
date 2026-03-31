@@ -50,7 +50,6 @@ export type QueryStringFormatFor<K extends string | false> = K extends false
 /**
  * Bidirectional mapping between store state and URL state.
  * `to` runs before serialization (store → URL), `from` after deserialization (URL → store).
- * S is inferred from `select` via `ApplySelect` — only selected fields are visible.
  * U is inferred from `to`'s return type and flows into `from`'s parameter.
  */
 export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
@@ -58,9 +57,11 @@ export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
   from: (urlState: U, pathname: string) => Partial<S>;
 }
 
-/** Helper to create a typed map — infers U from `to`'s return type. */
-export function createMap<S>() {
-  return <U extends object>(map: QueryStringMap<S, U>) => map;
+/** Helper to create a typed map — infers both S and U. Annotate `state` in `to` to provide S. */
+export function createMap<S, U extends object>(
+  map: QueryStringMap<S, U>,
+): QueryStringMap<S, U> {
+  return map;
 }
 
 export interface QueryStringOptions<
