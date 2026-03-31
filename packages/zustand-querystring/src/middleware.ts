@@ -58,6 +58,13 @@ export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
   from: (urlState: U, pathname: string) => Partial<S>;
 }
 
+/** Helper to create a typed map — infers U from `to`'s return type. */
+export function createMap<S, U extends object>(
+  map: QueryStringMap<S, U>,
+): QueryStringMap<S, U> {
+  return map;
+}
+
 export interface QueryStringOptions<
   T,
   K extends string | false = string | false,

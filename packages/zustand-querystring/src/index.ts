@@ -1,5 +1,6 @@
 export {
   querystring,
+  createMap,
   QueryStringOptions,
   QueryStringMap,
   QueryStringFormat,
