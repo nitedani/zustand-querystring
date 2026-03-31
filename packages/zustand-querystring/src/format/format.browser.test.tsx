@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
-import { querystring } from '../middleware.js';
+import { querystring, createMap } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
 import type { MarkedFormatOptions } from './marked.js';
@@ -1549,8 +1549,8 @@ describe('map option', () => {
             filtersByOperation: pathname.startsWith('/view/'),
             aggregationByOperation: pathname.startsWith('/view/'),
           }),
-          map: {
-            to: (state, pathname) => {
+          map: createMap({
+            to: (state: OperationStore, pathname) => {
               const opId = getOpIdFromPathname(pathname);
               return {
                 filters: state.filtersByOperation?.[opId]?.filters,
@@ -1574,7 +1574,7 @@ describe('map option', () => {
                   : {}),
               };
             },
-          },
+          }),
         },
       ),
     );
@@ -1653,6 +1653,44 @@ describe('map option', () => {
 
     // URL should NOT contain state since /home doesn't match select
     expect(window.location.search).not.toContain('state=');
+  });
+
+  it('should not write defaults to URL after setDefaults', async () => {
+    window.history.replaceState({}, '', '/view/DAM_v1');
+    const useStore = createMappedStore();
+
+    const defaults = {
+      filtersByOperation: {
+        DAM_v1: { filters: ['date >= 2024-01-01', 'date <= 2024-12-31'] },
+      },
+      aggregationByOperation: { DAM_v1: 'hourly' },
+    };
+
+    // Register defaults + set state (simulates initializeFilters)
+    // @ts-ignore
+    useStore.setDefaults(defaults);
+    useStore.setState(defaults);
+
+    // URL should be clean — state matches defaults
+    expect(window.location.search).not.toContain('state=');
+
+    // A real user change should appear in the URL
+    useStore.getState().setFilters('DAM_v1', ['price > 100']);
+
+    function Display() {
+      const state = useStore();
+      return (
+        <span data-testid="filters">
+          {JSON.stringify(state.filtersByOperation['DAM_v1']?.filters ?? [])}
+        </span>
+      );
+    }
+
+    render(<Display />);
+    await expect
+      .element(page.getByTestId('filters'))
+      .toHaveTextContent('["price > 100"]');
+    expect(window.location.search).toContain('state=');
   });
 
   it('should handle multiple operations independently', async () => {

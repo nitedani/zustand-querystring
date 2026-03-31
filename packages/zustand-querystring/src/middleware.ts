@@ -2,6 +2,23 @@ import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
 
+type Write<T, U> = Omit<T, keyof U> & U;
+
+type WithQueryString<S, T> = Write<
+  S,
+  { setDefaults: (partial: Partial<T>) => void }
+>;
+
+declare module 'zustand/vanilla' {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface StoreMutators<S, A> {
+    'zustand-querystring': WithQueryString<
+      S,
+      S extends { getState: () => infer T } ? T : never
+    >;
+  }
+}
+
 type DeepSelect<T> = T extends object
   ? {
       [P in keyof T]?: DeepSelect<T[P]> | boolean;
@@ -84,9 +101,9 @@ type QueryString = <
   Mps extends [StoreMutatorIdentifier, unknown][] = [],
   Mcs extends [StoreMutatorIdentifier, unknown][] = [],
 >(
-  initializer: StateCreator<T, Mps, Mcs>,
+  initializer: StateCreator<T, [...Mps, ['zustand-querystring', never]], Mcs>,
   options?: QueryStringOptions<T>,
-) => StateCreator<T, Mps, Mcs>;
+) => StateCreator<T, Mps, [['zustand-querystring', never], ...Mcs]>;
 
 type QueryStringImpl = <T>(
   storeInitializer: StateCreator<T, [], []>,
@@ -289,7 +306,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   if (typeof window !== 'undefined') {
-    const initialState = fn(
+    let initialState = fn(
       (...args) => {
         set(...(args as Parameters<typeof set>));
         setQuery();
@@ -308,6 +325,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return applyMapTo(getSelectedState(initialState, pathname), pathname);
       }
       return initialState;
+    };
+
+    // @ts-ignore - typed via StoreMutators augmentation
+    api.setDefaults = (partial: Partial<typeof initialState>) => {
+      initialState = mergeWith(
+        {},
+        initialState,
+        partial,
+        (_objValue, srcValue) => {
+          if (Array.isArray(srcValue)) {
+            return srcValue;
+          }
+          return undefined;
+        },
+      );
     };
 
     const setQuery = () => {
