@@ -59,10 +59,8 @@ export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
 }
 
 /** Helper to create a typed map — infers U from `to`'s return type. */
-export function createMap<S, U extends object>(
-  map: QueryStringMap<S, U>,
-): QueryStringMap<S, U> {
-  return map;
+export function createMap<S>() {
+  return <U extends object>(map: QueryStringMap<S, U>) => map;
 }
 
 export interface QueryStringOptions<
