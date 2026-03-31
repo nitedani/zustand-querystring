@@ -1508,69 +1508,63 @@ describe('Dynamic filter keys with dotted names and arrays', () => {
 // =============================================================================
 
 describe('map option', () => {
-  // Simulates a store keyed by dynamic operation ID where the URL should only
+  // Simulates a store keyed by dynamic ID where the URL should only
   // reflect the "active" entry based on the pathname.
-  interface OperationStore {
-    filtersByOperation: Record<string, { filters: string[] }>;
-    aggregationByOperation: Record<string, string>;
-    setFilters: (opId: string, filters: string[]) => void;
-    setAggregation: (opId: string, level: string) => void;
+  interface MultiPageStore {
+    itemsById: Record<string, { tags: string[] }>;
+    settingsById: Record<string, string>;
+    setTags: (id: string, tags: string[]) => void;
+    setSetting: (id: string, value: string) => void;
   }
 
-  function getOpIdFromPathname(pathname: string): string {
+  function getIdFromPathname(pathname: string): string {
     const match = pathname.match(/\/view\/([^/?]+)/);
     return match ? match[1] : 'default';
   }
 
   function createMappedStore() {
-    return create<OperationStore>()(
+    return create<MultiPageStore>()(
       querystring(
         set => ({
-          filtersByOperation: {},
-          aggregationByOperation: {},
-          setFilters: (opId, filters) =>
+          itemsById: {},
+          settingsById: {},
+          setTags: (id, tags) =>
             set(state => ({
-              filtersByOperation: {
-                ...state.filtersByOperation,
-                [opId]: { filters },
+              itemsById: {
+                ...state.itemsById,
+                [id]: { tags },
               },
             })),
-          setAggregation: (opId, level) =>
+          setSetting: (id, value) =>
             set(state => ({
-              aggregationByOperation: {
-                ...state.aggregationByOperation,
-                [opId]: level,
+              settingsById: {
+                ...state.settingsById,
+                [id]: value,
               },
             })),
         }),
         {
           key: 'state',
           select: pathname => ({
-            filtersByOperation: pathname.startsWith('/view/'),
-            aggregationByOperation: pathname.startsWith('/view/'),
+            itemsById: pathname.startsWith('/view/'),
+            settingsById: pathname.startsWith('/view/'),
           }),
           map: createMap({
-            to: (state: OperationStore, pathname) => {
-              const opId = getOpIdFromPathname(pathname);
+            to: (state: MultiPageStore, pathname) => {
+              const id = getIdFromPathname(pathname);
               return {
-                filters: state.filtersByOperation?.[opId]?.filters,
-                aggregation: state.aggregationByOperation?.[opId],
+                tags: state.itemsById?.[id]?.tags,
+                setting: state.settingsById?.[id],
               };
             },
             from: (urlState, pathname) => {
-              const opId = getOpIdFromPathname(pathname);
+              const id = getIdFromPathname(pathname);
               return {
-                ...(urlState.filters
-                  ? {
-                      filtersByOperation: {
-                        [opId]: { filters: urlState.filters },
-                      },
-                    }
+                ...(urlState.tags
+                  ? { itemsById: { [id]: { tags: urlState.tags } } }
                   : {}),
-                ...(urlState.aggregation
-                  ? {
-                      aggregationByOperation: { [opId]: urlState.aggregation },
-                    }
+                ...(urlState.setting
+                  ? { settingsById: { [id]: urlState.setting } }
                   : {}),
               };
             },
@@ -1586,62 +1580,56 @@ describe('map option', () => {
     store: ReturnType<typeof createMappedStore>;
   }) {
     const state = store();
-    const opId = getOpIdFromPathname(window.location.pathname);
-    const filters = state.filtersByOperation[opId]?.filters ?? [];
-    const aggregation = state.aggregationByOperation[opId] ?? '';
+    const id = getIdFromPathname(window.location.pathname);
+    const tags = state.itemsById[id]?.tags ?? [];
+    const setting = state.settingsById[id] ?? '';
     return (
       <div>
-        <span data-testid="filters">{JSON.stringify(filters)}</span>
-        <span data-testid="aggregation">{aggregation}</span>
+        <span data-testid="tags">{JSON.stringify(tags)}</span>
+        <span data-testid="setting">{setting}</span>
         <span data-testid="url">{window.location.search}</span>
-        <button
-          onClick={() =>
-            state.setFilters(opId, ['price > 10', 'active = true'])
-          }
-        >
-          Set Filters
+        <button onClick={() => state.setTags(id, ['react', 'zustand'])}>
+          Set Tags
         </button>
-        <button onClick={() => state.setAggregation(opId, 'hourly')}>
-          Set Aggregation
+        <button onClick={() => state.setSetting(id, 'dark')}>
+          Set Setting
         </button>
       </div>
     );
   }
 
   it('should serialize mapped state to URL', async () => {
-    window.history.replaceState({}, '', '/view/DAM_v1');
+    window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();
     render(<MappedDisplay store={useStore} />);
 
-    await page.getByRole('button', { name: 'Set Filters' }).click();
+    await page.getByRole('button', { name: 'Set Tags' }).click();
     await expect
-      .element(page.getByTestId('filters'))
-      .toHaveTextContent('["price > 10","active = true"]');
+      .element(page.getByTestId('tags'))
+      .toHaveTextContent('["react","zustand"]');
 
-    // URL should contain the mapped shape (filters, not filtersByOperation)
     const search = window.location.search;
     expect(search).toContain('state=');
-    expect(search).not.toContain('filtersByOperation');
+    expect(search).not.toContain('itemsById');
   });
 
   it('should restore mapped state from URL on mount', async () => {
-    // Pre-set URL with mapped state using marked format
     const { stringify } = await import('./marked.js');
     const encoded = stringify({
-      filters: ['region = HU', 'date > 2024'],
-      aggregation: 'daily',
+      tags: ['typescript', 'testing'],
+      setting: 'light',
     });
-    window.history.replaceState({}, '', `/view/IDC_v1?state=${encoded}`);
+    window.history.replaceState({}, '', `/view/page-2?state=${encoded}`);
 
     const useStore = createMappedStore();
     render(<MappedDisplay store={useStore} />);
 
     await expect
-      .element(page.getByTestId('filters'))
-      .toHaveTextContent('["region = HU","date > 2024"]');
+      .element(page.getByTestId('tags'))
+      .toHaveTextContent('["typescript","testing"]');
     await expect
-      .element(page.getByTestId('aggregation'))
-      .toHaveTextContent('daily');
+      .element(page.getByTestId('setting'))
+      .toHaveTextContent('light');
   });
 
   it('should not sync when select returns false for path', async () => {
@@ -1649,65 +1637,87 @@ describe('map option', () => {
     const useStore = createMappedStore();
     render(<MappedDisplay store={useStore} />);
 
-    await page.getByRole('button', { name: 'Set Filters' }).click();
+    await page.getByRole('button', { name: 'Set Tags' }).click();
 
-    // URL should NOT contain state since /home doesn't match select
     expect(window.location.search).not.toContain('state=');
   });
 
   it('should not write defaults to URL after setDefaults', async () => {
-    window.history.replaceState({}, '', '/view/DAM_v1');
+    window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();
 
     const defaults = {
-      filtersByOperation: {
-        DAM_v1: { filters: ['date >= 2024-01-01', 'date <= 2024-12-31'] },
-      },
-      aggregationByOperation: { DAM_v1: 'hourly' },
+      itemsById: { 'page-1': { tags: ['default-a', 'default-b'] } },
+      settingsById: { 'page-1': 'dark' },
     };
 
-    // Register defaults + set state (simulates initializeFilters)
-    // @ts-ignore
     useStore.setDefaults(defaults);
     useStore.setState(defaults);
 
-    // URL should be clean — state matches defaults
     expect(window.location.search).not.toContain('state=');
 
-    // A real user change should appear in the URL
-    useStore.getState().setFilters('DAM_v1', ['price > 100']);
+    useStore.getState().setTags('page-1', ['custom']);
 
     function Display() {
       const state = useStore();
       return (
-        <span data-testid="filters">
-          {JSON.stringify(state.filtersByOperation['DAM_v1']?.filters ?? [])}
+        <span data-testid="tags">
+          {JSON.stringify(state.itemsById['page-1']?.tags ?? [])}
         </span>
       );
     }
 
     render(<Display />);
     await expect
-      .element(page.getByTestId('filters'))
-      .toHaveTextContent('["price > 100"]');
+      .element(page.getByTestId('tags'))
+      .toHaveTextContent('["custom"]');
     expect(window.location.search).toContain('state=');
   });
 
-  it('should handle multiple operations independently', async () => {
-    window.history.replaceState({}, '', '/view/DAM_v1');
+  it('should preserve array element order across URL roundtrip', async () => {
+    const { stringify } = await import('./marked.js');
+    const originalTags = ['z-last', 'a-first', 'm-middle'];
+    const encoded = stringify({
+      tags: originalTags,
+      setting: 'dark',
+    });
+    window.history.replaceState({}, '', `/view/page-1?state=${encoded}`);
+
+    const useStore = createMappedStore();
+
+    function Display() {
+      const state = useStore();
+      const tags = state.itemsById['page-1']?.tags ?? [];
+      return <span data-testid="tags">{JSON.stringify(tags)}</span>;
+    }
+
+    render(<Display />);
+
+    await expect
+      .element(page.getByTestId('tags'))
+      .toHaveTextContent(JSON.stringify(originalTags));
+
+    expect(window.location.search).toContain('state=');
+
+    // Setting same values again should not change the URL
+    const prevSearch = window.location.search;
+    useStore.getState().setTags('page-1', originalTags);
+    expect(window.location.search).toBe(prevSearch);
+  });
+
+  it('should handle multiple pages independently', async () => {
+    window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();
     render(<MappedDisplay store={useStore} />);
 
-    // Set filters for DAM_v1
-    await page.getByRole('button', { name: 'Set Filters' }).click();
+    await page.getByRole('button', { name: 'Set Tags' }).click();
     await expect
-      .element(page.getByTestId('filters'))
-      .toHaveTextContent('["price > 10","active = true"]');
+      .element(page.getByTestId('tags'))
+      .toHaveTextContent('["react","zustand"]');
 
-    // Store should have DAM_v1 entry
     const storeState = useStore.getState();
-    expect(storeState.filtersByOperation['DAM_v1']).toEqual({
-      filters: ['price > 10', 'active = true'],
+    expect(storeState.itemsById['page-1']).toEqual({
+      tags: ['react', 'zustand'],
     });
   });
 });
