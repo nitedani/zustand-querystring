@@ -8,19 +8,6 @@ type DeepSelect<T> = T extends object
     }
   : boolean;
 
-/** Maps T to only the fields marked as selected in S. `false` excludes, everything else includes. */
-type ApplySelect<T, S> = [S] extends [false]
-  ? never
-  : S extends object
-    ? T extends object
-      ? {
-          [P in keyof S & keyof T as [ApplySelect<T[P], S[P]>] extends [never]
-            ? never
-            : P]: ApplySelect<T[P], S[P]>;
-        }
-      : never
-    : T;
-
 export interface QueryStringParam {
   key: string;
   value: string | string[];
@@ -74,29 +61,25 @@ export interface QueryStringMap<S, U extends object = Record<string, unknown>> {
 export interface QueryStringOptions<
   T,
   K extends string | false = string | false,
-  S extends DeepSelect<T> = DeepSelect<T>,
-  U extends object = Record<string, unknown>,
 > {
   url?: string;
-  select?: (pathname: string) => S;
+  select?: (pathname: string) => DeepSelect<T>;
   key?: K;
   prefix?: string;
   format?: QueryStringFormatFor<K>;
   syncNull?: boolean;
   syncUndefined?: boolean;
   /** Bidirectional mapping between store state shape and URL state shape. */
-  map?: QueryStringMap<ApplySelect<T, S>, U>;
+  map?: QueryStringMap<T>;
 }
 
 type QueryString = <
   T,
   Mps extends [StoreMutatorIdentifier, unknown][] = [],
   Mcs extends [StoreMutatorIdentifier, unknown][] = [],
-  const S extends DeepSelect<T> = DeepSelect<T>,
-  U extends object = Record<string, unknown>,
 >(
   initializer: StateCreator<T, Mps, Mcs>,
-  options?: QueryStringOptions<T, string | false, S, U>,
+  options?: QueryStringOptions<T>,
 ) => StateCreator<T, Mps, Mcs>;
 
 type QueryStringImpl = <T>(
