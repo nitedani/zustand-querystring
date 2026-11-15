@@ -199,46 +199,35 @@ function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
   return result;
 }
 
+// Writes str as readEscaped reads it back: the escape char before each stop char and a leading
+// `start` match, and doubled where the reader would otherwise take it as an escape (before a stop
+// char or a char of the escape char, at the end, or at the start before a `start` match)
 function escapeStr(
   str: string,
-  escapable: RegExp,
+  stop: RegExp,
   opts: ResolvedOptions,
   start?: RegExp,
 ): string {
   const { escape } = opts;
-  // An escaped date prefix or marker at the start is written verbatim, as readEscaped reads it
   const special = start?.exec(str)?.[0] ?? '';
-  // An escape char holding an escapable char is no token here: its chars are escaped one by one
-  const isToken = ![...escape].some(ch => escapable.test(ch));
-  // Built from the end: the escape char doubles where the output after it would make readEscaped take it as an escape
-  const parts: string[] = [];
-  let prefix = '';
-  let i = str.length;
-  while (i > special.length) {
-    let part: string;
-    if (
-      isToken &&
-      str.endsWith(escape, i) &&
-      i - escape.length >= special.length
-    ) {
-      i -= escape.length;
+  let out = special && escape + special;
+  for (let i = special.length; i < str.length; ) {
+    if (str.startsWith(escape, i)) {
+      const next = charAt(str, i + escape.length);
       const ambiguous =
-        parts.length === 0 ||
-        prefix.startsWith(escape) ||
-        (i === 0 && !!start?.test(parts.slice().reverse().join('')));
-      part = ambiguous ? escape + escape : escape;
+        next === '' ||
+        stop.test(next) ||
+        escape.includes(next) ||
+        (i === 0 && !!start?.test(str.slice(escape.length)));
+      out += ambiguous ? escape + escape : escape;
+      i += escape.length;
     } else {
-      const ch = [...str.slice(Math.max(0, i - 2), i)].pop()!;
-      i -= ch.length;
-      part = escapable.test(ch) ? escape + ch : ch;
+      const ch = charAt(str, i);
+      out += stop.test(ch) ? escape + ch : ch;
+      i += ch.length;
     }
-    parts.push(part);
-    prefix = (part + prefix).slice(0, escape.length);
   }
-  return encodePreservingMarkers(
-    (special && escape + special) + parts.reverse().join(''),
-    opts,
-  );
+  return encodePreservingMarkers(out, opts);
 }
 
 // The char at i, keeping a surrogate pair whole
@@ -263,7 +252,6 @@ function readEscaped(
   while (pos < source.length) {
     if (source.startsWith(escape, pos)) {
       const next = pos + escape.length;
-      // Checked first and taken verbatim: a date prefix or marker may contain the escape char
       const special = pos === from ? start?.exec(source.slice(next)) : null;
       if (special) {
         value += special[0];
@@ -271,7 +259,6 @@ function readEscaped(
         wasEscaped = true;
         continue;
       }
-      // Before the doubled form, which an escape char starting with an escapable char also matches
       const escaped = charAt(source, next);
       if (escapable.test(escaped)) {
         value += escaped;
