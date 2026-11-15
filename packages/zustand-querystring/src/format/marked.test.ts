@@ -895,6 +895,49 @@ describe('marked format', () => {
     });
   });
 
+  describe('escape char', () => {
+    const state = {
+      search: 'snake_case',
+      tags: ['.net', '@user'],
+      filters: { category: 'a_', minPrice: 10 },
+    };
+
+    it('should round-trip escape chars in standalone params', () => {
+      const params = marked.stringifyStandalone(state);
+      expect(params.search).toEqual(['snake_case']);
+      expect(marked.parseStandalone(params, { initialState: {} })).toEqual(
+        state,
+      );
+    });
+
+    it('should round-trip standalone strings starting with a type marker', () => {
+      expect(parse(stringify('.net', true), true)).toBe('.net');
+    });
+
+    testBothModes('should round-trip escape chars', standalone => {
+      const encoded = stringify(state, standalone);
+      expect(parse(encoded, standalone)).toEqual(state);
+    });
+
+    testBothModes(
+      'should keep the escape char before the date prefix',
+      standalone => {
+        const obj = { k: 'a_Dog', d: 'a_D5', e: '_D5' };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+
+    testBothModes(
+      'should round-trip keys ending in the escape char',
+      standalone => {
+        const obj = { a_: 1, b: 2 };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+  });
+
   describe('marked format object interface', () => {
     it('should export marked as QueryStringFormat', () => {
       expect(marked.stringify).toBeDefined();
