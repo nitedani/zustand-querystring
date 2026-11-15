@@ -1084,61 +1084,27 @@ describe('plain format - escape char at the end of keys and values', () => {
   });
 });
 
-describe('plain format - separators built from the escape char', () => {
+describe('plain format - token sets that cannot be read back', () => {
   it.each([
-    [{ entrySeparator: '__' }, { a: 'x', b: 'y' }],
-    [{ nestingSeparator: '__' }, { n: { k: 'v' } }],
-    [{ arraySeparator: '__' }, { tags: ['x', 'y'] }],
-  ])('should round-trip with %o', (options, state) => {
-    const fmt = createFormat(options);
-    const ctx = { initialState: state };
-    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
-    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
-      state,
-    );
-  });
-});
-
-describe('plain format - escaped separators ending in the escape char', () => {
-  it.each([
-    [{ entrySeparator: ';_' }, { ';_.': 'v', z: 'y' }],
-    [{ entrySeparator: ';_' }, { ';_=': 'v', z: 'y' }],
-    [{ nestingSeparator: ';_' }, { ';_,': 'v', z: 'y' }],
-    [{ arraySeparator: ';_' }, { text: ';_,=', z: 'y' }],
-  ])('should round-trip with %o: %o', (options, state) => {
-    const fmt = createFormat(options);
-    const ctx = { initialState: state };
-    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
-    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
-      state,
-    );
-  });
-});
-
-describe('plain format - multi-character escape chars', () => {
-  it.each([
-    ['__', { 'k___.': 'v' }],
-    ['__', { k___: 'v', b: 'y' }],
-    ['aba', { kababa: 'x', b: 'y' }],
-  ])('should round-trip with escapeChar %s: %o', (escapeChar, state) => {
-    const fmt = createFormat({ escapeChar });
-    const ctx = { initialState: state };
-    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
-    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
-      state,
-    );
-  });
-});
-
-describe('plain format - escape char overlapping the entry separator', () => {
-  it.each([
-    { text: 'a', b: 'y' },
-    { text: 'ab', b: 'y' },
-  ])('should round-trip %o', state => {
-    const fmt = createFormat({ escapeChar: 'ab', entrySeparator: 'ba' });
-    expect(fmt.parse(fmt.stringify(state), { initialState: state })).toEqual(
-      state,
-    );
+    [{ escapeChar: '__' }, 'escapeChar must be a single character'],
+    [{ entrySeparator: '__' }, "share characters: '_' and '__'"],
+    [{ entrySeparator: ';_' }, "share characters: '_' and ';_'"],
+    [{ nestingSeparator: '_,' }, "share characters: '_' and '_,'"],
+    [
+      { escapeChar: 'a', entrySeparator: 'ba' },
+      "share characters: 'a' and 'ba'",
+    ],
+    [{ entrySeparator: ';=' }, "share characters: '=' and ';='"],
+    [
+      { entrySeparator: 'ab', nestingSeparator: 'ba' },
+      "share characters: 'ab' and 'ba'",
+    ],
+    [
+      { entrySeparator: '|', arraySeparator: '||' },
+      "share characters: '|' and '||'",
+    ],
+  ])('should refuse %o', (options, message) => {
+    expect(() => createFormat(options)).toThrow(message);
   });
 });
 

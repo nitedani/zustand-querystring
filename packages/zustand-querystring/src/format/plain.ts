@@ -111,6 +111,21 @@ function validateOptions(opts: ResolvedOptions): void {
   if (arraySep !== 'repeat' && arraySep.length === 0) {
     throw new Error('arraySeparator cannot be empty');
   }
+  if ([...escape].length !== 1) {
+    throw new Error(`escapeChar must be a single character: '${escape}'`);
+  }
+  const tokens = [escape, '=', entrySep, nestingSep];
+  if (arraySep !== 'repeat' && arraySep !== entrySep) tokens.push(arraySep);
+  for (const [i, token] of tokens.entries()) {
+    const other = tokens
+      .slice(i + 1)
+      .find(t => [...t].some(c => token.includes(c)));
+    if (other !== undefined) {
+      throw new Error(
+        `escapeChar, separators and '=' cannot share characters: '${token}' and '${other}'`,
+      );
+    }
+  }
 }
 
 // =============================================================================
