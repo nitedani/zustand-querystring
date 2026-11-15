@@ -117,15 +117,18 @@ function escapeRegex(str: string): string {
   return str.replace(/[.$^*+?()[\]{}|\\-]/g, '\\$&');
 }
 
+// Stop and escape patterns match one char, a surrogate pair included (the u flag), as readEscaped and escapeStr pass it
 function buildKeyStopPattern(opts: ResolvedOptions): RegExp {
   return new RegExp(
     `[${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}]`,
+    'u',
   );
 }
 
 function buildValueStopPattern(opts: ResolvedOptions): RegExp {
   return new RegExp(
     `[${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
+    'u',
   );
 }
 
@@ -214,8 +217,8 @@ function escapeStr(
         (i === 0 && !!start?.test(parts.slice().reverse().join('')));
       part = ambiguous ? escape + escape : escape;
     } else {
-      i--;
-      const ch = str[i];
+      const ch = [...str.slice(Math.max(0, i - 2), i)].pop()!;
+      i -= ch.length;
       part = escapable.test(ch) ? escape + ch : ch;
     }
     parts.push(part);
@@ -225,6 +228,12 @@ function escapeStr(
     (special && escape + special) + parts.reverse().join(''),
     opts,
   );
+}
+
+// The char at i, keeping a surrogate pair whole
+function charAt(str: string, i: number): string {
+  const code = str.codePointAt(i);
+  return code === undefined ? '' : String.fromCodePoint(code);
 }
 
 // The escape char escapes itself, an `escapable` char, or (first in the value) a `start` match; elsewhere it is literal
@@ -252,9 +261,10 @@ function readEscaped(
         continue;
       }
       // Before the doubled form, which an escape char starting with an escapable char also matches
-      if (escapable.test(source.charAt(next))) {
-        value += source.charAt(next);
-        pos = next + 1;
+      const escaped = charAt(source, next);
+      if (escapable.test(escaped)) {
+        value += escaped;
+        pos = next + escaped.length;
         continue;
       }
       if (source.startsWith(escape, next)) {
@@ -265,10 +275,10 @@ function readEscaped(
     }
 
     // One char only: with a multi-character escape, the next char may start a real escape
-    const ch = source.charAt(pos);
+    const ch = charAt(source, pos);
     if (stop?.test(ch)) break;
     value += ch;
-    pos++;
+    pos += ch.length;
   }
 
   return { value, end: pos, wasEscaped };
@@ -619,7 +629,7 @@ export function parse<T = unknown>(
       str,
       0,
       opts.escape,
-      new RegExp(`[${escapedMarkers}]`),
+      new RegExp(`[${escapedMarkers}]`, 'u'),
       buildKeyStopPattern(opts),
     );
     source =

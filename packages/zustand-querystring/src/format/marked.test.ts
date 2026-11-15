@@ -1040,6 +1040,27 @@ describe('marked format', () => {
     });
 
     testBothModes(
+      'should keep surrogate pairs whole in tokens and values',
+      standalone => {
+        const cases: [MarkedFormatOptions, object][] = [
+          [{ terminator: '😀', escapeChar: '😀_' }, { search: '😀_' }],
+          [
+            { separator: '🎉', escapeChar: '_🎉' },
+            { 'a🎉': '_🎉', k: ['🎉', 'b'] },
+          ],
+        ];
+        for (const [opts, obj] of cases) {
+          const encoded = stringify(obj, standalone, opts);
+          expect(parse(encoded, standalone, opts)).toEqual(obj);
+        }
+        // 🔥 shares its first UTF-16 unit with the 😀 terminator, but is not escaped
+        expect(stringify('🔥', true, { terminator: '😀' })).toBe(
+          '%F0%9F%94%A5',
+        );
+      },
+    );
+
+    testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
         const obj = { '~k': 1 };
