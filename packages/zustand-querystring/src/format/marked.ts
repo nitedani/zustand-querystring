@@ -579,7 +579,7 @@ export function parse<T = unknown>(
       buildMarkedStartPattern(opts),
     ).value as T;
   } else {
-    // Build pattern for detecting if this looks like object data
+    // Object data has an unescaped type marker after a key
     const escapedMarkers = [
       opts.typeString,
       opts.typePrimitive,
@@ -588,15 +588,17 @@ export function parse<T = unknown>(
     ]
       .map(escapeRegex)
       .join('');
-    const escapedEscape = escapeRegex(opts.escape);
-    const escapedSeparator = escapeRegex(opts.separator);
-    const escapedTerminator = escapeRegex(opts.terminator);
-    const objectPattern = new RegExp(
-      `[^${escapedEscape}${escapedMarkers}${escapedSeparator}${escapedTerminator}][${escapedMarkers}]`,
+    const { end } = readEscaped(
+      str,
+      0,
+      opts.escape,
+      new RegExp(`[${escapedMarkers}]`),
+      buildKeyEscapePattern(opts),
     );
-    source = objectPattern.test(str)
-      ? `${opts.typeObject}${str}`
-      : `${opts.typeString}${str}`;
+    source =
+      end < str.length
+        ? `${opts.typeObject}${str}`
+        : `${opts.typeString}${str}`;
   }
 
   const parseSource = createParser(opts);

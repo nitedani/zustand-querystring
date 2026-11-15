@@ -938,6 +938,20 @@ describe('marked format', () => {
     );
 
     testBothModes(
+      'should round-trip a single key with escaped chars',
+      standalone => {
+        for (const obj of [{ a_: 1 }, { _: 1 }, { '~': 1 }]) {
+          const encoded = stringify(obj, standalone);
+          expect(parse(encoded, standalone)).toEqual(obj);
+        }
+      },
+    );
+
+    it('should parse a string whose only type marker is escaped', () => {
+      expect(parse('a_=b')).toBe('a_=b');
+    });
+
+    testBothModes(
       'should keep strings when the date prefix starts with the escape char',
       standalone => {
         const opts: MarkedFormatOptions = {
