@@ -51,8 +51,6 @@ interface ResolvedOptions {
   nestingSep: string;
   arraySep: 'repeat' | string;
   escape: string;
-  /** Whether a doubled escape char is an escaped escape char, not a separator */
-  escapeSelf: boolean;
   nullStr: string;
   undefStr: string;
   infStr: string;
@@ -61,19 +59,11 @@ interface ResolvedOptions {
 }
 
 function resolveOptions(opts: PlainFormatOptions = {}): ResolvedOptions {
-  const entrySep = opts.entrySeparator ?? ',';
-  const nestingSep = opts.nestingSeparator ?? '.';
-  const arraySep = opts.arraySeparator ?? 'repeat';
-  const escape = opts.escapeChar ?? '_';
-  const doubled = escape + escape;
   return {
-    entrySep,
-    nestingSep,
-    arraySep,
-    escape,
-    escapeSelf: ![entrySep, nestingSep, arraySep].some(
-      sep => sep.startsWith(doubled) || doubled.startsWith(sep),
-    ),
+    entrySep: opts.entrySeparator ?? ',',
+    nestingSep: opts.nestingSeparator ?? '.',
+    arraySep: opts.arraySeparator ?? 'repeat',
+    escape: opts.escapeChar ?? '_',
     nullStr: opts.nullString ?? 'null',
     undefStr: opts.undefinedString ?? 'undefined',
     infStr: opts.infinityString ?? 'Infinity',
@@ -295,113 +285,61 @@ function parseValue(
 // ESCAPING
 // =============================================================================
 
-type EscapeOptions = Pick<ResolvedOptions, 'escape' | 'escapeSelf'>;
-
 /**
- * Escape special characters in a string.
- * Unless a separator is built from it, the escape char itself is doubled only
- * where a reader would take it as an escape: before itself, before a special
- * char, and at the end.
+ * Whether the char at i goes after an escape char: a char of the special
+ * chars, or the escape char where a reader would take it as an escape (before
+ * itself, a special char, or the end).
  */
-function escape(str: string, chars: string[], opts: EscapeOptions): string {
-  const { escape: esc, escapeSelf } = opts;
-  // Built from the end, so each escape char is doubled by the output after it
-  const parts: string[] = [];
-  // The output's leading chars, as many as the ambiguity check reads
-  let prefix = '';
-  const prefixLength = Math.max(esc.length, ...chars.map(c => c.length));
-  let i = str.length;
-
-  while (i > 0) {
-    let part: string;
-    const special = chars.find(c => str.endsWith(c, i));
-    if (special !== undefined) {
-      part = esc + special;
-      i -= special.length;
-    } else if (escapeSelf && str.endsWith(esc, i)) {
-      const isAmbiguous =
-        parts.length === 0 || [esc, ...chars].some(c => prefix.startsWith(c));
-      part = isAmbiguous ? esc + esc : esc;
-      i -= esc.length;
-    } else {
-      i--;
-      part = str[i];
-    }
-    parts.push(part);
-    prefix = (part + prefix).slice(0, prefixLength);
-  }
-
-  return parts.reverse().join('');
+function isEscaped(cs: string[], i: number, chars: string[], esc: string) {
+  const isSpecial = (c: string) => chars.some(special => special.includes(c));
+  return (
+    isSpecial(cs[i]) ||
+    (cs[i] === esc &&
+      (i + 1 === cs.length || cs[i + 1] === esc || isSpecial(cs[i + 1])))
+  );
 }
 
 /**
- * The token an escape char at i escapes: one of chars or, with escapeSelf,
- * itself where the writer doubles it (before itself, a special char, or the end).
+ * Escape special characters in a string.
  */
-function escapedAt(
-  str: string,
-  i: number,
-  chars: string[],
-  opts: EscapeOptions,
-): string | undefined {
-  const { escape: esc, escapeSelf } = opts;
-  if (!str.startsWith(esc, i)) return undefined;
-  const next = i + esc.length;
-  if (escapeSelf && str.startsWith(esc, next)) {
-    const after = next + esc.length;
-    if (
-      after === str.length ||
-      [esc, ...chars].some(c => str.startsWith(c, after))
-    ) {
-      return esc;
-    }
-  }
-  return chars.find(c => str.startsWith(c, next));
+function escape(str: string, chars: string[], esc: string): string {
+  return [...str]
+    .map((c, i, cs) => (isEscaped(cs, i, chars, esc) ? esc + c : c))
+    .join('');
 }
 
 /**
  * Remove escape sequences from a string.
  */
-function unescape(str: string, opts: EscapeOptions, chars: string[]): string {
+function unescape(str: string, esc: string, chars: string[]): string {
+  const cs = [...str];
   let result = '';
-  let i = 0;
-
-  while (i < str.length) {
-    const escaped = escapedAt(str, i, chars, opts);
-    if (escaped !== undefined) {
-      // Skip escape char, take next char(s) literally
-      result += escaped;
-      i += opts.escape.length + escaped.length;
-      continue;
+  for (let i = 0; i < cs.length; i++) {
+    if (
+      cs[i] === esc &&
+      i + 1 < cs.length &&
+      isEscaped(cs, i + 1, chars, esc)
+    ) {
+      i++;
     }
-
-    result += str[i];
-    i++;
+    result += cs[i];
   }
-
   return result;
 }
 
 /**
- * Split a string by separator, respecting escape sequences of chars (sep
- * among them).
+ * Split a string by separator, respecting escape sequences.
  */
-function splitEscaped(
-  str: string,
-  sep: string,
-  chars: string[],
-  opts: EscapeOptions,
-): string[] {
+function splitEscaped(str: string, sep: string, esc: string): string[] {
   const parts: string[] = [];
   let current = '';
   let i = 0;
 
   while (i < str.length) {
-    const escaped = escapedAt(str, i, chars, opts);
-    if (escaped !== undefined) {
-      // This is an escape sequence - keep it as-is for later unescape
-      current += opts.escape + escaped;
-      i += opts.escape.length + escaped.length;
+    // An escape char and the char after it are kept as-is for unescape
+    if (str.startsWith(esc, i)) {
+      current += str.slice(i, i + esc.length + 1);
+      i += esc.length + 1;
       continue;
     }
 
@@ -422,45 +360,24 @@ function splitEscaped(
 }
 
 /**
- * Split a namespaced string into entries, each with the index of its first
- * unescaped '=' (-1 if none). Escapes are read as keys write them before that
- * '=', and as values write them after it.
+ * Find unescaped index of a character in a string.
+ * Returns -1 if not found.
  */
-function splitEntries(
-  str: string,
-  opts: ResolvedOptions,
-): { part: string; eqIndex: number }[] {
-  const { entrySep } = opts;
-  const keyEscapes = keyChars(opts);
-  const valueEscapes = valueChars(opts);
-  const entries: { part: string; eqIndex: number }[] = [];
-  let start = 0;
-  let eqIndex = -1;
+function findUnescaped(str: string, char: string, esc: string): number {
   let i = 0;
 
   while (i < str.length) {
-    const chars = eqIndex === -1 ? keyEscapes : valueEscapes;
-    const escaped = escapedAt(str, i, chars, opts);
-    if (escaped !== undefined) {
-      // Skip the escape sequence
-      i += opts.escape.length + escaped.length;
+    // Skip an escape char and the char after it
+    if (str.startsWith(esc, i)) {
+      i += esc.length + 1;
       continue;
     }
-
-    if (str.substring(i, i + entrySep.length) === entrySep) {
-      entries.push({ part: str.slice(start, i), eqIndex });
-      i += entrySep.length;
-      start = i;
-      eqIndex = -1;
-      continue;
+    if (str.substring(i, i + char.length) === char) {
+      return i;
     }
-
-    if (eqIndex === -1 && str[i] === '=') eqIndex = i - start;
     i++;
   }
-
-  entries.push({ part: str.slice(start), eqIndex });
-  return entries;
+  return -1;
 }
 
 // =============================================================================
@@ -468,35 +385,21 @@ function splitEntries(
 // =============================================================================
 
 /**
- * Chars escaped in keys: nesting separator, entry separator, and '='
- * (key-value separator).
- */
-function keyChars(opts: ResolvedOptions): string[] {
-  return [opts.nestingSep, opts.entrySep, '='];
-}
-
-/**
- * Chars escaped in values: entry separator and array separator.
- */
-function valueChars(opts: ResolvedOptions): string[] {
-  return opts.arraySep === 'repeat' || opts.arraySep === opts.entrySep
-    ? [opts.entrySep]
-    : [opts.entrySep, opts.arraySep];
-}
-
-/**
  * Escape a key segment for use in a dot-notation path.
+ * Escapes nesting separator, entry separator, and '=' (key-value separator).
  */
 function escapeKey(key: string, opts: ResolvedOptions): string {
-  return escape(key, keyChars(opts), opts);
+  return escape(key, [opts.nestingSep, opts.entrySep, '='], opts.escape);
 }
 
 /**
  * Parse a dot-notation key path into segments, handling escapes.
  */
 function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
-  const segments = splitEscaped(path, opts.nestingSep, keyChars(opts), opts);
-  return segments.map(seg => unescape(seg, opts, keyChars(opts)));
+  const segments = splitEscaped(path, opts.nestingSep, opts.escape);
+  // Keys can have nestingSep, entrySep, and = escaped
+  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
+  return segments.map(seg => unescape(seg, opts.escape, keySpecials));
 }
 
 /**
@@ -571,7 +474,11 @@ function flatten(
   opts: ResolvedOptions,
 ): FlatEntries {
   const result: FlatEntries = {};
-  const valueEscapeChars = valueChars(opts);
+  // Characters to escape in values
+  const valueEscapeChars = [opts.entrySep];
+  if (opts.arraySep !== 'repeat' && opts.arraySep !== opts.entrySep) {
+    valueEscapeChars.push(opts.arraySep);
+  }
 
   for (const [rawKey, value] of Object.entries(obj)) {
     if (typeof value === 'function') continue;
@@ -589,7 +496,7 @@ function flatten(
       isDate(value)
     ) {
       const serialized = serializeValue(value, opts);
-      const escapedValue = escape(serialized, valueEscapeChars, opts);
+      const escapedValue = escape(serialized, valueEscapeChars, opts.escape);
       result[fullKey] = [escapedValue];
       continue;
     }
@@ -614,7 +521,11 @@ function flatten(
             Object.assign(result, flatten(item, indexedKey, opts));
           } else {
             const serialized = serializeValue(item, opts);
-            const escapedValue = escape(serialized, valueEscapeChars, opts);
+            const escapedValue = escape(
+              serialized,
+              valueEscapeChars,
+              opts.escape,
+            );
             result[indexedKey] = [escapedValue];
           }
         }
@@ -622,7 +533,7 @@ function flatten(
         // Simple array
         result[fullKey] = value.map(item => {
           const serialized = serializeValue(item, opts);
-          return escape(serialized, valueEscapeChars, opts);
+          return escape(serialized, valueEscapeChars, opts.escape);
         });
       }
       continue;
@@ -667,7 +578,14 @@ function unflatten(
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
-    const unescapeValue = (v: string) => unescape(v, opts, valueChars(opts));
+    // Characters that may be escaped in values
+    const valueSpecials: string[] = [opts.entrySep];
+    if (opts.arraySep !== 'repeat') {
+      valueSpecials.push(opts.arraySep);
+    }
+
+    const unescapeValue = (v: string) =>
+      unescape(v, opts.escape, valueSpecials);
 
     // ── Step 1: Determine if this is an array ──
     //
@@ -685,12 +603,7 @@ function unflatten(
     let values: string[];
     if (opts.arraySep !== 'repeat' && rawValues.length === 1) {
       // (b) Try splitting the single raw value on unescaped arraySep
-      const parts = splitEscaped(
-        rawValues[0],
-        opts.arraySep,
-        valueChars(opts),
-        opts,
-      );
+      const parts = splitEscaped(rawValues[0], opts.arraySep, opts.escape);
       // (c) Or initialState says it's an array
       const isArray = parts.length > 1 || isArrayHint;
       values = isArray
@@ -741,10 +654,14 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
 
   const decoded = decodeString(input);
   const entries: FlatEntries = {};
+  const parts = splitEscaped(decoded, opts.entrySep, opts.escape);
+
   let currentKey: string | null = null;
   let currentParts: string[] = [];
 
-  for (const { part, eqIndex } of splitEntries(decoded, opts)) {
+  for (const part of parts) {
+    const eqIndex = findUnescaped(part, '=', opts.escape);
+
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
       if (currentKey !== null) {

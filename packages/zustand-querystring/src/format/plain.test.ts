@@ -1108,6 +1108,21 @@ describe('plain format - token sets that cannot be read back', () => {
   });
 });
 
+describe('plain format - multi-character separators', () => {
+  it.each([
+    [{ entrySeparator: '||' }, { text: '|', b: '|y|' }],
+    [{ arraySeparator: '||' }, { tags: ['|', 'y|'], b: 'z' }],
+    [{ nestingSeparator: '[[' }, { 'k[': { x: '[' }, z: 'y' }],
+  ])('should round-trip with %o: %o', (options, state) => {
+    const fmt = createFormat(options);
+    const ctx = { initialState: state };
+    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
+    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
+      state,
+    );
+  });
+});
+
 describe('plain format - non-finite number parsing', () => {
   it('should return null for numbers that parse to Infinity via parseFloat', () => {
     // "1e999" matches NUMBER_RE but parseFloat returns Infinity → isFinite fails → null
