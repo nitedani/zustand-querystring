@@ -66,10 +66,9 @@ describe('plain format', () => {
     });
 
     it('should escape escape character only when needed', () => {
-      // Underscores don't need escaping - only special chars like , do
-      // Input: a_,b -> only , needs escape -> a__,b  (the _ before , is just kept)
-      const result = plain.stringify({ path: 'a_,b' });
-      expect(result).toBe('path=a__,b');
+      // _ is doubled only before _, a special char, or the end: a_,b -> a__ + _, + b
+      expect(plain.stringify({ path: 'a_,b' })).toBe('path=a___,b');
+      expect(plain.stringify({ snake_case: 'a_b' })).toBe('snake_case=a_b');
     });
 
     it('should stringify objects in arrays with indexed notation', () => {
@@ -167,11 +166,11 @@ describe('plain format', () => {
     });
 
     it('should handle escaped escape character', () => {
-      // __ is just two underscores, not an escape sequence
+      // __ is an escaped _
       const result = plain.parse('path=a__b__c', {
         initialState: { path: '' },
       });
-      expect(result).toEqual({ path: 'a__b__c' });
+      expect(result).toEqual({ path: 'a_b_c' });
     });
   });
 
@@ -1022,6 +1021,64 @@ describe('plain format - findUnescaped with escape sequences', () => {
       initialState: { text: '' },
     }) as any;
     expect(parsed.text).toBe('a,b');
+  });
+});
+
+describe('plain format - escape char at the end of keys and values', () => {
+  it('should round-trip a value ending in _', () => {
+    const state = { text: 'a_', b: 'x' };
+    expect(plain.stringify(state)).toBe('text=a__,b=x');
+    expect(plain.parse('text=a__,b=x', { initialState: state })).toEqual(state);
+  });
+
+  it('should round-trip a key ending in _', () => {
+    const state = { a_: 'x', b: 'y' };
+    expect(plain.stringify(state)).toBe('a__=x,b=y');
+    expect(plain.parse('a__=x,b=y', { initialState: state })).toEqual(state);
+  });
+
+  it('should round-trip a nested key ending in _', () => {
+    const state = { n: { k_: 1 } };
+    expect(plain.stringify(state)).toBe('n.k__=1');
+    expect(plain.parse('n.k__=1', { initialState: state })).toEqual(state);
+  });
+
+  it('should round-trip array items ending in _', () => {
+    const state = { tags: ['x_', 'y'] };
+    expect(plain.stringify(state)).toBe('tags=x__,tags=y');
+    expect(plain.parse('tags=x__,tags=y', { initialState: state })).toEqual(
+      state,
+    );
+  });
+
+  it('should round-trip values of only escape chars', () => {
+    const state = { a: '_', b: '__' };
+    expect(plain.stringify(state)).toBe('a=__,b=____');
+    expect(plain.parse('a=__,b=____', { initialState: state })).toEqual(state);
+  });
+
+  it('should round-trip a custom escape char at the end', () => {
+    const fmt = createFormat({ escapeChar: '\\' });
+    const state = { 'k\\': 'v\\', b: 'x' };
+    expect(fmt.stringify(state)).toBe('k\\\\=v\\\\,b=x');
+    expect(fmt.parse('k\\\\=v\\\\,b=x', { initialState: state })).toEqual(
+      state,
+    );
+  });
+
+  it('should round-trip array items ending in _ with a custom arraySeparator', () => {
+    const fmt = createFormat({ arraySeparator: ';' });
+    const state = { tags: ['x_', 'y'] };
+    expect(fmt.stringify(state)).toBe('tags=x__;y');
+    expect(fmt.parse('tags=x__;y', { initialState: state })).toEqual(state);
+  });
+
+  it('should round-trip values ending in _ (standalone)', () => {
+    const fmt = createFormat({ arraySeparator: ',' });
+    const state = { text: 'a_', tags: ['x_', 'y'] };
+    const params = { text: ['a__'], tags: ['x__,y'] };
+    expect(fmt.stringifyStandalone(state)).toEqual(params);
+    expect(fmt.parseStandalone(params, { initialState: state })).toEqual(state);
   });
 });
 

@@ -272,13 +272,26 @@ function parseValue(
 
 /**
  * Escape special characters in a string.
- * Only special chars need escaping. The escape char itself NEVER needs escaping.
+ * The escape char itself is doubled only where a reader would take it as an
+ * escape: before itself, before a special char, and at the end.
  */
 function escape(str: string, chars: string[], esc: string): string {
   let result = '';
   let i = 0;
 
   while (i < str.length) {
+    if (str.substring(i, i + esc.length) === esc) {
+      const nextPos = i + esc.length;
+      const isAmbiguous =
+        nextPos === str.length ||
+        [esc, ...chars].some(
+          c => str.substring(nextPos, nextPos + c.length) === c,
+        );
+      result += isAmbiguous ? esc + esc : esc;
+      i = nextPos;
+      continue;
+    }
+
     let matched = false;
 
     // Check if current position starts with any special char that needs escaping
@@ -302,9 +315,10 @@ function escape(str: string, chars: string[], esc: string): string {
 
 /**
  * Remove escape sequences from a string.
- * Only treat escape char as escape when followed by a special char.
+ * Only treat escape char as escape when followed by itself or a special char.
  */
 function unescape(str: string, esc: string, chars: string[]): string {
+  const escapable = [esc, ...chars];
   let result = '';
   let i = 0;
 
@@ -312,16 +326,16 @@ function unescape(str: string, esc: string, chars: string[]): string {
     // Check if current position starts with escape char
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
-      // Check if followed by a special char (NOT another escape)
-      const isEscapeSequence = chars.some(
+      // Check if followed by another escape or a special char
+      const isEscapeSequence = escapable.some(
         c => str.substring(nextPos, nextPos + c.length) === c,
       );
 
       if (isEscapeSequence && nextPos < str.length) {
         // Skip escape char, take next char(s) literally
         i = nextPos;
-        // Find which special char follows
-        for (const special of chars) {
+        // Find which escapable char follows
+        for (const special of escapable) {
           if (str.substring(i, i + special.length) === special) {
             result += special;
             i += special.length;
@@ -341,7 +355,7 @@ function unescape(str: string, esc: string, chars: string[]): string {
 
 /**
  * Split a string by separator, respecting escape sequences.
- * Only treats escape char as escape when followed by sep (NOT another escape).
+ * Only treats escape char as escape when followed by itself or sep.
  */
 function splitEscaped(str: string, sep: string, esc: string): string[] {
   const parts: string[] = [];
@@ -349,16 +363,17 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
   let i = 0;
 
   while (i < str.length) {
-    // Check for escape sequence (only _ followed by separator)
+    // Check for escape sequence (_ followed by _ or separator)
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
-      const isEscapeSequence =
-        str.substring(nextPos, nextPos + sep.length) === sep;
+      const escaped = [esc, sep].find(
+        c => str.substring(nextPos, nextPos + c.length) === c,
+      );
 
-      if (isEscapeSequence && nextPos < str.length) {
+      if (escaped !== undefined) {
         // This is an escape sequence - keep it as-is for later unescape
-        current += esc + sep;
-        i = nextPos + sep.length;
+        current += esc + escaped;
+        i = nextPos + escaped.length;
         continue;
       }
     }
@@ -381,7 +396,7 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
 
 /**
  * Find unescaped index of a character in a string.
- * Only treats escape char as escape when followed by char (NOT another escape).
+ * Only treats escape char as escape when followed by itself or char.
  * Returns -1 if not found.
  */
 function findUnescaped(str: string, char: string, esc: string): number {
@@ -390,10 +405,13 @@ function findUnescaped(str: string, char: string, esc: string): number {
   while (i < str.length) {
     if (str.substring(i, i + esc.length) === esc) {
       const nextPos = i + esc.length;
-      // Only escape sequence if followed by the char we're looking for
-      if (str.substring(nextPos, nextPos + char.length) === char) {
+      // Only escape sequence if followed by another escape or the char we're looking for
+      const escaped = [esc, char].find(
+        c => str.substring(nextPos, nextPos + c.length) === c,
+      );
+      if (escaped !== undefined) {
         // Skip the escape sequence
-        i = nextPos + char.length;
+        i = nextPos + escaped.length;
         continue;
       }
     }
