@@ -1014,6 +1014,22 @@ describe('marked format', () => {
     );
 
     testBothModes(
+      'should escape the terminator only at the start of a key',
+      standalone => {
+        const obj = { 'a~b': 1, '~c': 2, o: { 'a~b': 1, '~c': 2 } };
+        const encoded = stringify(obj, standalone);
+        expect(encoded).toContain('a~b');
+        expect(encoded).toContain('_~c');
+        expect(parse(encoded, standalone)).toEqual(obj);
+
+        const opts: MarkedFormatOptions = { escapeChar: '.x' };
+        const nested = { o: { 'x~a': 1, b: 2 } };
+        const encodedNested = stringify(nested, standalone, opts);
+        expect(parse(encodedNested, standalone, opts)).toEqual(nested);
+      },
+    );
+
+    testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
         const obj = { '~k': 1 };

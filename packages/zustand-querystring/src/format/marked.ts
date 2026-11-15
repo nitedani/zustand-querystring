@@ -129,11 +129,9 @@ function buildValueStopPattern(opts: ResolvedOptions): RegExp {
   );
 }
 
-function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
-  // Plus the escape char itself, wherever readEscaped would take it as an escape
-  return new RegExp(
-    `[${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
-  );
+function buildKeyStartPattern(opts: ResolvedOptions): RegExp {
+  // parseObject checks for the terminator only before a key
+  return new RegExp(`^${escapeRegex(opts.terminator)}`);
 }
 
 function buildDatePattern(opts: ResolvedOptions): RegExp {
@@ -313,7 +311,8 @@ function cleanResult(
 // =============================================================================
 
 function createSerializer(opts: ResolvedOptions) {
-  const keyEscape = buildKeyEscapePattern(opts);
+  const keyEscape = buildKeyStopPattern(opts);
+  const keyStartPattern = buildKeyStartPattern(opts);
   const valueEscape = buildValueStopPattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
   const markedStartPattern = buildMarkedStartPattern(opts);
@@ -349,7 +348,9 @@ function createSerializer(opts: ResolvedOptions) {
       for (const [k, v] of Object.entries(value)) {
         const val = serialize(v, false, false);
         if (val || v === undefined) {
-          entries.push(`${escapeStr(k, keyEscape, opts)}${val}`);
+          entries.push(
+            `${escapeStr(k, keyEscape, opts, keyStartPattern)}${val}`,
+          );
         }
       }
       return `${opts.typeObject}${entries.join(opts.separator)}${opts.terminator}`;
@@ -376,7 +377,8 @@ function createSerializer(opts: ResolvedOptions) {
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
-  const keyEscape = buildKeyEscapePattern(opts);
+  const keyEscape = buildKeyStopPattern(opts);
+  const keyStartPattern = buildKeyStartPattern(opts);
   const valueEscape = buildValueStopPattern(opts);
   const datePattern = buildDatePattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
@@ -494,7 +496,7 @@ function createParser(opts: ResolvedOptions) {
     function parseObject(): Record<string, unknown> {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
-        const { value: key } = readUntil(keyStop, keyEscape);
+        const { value: key } = readUntil(keyStop, keyEscape, keyStartPattern);
         result[key] = parseValue();
         if (
           pos < source.length &&
@@ -608,7 +610,7 @@ export function parse<T = unknown>(
       0,
       opts.escape,
       new RegExp(`[${escapedMarkers}]`),
-      buildKeyEscapePattern(opts),
+      buildKeyStopPattern(opts),
     );
     source =
       end < str.length
