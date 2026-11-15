@@ -1097,6 +1097,22 @@ describe('plain format - separators built from the escape char', () => {
   });
 });
 
+describe('plain format - escaped separators ending in the escape char', () => {
+  it.each([
+    [{ entrySeparator: ';_' }, { ';_.': 'v', z: 'y' }],
+    [{ entrySeparator: ';_' }, { ';_=': 'v', z: 'y' }],
+    [{ nestingSeparator: ';_' }, { ';_,': 'v', z: 'y' }],
+    [{ arraySeparator: ';_' }, { text: ';_,=', z: 'y' }],
+  ])('should round-trip with %o: %o', (options, state) => {
+    const fmt = createFormat(options);
+    const ctx = { initialState: state };
+    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
+    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
+      state,
+    );
+  });
+});
+
 describe('plain format - multi-character escape chars', () => {
   it.each([
     ['__', { 'k___.': 'v' }],
