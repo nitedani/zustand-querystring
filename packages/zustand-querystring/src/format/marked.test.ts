@@ -947,6 +947,13 @@ describe('marked format', () => {
       },
     );
 
+    it('should keep a __proto__ key as data', () => {
+      const obj = JSON.parse('{"__proto__":{"isAdmin":true}}');
+      const result = parse(stringify(obj)) as object;
+      expect(Object.hasOwn(result, '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    });
+
     it('should parse a string whose only type marker is escaped', () => {
       expect(parse('a_=b')).toBe('a_=b');
     });

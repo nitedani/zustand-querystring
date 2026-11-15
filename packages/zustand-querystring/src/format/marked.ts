@@ -505,7 +505,13 @@ function createParser(opts: ResolvedOptions) {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
-        result[key] = parseValue();
+        // Defined, not assigned: assigning a __proto__ key would set the prototype
+        Object.defineProperty(result, key, {
+          value: parseValue(),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
         if (
           pos < source.length &&
           !startsWith(tokens.terminator) &&
