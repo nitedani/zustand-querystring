@@ -1095,6 +1095,7 @@ describe('plain format - token sets that cannot be read back', () => {
       "share characters: 'a' and 'ba'",
     ],
     [{ entrySeparator: ';=' }, "share characters: '=' and ';='"],
+    [{ entrySeparator: '%%' }, "share characters: '%' and '%%'"],
     [
       { entrySeparator: 'ab', nestingSeparator: 'ba' },
       "share characters: 'ab' and 'ba'",
