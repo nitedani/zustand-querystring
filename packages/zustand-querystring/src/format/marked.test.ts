@@ -961,6 +961,17 @@ describe('marked format', () => {
     });
 
     testBothModes(
+      'should keep an escaped trailing terminator with a multi-character escape',
+      standalone => {
+        const opts: MarkedFormatOptions = { escapeChar: '%%' };
+        const obj = { k: 'a~' };
+        const encoded = stringify(obj, standalone, opts);
+        expect(parse(encoded, standalone, opts)).toEqual(obj);
+        expect(parse(stringify('a~', true, opts), true, opts)).toBe('a~');
+      },
+    );
+
+    testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
         const obj = { '~k': 1 };

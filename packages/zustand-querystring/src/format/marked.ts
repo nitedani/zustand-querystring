@@ -266,11 +266,13 @@ function cleanResult(
   standalone: boolean,
   opts: ResolvedOptions,
 ): string {
+  // The escape char as escapeStr's output spells it
+  const escape = encodePreservingMarkers(opts.escape, opts);
   while (str.endsWith(opts.terminator)) {
     const end = str.length - opts.terminator.length;
     // An odd run of escape chars before the terminator escapes it
     let escapes = 0;
-    while (str.endsWith(opts.escape, end - escapes * opts.escape.length)) {
+    while (str.endsWith(escape, end - escapes * escape.length)) {
       escapes++;
     }
     if (escapes % 2 === 1) break;
