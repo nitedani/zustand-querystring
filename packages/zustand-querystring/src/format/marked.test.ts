@@ -986,6 +986,16 @@ describe('marked format', () => {
     );
 
     testBothModes(
+      'should keep literal chars of a multi-character escape',
+      standalone => {
+        const opts: MarkedFormatOptions = { escapeChar: '%%' };
+        const obj = { k: '50%,x', r: '%%%~' };
+        const encoded = stringify(obj, standalone, opts);
+        expect(parse(encoded, standalone, opts)).toEqual(obj);
+      },
+    );
+
+    testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
         const obj = { '~k': 1 };

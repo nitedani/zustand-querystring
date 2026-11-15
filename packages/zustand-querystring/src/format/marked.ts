@@ -196,25 +196,24 @@ function escapeStr(
   const { escape } = opts;
   // An escaped date prefix or marker at the start is written verbatim, as readEscaped reads it
   const special = start?.exec(str)?.[0] ?? '';
-  let result = special && escape + special;
-  for (let i = special.length; i < str.length; ) {
-    if (str.startsWith(escape, i)) {
-      // Double the escape char wherever readEscaped would take it as an escape
-      const rest = str.slice(i + escape.length);
+  // Built from the end: the escape char doubles where the output after it would make readEscaped take it as an escape
+  let result = '';
+  let i = str.length;
+  while (i > special.length) {
+    if (str.endsWith(escape, i) && i - escape.length >= special.length) {
+      i -= escape.length;
       const ambiguous =
-        rest === '' ||
-        rest.startsWith(escape) ||
-        escapable.test(rest[0]) ||
-        (i === 0 && !!start?.test(rest));
-      result += ambiguous ? escape + escape : escape;
-      i += escape.length;
+        result === '' ||
+        result.startsWith(escape) ||
+        (i === 0 && !!start?.test(result));
+      result = (ambiguous ? escape + escape : escape) + result;
     } else {
-      if (escapable.test(str[i])) result += escape;
-      result += str[i];
-      i++;
+      i--;
+      const ch = str[i];
+      result = (escapable.test(ch) ? escape + ch : ch) + result;
     }
   }
-  return encodePreservingMarkers(result, opts);
+  return encodePreservingMarkers((special && escape + special) + result, opts);
 }
 
 // The escape char escapes itself, an `escapable` char, or (first in the value) a `start` match; elsewhere it is literal
@@ -246,8 +245,9 @@ function readEscaped(
         value += source.charAt(next);
         pos = next + 1;
       } else {
-        value += escape;
-        pos = next;
+        // One char only: with a multi-character escape, the next char may start a real escape
+        value += source.charAt(pos);
+        pos++;
       }
       continue;
     }
