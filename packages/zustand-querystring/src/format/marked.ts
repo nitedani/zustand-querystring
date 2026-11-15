@@ -194,8 +194,10 @@ function escapeStr(
   start?: RegExp,
 ): string {
   const { escape } = opts;
-  let result = start?.test(str) ? escape : '';
-  for (let i = 0; i < str.length; ) {
+  // An escaped date prefix or marker at the start is written verbatim, as readEscaped reads it
+  const special = start?.exec(str)?.[0] ?? '';
+  let result = special && escape + special;
+  for (let i = special.length; i < str.length; ) {
     if (str.startsWith(escape, i)) {
       // Double the escape char wherever readEscaped would take it as an escape
       const rest = str.slice(i + escape.length);
@@ -231,15 +233,18 @@ function readEscaped(
   while (pos < source.length) {
     if (source.startsWith(escape, pos)) {
       const next = pos + escape.length;
-      if (source.startsWith(escape, next)) {
+      // Checked first and taken verbatim: a date prefix or marker may contain the escape char
+      const special = pos === from ? start?.exec(source.slice(next)) : null;
+      if (special) {
+        value += special[0];
+        pos = next + special[0].length;
+        wasEscaped = true;
+      } else if (source.startsWith(escape, next)) {
         value += escape;
         pos = next + escape.length;
       } else if (escapable.test(source.charAt(next))) {
         value += source.charAt(next);
         pos = next + 1;
-      } else if (pos === from && start?.test(source.slice(next))) {
-        wasEscaped = true;
-        pos = next;
       } else {
         value += escape;
         pos = next;

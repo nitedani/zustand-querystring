@@ -937,6 +937,19 @@ describe('marked format', () => {
       },
     );
 
+    testBothModes(
+      'should keep strings when the date prefix starts with the escape char',
+      standalone => {
+        const opts: MarkedFormatOptions = {
+          escapeChar: 'T',
+          datePrefix: 'TIME',
+        };
+        const obj = { k: 'TIME5', list: ['TIME5'] };
+        const encoded = stringify(obj, standalone, opts);
+        expect(parse(encoded, standalone, opts)).toEqual(obj);
+      },
+    );
+
     testBothModes('should keep an escaped trailing terminator', standalone => {
       const obj = { k: 'a~' };
       const encoded = stringify(obj, standalone);
