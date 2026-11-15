@@ -291,26 +291,32 @@ type EscapeOptions = Pick<ResolvedOptions, 'escape' | 'escapeSelf'>;
 function escape(str: string, chars: string[], opts: EscapeOptions): string {
   const { escape: esc, escapeSelf } = opts;
   // Built from the end, so each escape char is doubled by the output after it
-  let result = '';
+  const parts: string[] = [];
+  // The output's leading chars, as many as the ambiguity check reads
+  let prefix = '';
+  const prefixLength = Math.max(esc.length, ...chars.map(c => c.length));
   let i = str.length;
 
   while (i > 0) {
+    let part: string;
     const special = chars.find(c => str.endsWith(c, i));
     if (special !== undefined) {
-      result = esc + special + result;
+      part = esc + special;
       i -= special.length;
     } else if (escapeSelf && str.endsWith(esc, i)) {
       const isAmbiguous =
-        result === '' || [esc, ...chars].some(c => result.startsWith(c));
-      result = (isAmbiguous ? esc + esc : esc) + result;
+        parts.length === 0 || [esc, ...chars].some(c => prefix.startsWith(c));
+      part = isAmbiguous ? esc + esc : esc;
       i -= esc.length;
     } else {
       i--;
-      result = str[i] + result;
+      part = str[i];
     }
+    parts.push(part);
+    prefix = (part + prefix).slice(0, prefixLength);
   }
 
-  return result;
+  return parts.reverse().join('');
 }
 
 /**
