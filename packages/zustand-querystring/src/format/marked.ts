@@ -107,6 +107,17 @@ function validateOptions(opts: ResolvedOptions): void {
       `datePrefix '${opts.datePrefix}' conflicts with another token`,
     );
   }
+
+  // No shared characters, so the reader can tell each token from text and from the others
+  const all = [...tokens, opts.datePrefix];
+  for (const [i, a] of all.entries()) {
+    for (const b of all.slice(i + 1)) {
+      const ch = [...a].find(c => b.includes(c));
+      if (ch) {
+        throw new Error(`Tokens '${a}' and '${b}' share the character '${ch}'`);
+      }
+    }
+  }
 }
 
 // =============================================================================

@@ -951,19 +951,6 @@ describe('marked format', () => {
       expect(parse('a_=b')).toBe('a_=b');
     });
 
-    testBothModes(
-      'should keep strings when the date prefix starts with the escape char',
-      standalone => {
-        const opts: MarkedFormatOptions = {
-          escapeChar: 'T',
-          datePrefix: 'TIME',
-        };
-        const obj = { k: 'TIME5', list: ['TIME5'] };
-        const encoded = stringify(obj, standalone, opts);
-        expect(parse(encoded, standalone, opts)).toEqual(obj);
-      },
-    );
-
     testBothModes('should keep an escaped trailing terminator', standalone => {
       const obj = { k: 'a~' };
       const encoded = stringify(obj, standalone);
@@ -996,24 +983,6 @@ describe('marked format', () => {
     );
 
     testBothModes(
-      'should round-trip with an escape char that holds a marker or delimiter',
-      standalone => {
-        const cases: [MarkedFormatOptions, object][] = [
-          [
-            { escapeChar: '_.' },
-            { 'a_.b': 1, b: 2, filters: { 'a_.b': 1, b: 2 } },
-          ],
-          [{ escapeChar: '.x' }, { o: { 'x5,5': 1, b: 2 } }],
-          [{ escapeChar: '~~' }, { o: { k: 'D~' }, z: 1 }],
-        ];
-        for (const [opts, obj] of cases) {
-          const encoded = stringify(obj, standalone, opts);
-          expect(parse(encoded, standalone, opts)).toEqual(obj);
-        }
-      },
-    );
-
-    testBothModes(
       'should escape the terminator only at the start of a key',
       standalone => {
         const obj = { 'a~b': 1, '~c': 2, o: { 'a~b': 1, '~c': 2 } };
@@ -1021,33 +990,38 @@ describe('marked format', () => {
         expect(encoded).toContain('a~b');
         expect(encoded).toContain('_~c');
         expect(parse(encoded, standalone)).toEqual(obj);
-
-        const opts: MarkedFormatOptions = { escapeChar: '.x' };
-        const nested = { o: { 'x~a': 1, b: 2 } };
-        const encodedNested = stringify(nested, standalone, opts);
-        expect(parse(encodedNested, standalone, opts)).toEqual(nested);
       },
     );
 
-    it('should round-trip terminators when the escape char is made of them', () => {
-      const format = createFormat({ escapeChar: '~~' });
-      const state = { search: '~~~', filters: { k: '~' } };
-      const params = format.stringifyStandalone(state);
-      expect(format.parseStandalone(params, { initialState: {} })).toEqual(
-        state,
-      );
-      expect(format.parse(format.stringify(state))).toEqual(state);
+    it('should refuse tokens that share a character', () => {
+      const cases: [MarkedFormatOptions, string][] = [
+        [{ escapeChar: 'a.a' }, "Tokens '.' and 'a.a' share the character '.'"],
+        [{ escapeChar: '~~' }, "Tokens '~' and '~~' share the character '~'"],
+        [
+          { escapeChar: 'T', datePrefix: 'TIME' },
+          "Tokens 'T' and 'TIME' share the character 'T'",
+        ],
+        [
+          { terminator: '😀', escapeChar: '😀_' },
+          "Tokens '😀' and '😀_' share the character '😀'",
+        ],
+        [
+          { separator: '|', terminator: '||' },
+          "Tokens '|' and '||' share the character '|'",
+        ],
+      ];
+      for (const [opts, message] of cases) {
+        expect(() => createFormat(opts)).toThrow(message);
+      }
     });
 
     testBothModes(
       'should keep surrogate pairs whole in tokens and values',
       standalone => {
         const cases: [MarkedFormatOptions, object][] = [
-          [{ terminator: '😀', escapeChar: '😀_' }, { search: '😀_' }],
-          [
-            { separator: '🎉', escapeChar: '_🎉' },
-            { 'a🎉': '_🎉', k: ['🎉', 'b'] },
-          ],
+          [{ terminator: '😀' }, { search: '😀_', k: ['a😀', 'b'] }],
+          [{ separator: '🎉' }, { 'a🎉': '_🎉', k: ['🎉', 'b'] }],
+          [{ escapeChar: '😀' }, { 'a😀': '😀,~', k: ['😀', '~'] }],
         ];
         for (const [opts, obj] of cases) {
           const encoded = stringify(obj, standalone, opts);
