@@ -1082,6 +1082,21 @@ describe('plain format - escape char at the end of keys and values', () => {
   });
 });
 
+describe('plain format - separators built from the escape char', () => {
+  it.each([
+    [{ entrySeparator: '__' }, { a: 'x', b: 'y' }],
+    [{ nestingSeparator: '__' }, { n: { k: 'v' } }],
+    [{ arraySeparator: '__' }, { tags: ['x', 'y'] }],
+  ])('should round-trip with %o', (options, state) => {
+    const fmt = createFormat(options);
+    const ctx = { initialState: state };
+    expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
+    expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
+      state,
+    );
+  });
+});
+
 describe('plain format - non-finite number parsing', () => {
   it('should return null for numbers that parse to Infinity via parseFloat', () => {
     // "1e999" matches NUMBER_RE but parseFloat returns Infinity → isFinite fails → null
