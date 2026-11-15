@@ -196,13 +196,19 @@ function escapeStr(
   const { escape } = opts;
   // An escaped date prefix or marker at the start is written verbatim, as readEscaped reads it
   const special = start?.exec(str)?.[0] ?? '';
+  // An escape char holding an escapable char is no token here: its chars are escaped one by one
+  const isToken = ![...escape].some(ch => escapable.test(ch));
   // Built from the end: the escape char doubles where the output after it would make readEscaped take it as an escape
   const parts: string[] = [];
   let prefix = '';
   let i = str.length;
   while (i > special.length) {
     let part: string;
-    if (str.endsWith(escape, i) && i - escape.length >= special.length) {
+    if (
+      isToken &&
+      str.endsWith(escape, i) &&
+      i - escape.length >= special.length
+    ) {
       i -= escape.length;
       const ambiguous =
         parts.length === 0 ||
@@ -245,20 +251,22 @@ function readEscaped(
         value += special[0];
         pos = next + special[0].length;
         wasEscaped = true;
-      } else if (source.startsWith(escape, next)) {
-        value += escape;
-        pos = next + escape.length;
-      } else if (escapable.test(source.charAt(next))) {
+        continue;
+      }
+      // Before the doubled form, which an escape char starting with an escapable char also matches
+      if (escapable.test(source.charAt(next))) {
         value += source.charAt(next);
         pos = next + 1;
-      } else {
-        // One char only: with a multi-character escape, the next char may start a real escape
-        value += source.charAt(pos);
-        pos++;
+        continue;
       }
-      continue;
+      if (source.startsWith(escape, next)) {
+        value += escape;
+        pos = next + escape.length;
+        continue;
+      }
     }
 
+    // One char only: with a multi-character escape, the next char may start a real escape
     const ch = source.charAt(pos);
     if (stop?.test(ch)) break;
     value += ch;

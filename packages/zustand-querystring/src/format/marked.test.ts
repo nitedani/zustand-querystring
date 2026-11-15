@@ -996,6 +996,24 @@ describe('marked format', () => {
     );
 
     testBothModes(
+      'should round-trip with an escape char that holds a marker or delimiter',
+      standalone => {
+        const cases: [MarkedFormatOptions, object][] = [
+          [
+            { escapeChar: '_.' },
+            { 'a_.b': 1, b: 2, filters: { 'a_.b': 1, b: 2 } },
+          ],
+          [{ escapeChar: '.x' }, { o: { 'x5,5': 1, b: 2 } }],
+          [{ escapeChar: '~~' }, { o: { k: 'D~' }, z: 1 }],
+        ];
+        for (const [opts, obj] of cases) {
+          const encoded = stringify(obj, standalone, opts);
+          expect(parse(encoded, standalone, opts)).toEqual(obj);
+        }
+      },
+    );
+
+    testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
         const obj = { '~k': 1 };
