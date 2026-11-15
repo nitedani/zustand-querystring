@@ -136,13 +136,6 @@ function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
   );
 }
 
-function buildValueEscapePattern(opts: ResolvedOptions): RegExp {
-  // Plus the escape char itself, wherever readEscaped would take it as an escape
-  return new RegExp(
-    `[${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
-  );
-}
-
 function buildDatePattern(opts: ResolvedOptions): RegExp {
   return new RegExp(`^${escapeRegex(opts.datePrefix)}-?\\d+$`);
 }
@@ -299,7 +292,7 @@ function cleanResult(
 
 function createSerializer(opts: ResolvedOptions) {
   const keyEscape = buildKeyEscapePattern(opts);
-  const valueEscape = buildValueEscapePattern(opts);
+  const valueEscape = buildValueStopPattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
   const markedStartPattern = buildMarkedStartPattern(opts);
 
@@ -362,7 +355,7 @@ function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
   const keyEscape = buildKeyEscapePattern(opts);
-  const valueEscape = buildValueEscapePattern(opts);
+  const valueEscape = buildValueStopPattern(opts);
   const datePattern = buildDatePattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
   const markedStartPattern = buildMarkedStartPattern(opts);
@@ -575,7 +568,7 @@ export function parse<T = unknown>(
       0,
       opts.escape,
       null,
-      buildValueEscapePattern(opts),
+      buildValueStopPattern(opts),
       buildMarkedStartPattern(opts),
     ).value as T;
   } else {
