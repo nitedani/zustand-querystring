@@ -274,23 +274,33 @@ function readEscaped(
   return { value, end: pos, wasEscaped };
 }
 
+// Terminators that close the value at the end of its output, as serialize writes them
+function trailingTerminators(value: unknown): number {
+  if (Array.isArray(value)) {
+    return (
+      1 + (value.length ? trailingTerminators(value[value.length - 1]) : 0)
+    );
+  }
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const last = Object.values(value)
+      .filter(v => typeof v !== 'function')
+      .pop();
+    return 1 + trailingTerminators(last);
+  }
+  return 0;
+}
+
 function cleanResult(
   str: string,
+  value: unknown,
   standalone: boolean,
   opts: ResolvedOptions,
 ): string {
-  // The escape char as escapeStr's output spells it
-  const escape = encodePreservingMarkers(opts.escape, opts);
-  while (str.endsWith(opts.terminator)) {
-    const end = str.length - opts.terminator.length;
-    // An odd run of escape chars before the terminator escapes it
-    let escapes = 0;
-    while (str.endsWith(escape, end - escapes * escape.length)) {
-      escapes++;
-    }
-    if (escapes % 2 === 1) break;
-    str = str.slice(0, end);
-  }
+  // Counted from the value: an escaped terminator can't be told from these by the chars before it
+  str = str.slice(
+    0,
+    str.length - trailingTerminators(value) * opts.terminator.length,
+  );
 
   const datePattern = new RegExp(
     `^${escapeRegex(opts.typeString)}${escapeRegex(opts.datePrefix)}-?\\d+$`,
@@ -550,7 +560,7 @@ export function stringify(
 ): string {
   const opts = resolveOptions(options);
   const serialize = createSerializer(opts);
-  return cleanResult(serialize(value, standalone), standalone, opts);
+  return cleanResult(serialize(value, standalone), value, standalone, opts);
 }
 
 /**

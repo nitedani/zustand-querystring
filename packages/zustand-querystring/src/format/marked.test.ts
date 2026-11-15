@@ -1029,6 +1029,16 @@ describe('marked format', () => {
       },
     );
 
+    it('should round-trip terminators when the escape char is made of them', () => {
+      const format = createFormat({ escapeChar: '~~' });
+      const state = { search: '~~~', filters: { k: '~' } };
+      const params = format.stringifyStandalone(state);
+      expect(format.parseStandalone(params, { initialState: {} })).toEqual(
+        state,
+      );
+      expect(format.parse(format.stringify(state))).toEqual(state);
+    });
+
     testBothModes(
       'should round-trip keys starting with the terminator',
       standalone => {
