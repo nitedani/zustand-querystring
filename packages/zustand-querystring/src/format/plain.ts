@@ -290,37 +290,23 @@ type EscapeOptions = Pick<ResolvedOptions, 'escape' | 'escapeSelf'>;
  */
 function escape(str: string, chars: string[], opts: EscapeOptions): string {
   const { escape: esc, escapeSelf } = opts;
+  // Built from the end, so each escape char is doubled by the output after it
   let result = '';
-  let i = 0;
+  let i = str.length;
 
-  while (i < str.length) {
-    if (escapeSelf && str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
+  while (i > 0) {
+    const special = chars.find(c => str.endsWith(c, i));
+    if (special !== undefined) {
+      result = esc + special + result;
+      i -= special.length;
+    } else if (escapeSelf && str.endsWith(esc, i)) {
       const isAmbiguous =
-        nextPos === str.length ||
-        [esc, ...chars].some(
-          c => str.substring(nextPos, nextPos + c.length) === c,
-        );
-      result += isAmbiguous ? esc + esc : esc;
-      i = nextPos;
-      continue;
-    }
-
-    let matched = false;
-
-    // Check if current position starts with any special char that needs escaping
-    for (const special of chars) {
-      if (str.substring(i, i + special.length) === special) {
-        result += esc + special;
-        i += special.length;
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      result += str[i];
-      i++;
+        result === '' || [esc, ...chars].some(c => result.startsWith(c));
+      result = (isAmbiguous ? esc + esc : esc) + result;
+      i -= esc.length;
+    } else {
+      i--;
+      result = str[i] + result;
     }
   }
 
