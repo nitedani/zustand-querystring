@@ -320,37 +320,44 @@ function escape(str: string, chars: string[], opts: EscapeOptions): string {
 }
 
 /**
+ * The token an escape char at i escapes: one of chars or, with escapeSelf,
+ * itself where the writer doubles it (before itself, a special char, or the end).
+ */
+function escapedAt(
+  str: string,
+  i: number,
+  chars: string[],
+  opts: EscapeOptions,
+): string | undefined {
+  const { escape: esc, escapeSelf } = opts;
+  if (!str.startsWith(esc, i)) return undefined;
+  const next = i + esc.length;
+  if (escapeSelf && str.startsWith(esc, next)) {
+    const after = next + esc.length;
+    if (
+      after === str.length ||
+      [esc, ...chars].some(c => str.startsWith(c, after))
+    ) {
+      return esc;
+    }
+  }
+  return chars.find(c => str.startsWith(c, next));
+}
+
+/**
  * Remove escape sequences from a string.
- * Only treat escape char as escape when followed by a special char or, with escapeSelf, itself.
  */
 function unescape(str: string, opts: EscapeOptions, chars: string[]): string {
-  const esc = opts.escape;
-  const escapable = opts.escapeSelf ? [esc, ...chars] : chars;
   let result = '';
   let i = 0;
 
   while (i < str.length) {
-    // Check if current position starts with escape char
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      // Check if followed by another escape or a special char
-      const isEscapeSequence = escapable.some(
-        c => str.substring(nextPos, nextPos + c.length) === c,
-      );
-
-      if (isEscapeSequence && nextPos < str.length) {
-        // Skip escape char, take next char(s) literally
-        i = nextPos;
-        // Find which escapable char follows
-        for (const special of escapable) {
-          if (str.substring(i, i + special.length) === special) {
-            result += special;
-            i += special.length;
-            break;
-          }
-        }
-        continue;
-      }
+    const escaped = escapedAt(str, i, chars, opts);
+    if (escaped !== undefined) {
+      // Skip escape char, take next char(s) literally
+      result += escaped;
+      i += opts.escape.length + escaped.length;
+      continue;
     }
 
     result += str[i];
@@ -361,9 +368,8 @@ function unescape(str: string, opts: EscapeOptions, chars: string[]): string {
 }
 
 /**
- * Split a string by separator, respecting escape sequences.
- * Only treats escape char as escape when followed by one of chars (sep among
- * them) or, with escapeSelf, itself.
+ * Split a string by separator, respecting escape sequences of chars (sep
+ * among them).
  */
 function splitEscaped(
   str: string,
@@ -371,26 +377,17 @@ function splitEscaped(
   chars: string[],
   opts: EscapeOptions,
 ): string[] {
-  const esc = opts.escape;
-  const escapable = opts.escapeSelf ? [esc, ...chars] : chars;
   const parts: string[] = [];
   let current = '';
   let i = 0;
 
   while (i < str.length) {
-    // Check for escape sequence (_ followed by _ or a special char)
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      const escaped = escapable.find(
-        c => str.substring(nextPos, nextPos + c.length) === c,
-      );
-
-      if (escaped !== undefined) {
-        // This is an escape sequence - keep it as-is for later unescape
-        current += esc + escaped;
-        i = nextPos + escaped.length;
-        continue;
-      }
+    const escaped = escapedAt(str, i, chars, opts);
+    if (escaped !== undefined) {
+      // This is an escape sequence - keep it as-is for later unescape
+      current += opts.escape + escaped;
+      i += opts.escape.length + escaped.length;
+      continue;
     }
 
     // Check for separator
@@ -418,27 +415,21 @@ function splitEntries(
   str: string,
   opts: ResolvedOptions,
 ): { part: string; eqIndex: number }[] {
-  const { escape: esc, entrySep } = opts;
-  const escapable = (chars: string[]) =>
-    opts.escapeSelf ? [esc, ...chars] : chars;
-  const keyEscapable = escapable(keyChars(opts));
-  const valueEscapable = escapable(valueChars(opts));
+  const { entrySep } = opts;
+  const keyEscapes = keyChars(opts);
+  const valueEscapes = valueChars(opts);
   const entries: { part: string; eqIndex: number }[] = [];
   let start = 0;
   let eqIndex = -1;
   let i = 0;
 
   while (i < str.length) {
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      const escaped = (eqIndex === -1 ? keyEscapable : valueEscapable).find(
-        c => str.substring(nextPos, nextPos + c.length) === c,
-      );
-      if (escaped !== undefined) {
-        // Skip the escape sequence
-        i = nextPos + escaped.length;
-        continue;
-      }
+    const chars = eqIndex === -1 ? keyEscapes : valueEscapes;
+    const escaped = escapedAt(str, i, chars, opts);
+    if (escaped !== undefined) {
+      // Skip the escape sequence
+      i += opts.escape.length + escaped.length;
+      continue;
     }
 
     if (str.substring(i, i + entrySep.length) === entrySep) {

@@ -166,11 +166,13 @@ describe('plain format', () => {
     });
 
     it('should handle escaped escape character', () => {
-      // __ is an escaped _
-      const result = plain.parse('path=a__b__c', {
-        initialState: { path: '' },
-      });
-      expect(result).toEqual({ path: 'a_b_c' });
+      // __ is an escaped _ only where the writer doubles it: before _, a special char, or the end
+      expect(
+        plain.parse('path=a__b__c', { initialState: { path: '' } }),
+      ).toEqual({ path: 'a__b__c' });
+      expect(
+        plain.parse('path=a___,b__', { initialState: { path: '' } }),
+      ).toEqual({ path: 'a_,b_' });
     });
   });
 
@@ -1123,6 +1125,18 @@ describe('plain format - multi-character escape chars', () => {
     const ctx = { initialState: state };
     expect(fmt.parse(fmt.stringify(state), ctx)).toEqual(state);
     expect(fmt.parseStandalone(fmt.stringifyStandalone(state), ctx)).toEqual(
+      state,
+    );
+  });
+});
+
+describe('plain format - escape char overlapping the entry separator', () => {
+  it.each([
+    { text: 'a', b: 'y' },
+    { text: 'ab', b: 'y' },
+  ])('should round-trip %o', state => {
+    const fmt = createFormat({ escapeChar: 'ab', entrySeparator: 'ba' });
+    expect(fmt.parse(fmt.stringify(state), { initialState: state })).toEqual(
       state,
     );
   });
