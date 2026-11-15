@@ -397,9 +397,7 @@ function createSerializer(opts: ResolvedOptions) {
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
-  const keyEscape = buildKeyStopPattern(opts);
   const keyStartPattern = buildKeyStartPattern(opts);
-  const valueEscape = buildValueStopPattern(opts);
   const datePattern = buildDatePattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
   const markedStartPattern = buildMarkedStartPattern(opts);
@@ -433,23 +431,15 @@ function createParser(opts: ResolvedOptions) {
 
     function readUntil(
       stop: RegExp,
-      escapable: RegExp,
       start?: RegExp,
     ): { value: string; wasEscaped: boolean } {
-      const read = readEscaped(
-        source,
-        pos,
-        tokens.escape,
-        stop,
-        escapable,
-        start,
-      );
+      const read = readEscaped(source, pos, tokens.escape, stop, stop, start);
       pos = read.end;
       return read;
     }
 
     function parseString(start: RegExp): string | Date {
-      const { value, wasEscaped } = readUntil(valueStop, valueEscape, start);
+      const { value, wasEscaped } = readUntil(valueStop, start);
 
       if (!wasEscaped && datePattern.test(value)) {
         const timestamp = parseInt(value.slice(tokens.datePrefix.length), 10);
@@ -463,7 +453,7 @@ function createParser(opts: ResolvedOptions) {
     }
 
     function parsePrimitive(): number | boolean | null | undefined {
-      const { value } = readUntil(valueStop, valueEscape);
+      const { value } = readUntil(valueStop);
       if (value === 'null') return null;
       if (value === 'undefined') return undefined;
       if (value === 'true') return true;
@@ -516,7 +506,7 @@ function createParser(opts: ResolvedOptions) {
     function parseObject(): Record<string, unknown> {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
-        const { value: key } = readUntil(keyStop, keyEscape, keyStartPattern);
+        const { value: key } = readUntil(keyStop, keyStartPattern);
         result[key] = parseValue();
         if (
           pos < source.length &&
