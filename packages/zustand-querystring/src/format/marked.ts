@@ -197,23 +197,30 @@ function escapeStr(
   // An escaped date prefix or marker at the start is written verbatim, as readEscaped reads it
   const special = start?.exec(str)?.[0] ?? '';
   // Built from the end: the escape char doubles where the output after it would make readEscaped take it as an escape
-  let result = '';
+  const parts: string[] = [];
+  let prefix = '';
   let i = str.length;
   while (i > special.length) {
+    let part: string;
     if (str.endsWith(escape, i) && i - escape.length >= special.length) {
       i -= escape.length;
       const ambiguous =
-        result === '' ||
-        result.startsWith(escape) ||
-        (i === 0 && !!start?.test(result));
-      result = (ambiguous ? escape + escape : escape) + result;
+        parts.length === 0 ||
+        prefix.startsWith(escape) ||
+        (i === 0 && !!start?.test(parts.slice().reverse().join('')));
+      part = ambiguous ? escape + escape : escape;
     } else {
       i--;
       const ch = str[i];
-      result = (escapable.test(ch) ? escape + ch : ch) + result;
+      part = escapable.test(ch) ? escape + ch : ch;
     }
+    parts.push(part);
+    prefix = (part + prefix).slice(0, escape.length);
   }
-  return encodePreservingMarkers((special && escape + special) + result, opts);
+  return encodePreservingMarkers(
+    (special && escape + special) + parts.reverse().join(''),
+    opts,
+  );
 }
 
 // The escape char escapes itself, an `escapable` char, or (first in the value) a `start` match; elsewhere it is literal
