@@ -936,6 +936,25 @@ describe('marked format', () => {
         expect(parse(encoded, standalone)).toEqual(obj);
       },
     );
+
+    testBothModes('should keep an escaped trailing terminator', standalone => {
+      const obj = { k: 'a~' };
+      const encoded = stringify(obj, standalone);
+      expect(parse(encoded, standalone)).toEqual(obj);
+    });
+
+    it('should round-trip standalone strings ending in the terminator', () => {
+      expect(parse(stringify('a~', true), true)).toBe('a~');
+    });
+
+    testBothModes(
+      'should round-trip keys starting with the terminator',
+      standalone => {
+        const obj = { '~k': 1 };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
   });
 
   describe('marked format object interface', () => {

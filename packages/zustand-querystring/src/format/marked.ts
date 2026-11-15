@@ -132,7 +132,7 @@ function buildValueStopPattern(opts: ResolvedOptions): RegExp {
 function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
   // Plus the escape char itself, wherever readEscaped would take it as an escape
   return new RegExp(
-    `[${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}]`,
+    `[${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
   );
 }
 
@@ -269,7 +269,14 @@ function cleanResult(
   opts: ResolvedOptions,
 ): string {
   while (str.endsWith(opts.terminator)) {
-    str = str.slice(0, -opts.terminator.length);
+    const end = str.length - opts.terminator.length;
+    // An odd run of escape chars before the terminator escapes it
+    let escapes = 0;
+    while (str.endsWith(opts.escape, end - escapes * opts.escape.length)) {
+      escapes++;
+    }
+    if (escapes % 2 === 1) break;
+    str = str.slice(0, end);
   }
 
   const datePattern = new RegExp(
