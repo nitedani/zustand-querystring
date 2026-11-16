@@ -415,10 +415,6 @@ function createParser(opts: ResolvedOptions) {
   return function parseSource<T>(source: string): T {
     let pos = 0;
 
-    function peek(len: number = 1): string {
-      return source.slice(pos, pos + len);
-    }
-
     function startsWith(token: string): boolean {
       return source.slice(pos, pos + token.length) === token;
     }
@@ -543,7 +539,7 @@ function createParser(opts: ResolvedOptions) {
       }
 
       /* v8 ignore next 2 -- @preserve: defensive code - all valid types are handled above */
-      throw new Error(`Unexpected type "${peek()}" at position ${pos}`);
+      throw new Error(`Unexpected type "${source[pos]}" at position ${pos}`);
     }
 
     return parseValue() as T;
