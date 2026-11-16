@@ -255,6 +255,11 @@ describe('marked format', () => {
   });
 
   describe('edge cases', () => {
+    testBothModes('should keep an empty first key', standalone => {
+      const obj = { '': 1, b: 'x' };
+      expect(parse(stringify(obj, standalone), standalone)).toEqual(obj);
+    });
+
     it('rejects a value with no type marker', () => {
       expect(() => parse('.k')).toThrow('Unexpected type "" at position 2');
       expect(() => parse('.a:1,,b:2')).toThrow(

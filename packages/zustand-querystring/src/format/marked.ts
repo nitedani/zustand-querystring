@@ -318,7 +318,15 @@ function cleanResult(
   }
 
   if (!standalone && str.startsWith(opts.typeObject)) {
-    return str.slice(opts.typeObject.length);
+    const rest = str.slice(opts.typeObject.length);
+    // An empty first key leaves the value's marker first, which would read as that value
+    const markers = [
+      opts.typeString,
+      opts.typePrimitive,
+      opts.typeArray,
+      opts.typeObject,
+    ];
+    if (!markers.some(m => rest.startsWith(m))) return rest;
   }
 
   return str;
