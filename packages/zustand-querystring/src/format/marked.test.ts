@@ -1449,6 +1449,13 @@ describe('marked format', () => {
   });
 
   describe('edge cases with custom options', () => {
+    it('rejects a lone character of a multi-character separator', () => {
+      const opts = { separator: '||', escapeChar: '!!' };
+      expect(() => parse('@!!||', false, opts)).toThrow(
+        'Unexpected "|" at position 4',
+      );
+    });
+
     it('should handle multi-character tokens', () => {
       const opts: MarkedFormatOptions = {
         typeObject: '{{',

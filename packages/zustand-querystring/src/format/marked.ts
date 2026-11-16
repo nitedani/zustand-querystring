@@ -487,7 +487,14 @@ function createParser(opts: ResolvedOptions) {
         ) {
           result.push(parseValue());
         } else {
+          const start = pos;
           result.push(parseString(markedStartPattern));
+          // Part of a multi-character token reads as nothing, and the loop would never end
+          if (pos === start) {
+            throw new Error(
+              `Unexpected "${source.charAt(pos)}" at position ${pos}`,
+            );
+          }
         }
 
         if (pos < source.length && startsWith(tokens.separator)) {
