@@ -26,6 +26,9 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: packages/zustand-querystring
         run: |
+          # A slower run of an older commit, or a re-run of one, must not overwrite the newer number
+          tip=$(git ls-remote "https://github.com/${{ github.repository }}.git" refs/heads/main | cut -f1)
+          if [ "$tip" != "$GITHUB_SHA" ]; then echo "main moved on to $tip, skipping"; exit 0; fi
           pct=$(jq -r '.total.lines.pct' coverage/coverage-summary.json)
           color=$(awk -v p="$pct" 'BEGIN { print (p >= 95 ? "brightgreen" : p >= 85 ? "green" : p >= 75 ? "yellow" : "red") }')
           mkdir -p "$RUNNER_TEMP/badges" && cd "$RUNNER_TEMP/badges"
