@@ -255,6 +255,13 @@ describe('marked format', () => {
   });
 
   describe('edge cases', () => {
+    it('rejects a value with no type marker', () => {
+      expect(() => parse('.k')).toThrow('Unexpected type "" at position 2');
+      expect(() => parse('.a:1,,b:2')).toThrow(
+        'Unexpected type "," at position 5',
+      );
+    });
+
     testBothModes('should handle very long strings', standalone => {
       const longString = 'a'.repeat(1000);
       const obj = { long: longString };

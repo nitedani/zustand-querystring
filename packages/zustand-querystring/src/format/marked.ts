@@ -538,8 +538,9 @@ function createParser(opts: ResolvedOptions) {
         return parseString(dateStartPattern);
       }
 
-      /* v8 ignore next 2 -- @preserve: defensive code - all valid types are handled above */
-      throw new Error(`Unexpected type "${source[pos]}" at position ${pos}`);
+      throw new Error(
+        `Unexpected type "${source.charAt(pos)}" at position ${pos}`,
+      );
     }
 
     return parseValue() as T;
