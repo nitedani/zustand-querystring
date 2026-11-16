@@ -1,5 +1,9 @@
 # zustand-querystring
 
+[![npm](https://img.shields.io/npm/v/zustand-querystring)](https://www.npmjs.com/package/zustand-querystring)
+[![CI](https://github.com/nitedani/zustand-querystring/actions/workflows/ci.yml/badge.svg)](https://github.com/nitedani/zustand-querystring/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nitedani/zustand-querystring/badges/coverage.json)](https://github.com/nitedani/zustand-querystring/actions/workflows/ci.yml)
+
 Zustand middleware for URL query string sync.
 
 ```bash
