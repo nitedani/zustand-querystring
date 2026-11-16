@@ -958,6 +958,7 @@ describe('marked format', () => {
       const obj = JSON.parse('{"__proto__":{"isAdmin":true}}');
       const result = parse(stringify(obj)) as object;
       expect(Object.hasOwn(result, '__proto__')).toBe(true);
+      expect(result).toEqual(obj);
       expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
     });
 
