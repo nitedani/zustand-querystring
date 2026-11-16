@@ -1634,6 +1634,10 @@ describe('map option', () => {
 
   it('should not sync when select returns false for path', async () => {
     window.history.replaceState({}, '', '/home');
+    // Earlier tests' stores rewrite their params 100ms after a pathname change.
+    await new Promise(requestAnimationFrame);
+    await new Promise(r => setTimeout(r, 150));
+    window.history.replaceState({}, '', '/home');
     const useStore = createMappedStore();
     render(<MappedDisplay store={useStore} />);
 

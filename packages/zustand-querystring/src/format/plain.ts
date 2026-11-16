@@ -101,6 +101,21 @@ function validateOptions(opts: ResolvedOptions): void {
   if (arraySep !== 'repeat' && arraySep.length === 0) {
     throw new Error('arraySeparator cannot be empty');
   }
+  if ([...escape].length !== 1) {
+    throw new Error(`escapeChar must be a single character: '${escape}'`);
+  }
+  const tokens = [escape, '=', '%', entrySep, nestingSep];
+  if (arraySep !== 'repeat' && arraySep !== entrySep) tokens.push(arraySep);
+  for (const [i, token] of tokens.entries()) {
+    const other = tokens
+      .slice(i + 1)
+      .find(t => [...t].some(c => token.includes(c)));
+    if (other !== undefined) {
+      throw new Error(
+        `escapeChar, separators, '=' and '%' cannot share characters: '${token}' and '${other}'`,
+      );
+    }
+  }
 }
 
 // =============================================================================
@@ -271,77 +286,49 @@ function parseValue(
 // =============================================================================
 
 /**
+ * Whether the char at i goes after an escape char: a char of the special
+ * chars, or the escape char where a reader would take it as an escape (before
+ * itself, a special char, or the end).
+ */
+function isEscaped(cs: string[], i: number, chars: string[], esc: string) {
+  const isSpecial = (c: string) => chars.some(special => special.includes(c));
+  return (
+    isSpecial(cs[i]) ||
+    (cs[i] === esc &&
+      (i + 1 === cs.length || cs[i + 1] === esc || isSpecial(cs[i + 1])))
+  );
+}
+
+/**
  * Escape special characters in a string.
- * Only special chars need escaping. The escape char itself NEVER needs escaping.
  */
 function escape(str: string, chars: string[], esc: string): string {
-  let result = '';
-  let i = 0;
-
-  while (i < str.length) {
-    let matched = false;
-
-    // Check if current position starts with any special char that needs escaping
-    for (const special of chars) {
-      if (str.substring(i, i + special.length) === special) {
-        result += esc + special;
-        i += special.length;
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      result += str[i];
-      i++;
-    }
-  }
-
-  return result;
+  return [...str]
+    .map((c, i, cs) => (isEscaped(cs, i, chars, esc) ? esc + c : c))
+    .join('');
 }
 
 /**
  * Remove escape sequences from a string.
- * Only treat escape char as escape when followed by a special char.
  */
 function unescape(str: string, esc: string, chars: string[]): string {
+  const cs = [...str];
   let result = '';
-  let i = 0;
-
-  while (i < str.length) {
-    // Check if current position starts with escape char
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      // Check if followed by a special char (NOT another escape)
-      const isEscapeSequence = chars.some(
-        c => str.substring(nextPos, nextPos + c.length) === c,
-      );
-
-      if (isEscapeSequence && nextPos < str.length) {
-        // Skip escape char, take next char(s) literally
-        i = nextPos;
-        // Find which special char follows
-        for (const special of chars) {
-          if (str.substring(i, i + special.length) === special) {
-            result += special;
-            i += special.length;
-            break;
-          }
-        }
-        continue;
-      }
+  for (let i = 0; i < cs.length; i++) {
+    if (
+      cs[i] === esc &&
+      i + 1 < cs.length &&
+      isEscaped(cs, i + 1, chars, esc)
+    ) {
+      i++;
     }
-
-    result += str[i];
-    i++;
+    result += cs[i];
   }
-
   return result;
 }
 
 /**
  * Split a string by separator, respecting escape sequences.
- * Only treats escape char as escape when followed by sep (NOT another escape).
  */
 function splitEscaped(str: string, sep: string, esc: string): string[] {
   const parts: string[] = [];
@@ -349,18 +336,11 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
   let i = 0;
 
   while (i < str.length) {
-    // Check for escape sequence (only _ followed by separator)
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      const isEscapeSequence =
-        str.substring(nextPos, nextPos + sep.length) === sep;
-
-      if (isEscapeSequence && nextPos < str.length) {
-        // This is an escape sequence - keep it as-is for later unescape
-        current += esc + sep;
-        i = nextPos + sep.length;
-        continue;
-      }
+    // An escape char and the char after it are kept as-is for unescape
+    if (str.startsWith(esc, i)) {
+      current += str.slice(i, i + esc.length + 1);
+      i += esc.length + 1;
+      continue;
     }
 
     // Check for separator
@@ -381,21 +361,16 @@ function splitEscaped(str: string, sep: string, esc: string): string[] {
 
 /**
  * Find unescaped index of a character in a string.
- * Only treats escape char as escape when followed by char (NOT another escape).
  * Returns -1 if not found.
  */
 function findUnescaped(str: string, char: string, esc: string): number {
   let i = 0;
 
   while (i < str.length) {
-    if (str.substring(i, i + esc.length) === esc) {
-      const nextPos = i + esc.length;
-      // Only escape sequence if followed by the char we're looking for
-      if (str.substring(nextPos, nextPos + char.length) === char) {
-        // Skip the escape sequence
-        i = nextPos + char.length;
-        continue;
-      }
+    // Skip an escape char and the char after it
+    if (str.startsWith(esc, i)) {
+      i += esc.length + 1;
+      continue;
     }
     if (str.substring(i, i + char.length) === char) {
       return i;
