@@ -255,6 +255,32 @@ describe('marked format', () => {
   });
 
   describe('edge cases', () => {
+    testBothModes('should keep an empty first key', standalone => {
+      const obj = { '': 1, b: 'x' };
+      expect(parse(stringify(obj, standalone), standalone)).toEqual(obj);
+    });
+
+    testBothModes(
+      'should keep an array holding one empty string',
+      standalone => {
+        for (const value of [[''], ['', ''], ['a', '']]) {
+          expect(
+            parse(stringify({ tags: value }, standalone), standalone),
+          ).toEqual({ tags: value });
+        }
+        expect(parse(stringify({ tags: [] }, standalone), standalone)).toEqual({
+          tags: [],
+        });
+      },
+    );
+
+    it('rejects a value with no type marker', () => {
+      expect(() => parse('.k')).toThrow('Unexpected type "" at position 2');
+      expect(() => parse('.a:1,,b:2')).toThrow(
+        'Unexpected type "," at position 5',
+      );
+    });
+
     testBothModes('should handle very long strings', standalone => {
       const longString = 'a'.repeat(1000);
       const obj = { long: longString };
@@ -895,6 +921,154 @@ describe('marked format', () => {
     });
   });
 
+  describe('escape char', () => {
+    const state = {
+      search: 'snake_case',
+      tags: ['.net', '@user'],
+      filters: { category: 'a_', minPrice: 10 },
+    };
+
+    it('should round-trip escape chars in standalone params', () => {
+      const params = marked.stringifyStandalone(state);
+      expect(params.search).toEqual(['snake_case']);
+      expect(marked.parseStandalone(params, { initialState: {} })).toEqual(
+        state,
+      );
+    });
+
+    it('should round-trip standalone strings starting with a type marker', () => {
+      expect(parse(stringify('.net', true), true)).toBe('.net');
+    });
+
+    testBothModes('should round-trip escape chars', standalone => {
+      const encoded = stringify(state, standalone);
+      expect(parse(encoded, standalone)).toEqual(state);
+    });
+
+    testBothModes(
+      'should keep the escape char before the date prefix',
+      standalone => {
+        const obj = { k: 'a_Dog', d: 'a_D5', e: '_D5' };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+
+    testBothModes(
+      'should round-trip keys ending in the escape char',
+      standalone => {
+        const obj = { a_: 1, b: 2 };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+
+    testBothModes(
+      'should round-trip a single key with escaped chars',
+      standalone => {
+        for (const obj of [{ a_: 1 }, { _: 1 }, { '~': 1 }]) {
+          const encoded = stringify(obj, standalone);
+          expect(parse(encoded, standalone)).toEqual(obj);
+        }
+      },
+    );
+
+    it('should keep a __proto__ key as data', () => {
+      const obj = JSON.parse('{"__proto__":{"isAdmin":true}}');
+      const result = parse(stringify(obj)) as object;
+      expect(Object.hasOwn(result, '__proto__')).toBe(true);
+      expect(result).toEqual(obj);
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    });
+
+    it('should parse a string whose only type marker is escaped', () => {
+      expect(parse('a_=b')).toBe('a_=b');
+    });
+
+    testBothModes('should keep an escaped trailing terminator', standalone => {
+      const obj = { k: 'a~' };
+      const encoded = stringify(obj, standalone);
+      expect(parse(encoded, standalone)).toEqual(obj);
+    });
+
+    it('should round-trip standalone strings ending in the terminator', () => {
+      expect(parse(stringify('a~', true), true)).toBe('a~');
+    });
+
+    testBothModes(
+      'should keep an escaped trailing terminator with a multi-character escape',
+      standalone => {
+        const opts: MarkedFormatOptions = { escapeChar: '%%' };
+        const obj = { k: 'a~' };
+        const encoded = stringify(obj, standalone, opts);
+        expect(parse(encoded, standalone, opts)).toEqual(obj);
+        expect(parse(stringify('a~', true, opts), true, opts)).toBe('a~');
+      },
+    );
+
+    testBothModes(
+      'should keep literal chars of a multi-character escape',
+      standalone => {
+        const opts: MarkedFormatOptions = { escapeChar: '%%' };
+        const obj = { k: '50%,x', r: '%%%~' };
+        const encoded = stringify(obj, standalone, opts);
+        expect(parse(encoded, standalone, opts)).toEqual(obj);
+      },
+    );
+
+    testBothModes(
+      'should escape the terminator only at the start of a key',
+      standalone => {
+        const obj = { 'a~b': 1, '~c': 2, o: { 'a~b': 1, '~c': 2 } };
+        const encoded = stringify(obj, standalone);
+        expect(encoded).toContain('a~b');
+        expect(encoded).toContain('_~c');
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+
+    it('should refuse tokens that share a character', () => {
+      const cases: MarkedFormatOptions[] = [
+        { escapeChar: 'a.a' },
+        { escapeChar: '~~' },
+        { escapeChar: 'T', datePrefix: 'TIME' },
+        { terminator: '😀', escapeChar: '😀_' },
+        { separator: '|', terminator: '||' },
+      ];
+      for (const opts of cases) {
+        expect(() => createFormat(opts)).toThrow();
+      }
+    });
+
+    testBothModes(
+      'should keep surrogate pairs whole in tokens and values',
+      standalone => {
+        const cases: [MarkedFormatOptions, object][] = [
+          [{ terminator: '😀' }, { search: '😀_', k: ['a😀', 'b'] }],
+          [{ separator: '🎉' }, { 'a🎉': '_🎉', k: ['🎉', 'b'] }],
+          [{ escapeChar: '😀' }, { 'a😀': '😀,~', k: ['😀', '~'] }],
+        ];
+        for (const [opts, obj] of cases) {
+          const encoded = stringify(obj, standalone, opts);
+          expect(parse(encoded, standalone, opts)).toEqual(obj);
+        }
+        // 🔥 shares its first UTF-16 unit with the 😀 terminator, but is not escaped
+        expect(stringify('🔥', true, { terminator: '😀' })).toBe(
+          '%F0%9F%94%A5',
+        );
+      },
+    );
+
+    testBothModes(
+      'should round-trip keys starting with the terminator',
+      standalone => {
+        const obj = { '~k': 1 };
+        const encoded = stringify(obj, standalone);
+        expect(parse(encoded, standalone)).toEqual(obj);
+      },
+    );
+  });
+
   describe('marked format object interface', () => {
     it('should export marked as QueryStringFormat', () => {
       expect(marked.stringify).toBeDefined();
@@ -1275,6 +1449,13 @@ describe('marked format', () => {
   });
 
   describe('edge cases with custom options', () => {
+    it('rejects a lone character of a multi-character separator', () => {
+      const opts = { separator: '||', escapeChar: '!!' };
+      expect(() => parse('@!!||', false, opts)).toThrow(
+        'Unexpected "|" at position 4',
+      );
+    });
+
     it('should handle multi-character tokens', () => {
       const opts: MarkedFormatOptions = {
         typeObject: '{{',

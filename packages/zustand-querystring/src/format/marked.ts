@@ -107,6 +107,17 @@ function validateOptions(opts: ResolvedOptions): void {
       `datePrefix '${opts.datePrefix}' conflicts with another token`,
     );
   }
+
+  // No shared characters, so the reader can tell each token from text and from the others
+  const all = [...tokens, opts.datePrefix];
+  for (const [i, a] of all.entries()) {
+    for (const b of all.slice(i + 1)) {
+      const ch = [...a].find(c => b.includes(c));
+      if (ch) {
+        throw new Error(`Tokens '${a}' and '${b}' share the character '${ch}'`);
+      }
+    }
+  }
 }
 
 // =============================================================================
@@ -117,32 +128,24 @@ function escapeRegex(str: string): string {
   return str.replace(/[.$^*+?()[\]{}|\\-]/g, '\\$&');
 }
 
+// Stop and escape patterns match one char, a surrogate pair included (the u flag), as readEscaped and escapeStr pass it
 function buildKeyStopPattern(opts: ResolvedOptions): RegExp {
   return new RegExp(
     `[${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}]`,
+    'u',
   );
 }
 
 function buildValueStopPattern(opts: ResolvedOptions): RegExp {
   return new RegExp(
     `[${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}]`,
+    'u',
   );
 }
 
-function buildKeyEscapePattern(opts: ResolvedOptions): RegExp {
-  // Only escape type markers and separator, NOT the escape char itself
-  return new RegExp(
-    `([${escapeRegex(opts.typeString)}${escapeRegex(opts.typePrimitive)}${escapeRegex(opts.typeArray)}${escapeRegex(opts.typeObject)}${escapeRegex(opts.separator)}])`,
-    'g',
-  );
-}
-
-function buildValueEscapePattern(opts: ResolvedOptions): RegExp {
-  // Only escape separator and terminator, NOT the escape char itself
-  return new RegExp(
-    `([${escapeRegex(opts.separator)}${escapeRegex(opts.terminator)}])`,
-    'g',
-  );
+function buildKeyStartPattern(opts: ResolvedOptions): RegExp {
+  // parseObject checks for the terminator only before a key
+  return new RegExp(`^${escapeRegex(opts.terminator)}`);
 }
 
 function buildDatePattern(opts: ResolvedOptions): RegExp {
@@ -151,6 +154,18 @@ function buildDatePattern(opts: ResolvedOptions): RegExp {
 
 function buildDateStartPattern(opts: ResolvedOptions): RegExp {
   return new RegExp(`^${escapeRegex(opts.datePrefix)}-?\\d`);
+}
+
+function buildMarkedStartPattern(opts: ResolvedOptions): RegExp {
+  const markers = [
+    opts.typeObject,
+    opts.typeArray,
+    opts.typePrimitive,
+    opts.typeString,
+  ].map(escapeRegex);
+  return new RegExp(
+    `^(?:${escapeRegex(opts.datePrefix)}-?\\d|${markers.join('|')})`,
+  );
 }
 
 // =============================================================================
@@ -184,24 +199,116 @@ function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
   return result;
 }
 
+// Writes str as readEscaped reads it back: the escape char before each stop char and a leading
+// `start` match, and doubled where the reader would otherwise take it as an escape (before a stop
+// char or a char of the escape char, at the end, or at the start before a `start` match)
 function escapeStr(
   str: string,
-  pattern: RegExp,
-  escape: string,
+  stop: RegExp,
   opts: ResolvedOptions,
+  start?: RegExp,
 ): string {
-  // First escape special chars within the string, then encode preserving markers
-  return encodePreservingMarkers(str.replace(pattern, `${escape}$1`), opts);
+  const { escape } = opts;
+  const special = start?.exec(str)?.[0] ?? '';
+  let out = special && escape + special;
+  for (let i = special.length; i < str.length; ) {
+    if (str.startsWith(escape, i)) {
+      const next = charAt(str, i + escape.length);
+      const ambiguous =
+        next === '' ||
+        stop.test(next) ||
+        escape.includes(next) ||
+        (i === 0 && !!start?.test(str.slice(escape.length)));
+      out += ambiguous ? escape + escape : escape;
+      i += escape.length;
+    } else {
+      const ch = charAt(str, i);
+      out += stop.test(ch) ? escape + ch : ch;
+      i += ch.length;
+    }
+  }
+  return encodePreservingMarkers(out, opts);
+}
+
+// The char at i, keeping a surrogate pair whole
+function charAt(str: string, i: number): string {
+  const code = str.codePointAt(i);
+  return code === undefined ? '' : String.fromCodePoint(code);
+}
+
+// The escape char escapes itself, an `escapable` char, or (first in the value) a `start` match; elsewhere it is literal
+function readEscaped(
+  source: string,
+  pos: number,
+  escape: string,
+  stop: RegExp | null,
+  escapable: RegExp,
+  start?: RegExp,
+): { value: string; end: number; wasEscaped: boolean } {
+  const from = pos;
+  let value = '';
+  let wasEscaped = false;
+
+  while (pos < source.length) {
+    if (source.startsWith(escape, pos)) {
+      const next = pos + escape.length;
+      const special = pos === from ? start?.exec(source.slice(next)) : null;
+      if (special) {
+        value += special[0];
+        pos = next + special[0].length;
+        wasEscaped = true;
+        continue;
+      }
+      const escaped = charAt(source, next);
+      if (escapable.test(escaped)) {
+        value += escaped;
+        pos = next + escaped.length;
+        continue;
+      }
+      if (source.startsWith(escape, next)) {
+        value += escape;
+        pos = next + escape.length;
+        continue;
+      }
+    }
+
+    // One char only: with a multi-character escape, the next char may start a real escape
+    const ch = charAt(source, pos);
+    if (stop?.test(ch)) break;
+    value += ch;
+    pos += ch.length;
+  }
+
+  return { value, end: pos, wasEscaped };
+}
+
+// Terminators that close the value at the end of its output, as serialize writes them
+function trailingTerminators(value: unknown): number {
+  if (Array.isArray(value)) {
+    return (
+      1 + (value.length ? trailingTerminators(value[value.length - 1]) : 0)
+    );
+  }
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const last = Object.values(value)
+      .filter(v => typeof v !== 'function')
+      .pop();
+    return 1 + trailingTerminators(last);
+  }
+  return 0;
 }
 
 function cleanResult(
   str: string,
+  value: unknown,
   standalone: boolean,
   opts: ResolvedOptions,
 ): string {
-  while (str.endsWith(opts.terminator)) {
-    str = str.slice(0, -opts.terminator.length);
-  }
+  // Counted from the value: an escaped terminator can't be told from these by the chars before it
+  str = str.slice(
+    0,
+    str.length - trailingTerminators(value) * opts.terminator.length,
+  );
 
   const datePattern = new RegExp(
     `^${escapeRegex(opts.typeString)}${escapeRegex(opts.datePrefix)}-?\\d+$`,
@@ -211,7 +318,15 @@ function cleanResult(
   }
 
   if (!standalone && str.startsWith(opts.typeObject)) {
-    return str.slice(opts.typeObject.length);
+    const rest = str.slice(opts.typeObject.length);
+    // An empty first key leaves the value's marker first, which would read as that value
+    const markers = [
+      opts.typeString,
+      opts.typePrimitive,
+      opts.typeArray,
+      opts.typeObject,
+    ];
+    if (!markers.some(m => rest.startsWith(m))) return rest;
   }
 
   return str;
@@ -222,9 +337,11 @@ function cleanResult(
 // =============================================================================
 
 function createSerializer(opts: ResolvedOptions) {
-  const keyEscape = buildKeyEscapePattern(opts);
-  const valueEscape = buildValueEscapePattern(opts);
+  const keyEscape = buildKeyStopPattern(opts);
+  const keyStartPattern = buildKeyStartPattern(opts);
+  const valueEscape = buildValueStopPattern(opts);
   const dateStartPattern = buildDateStartPattern(opts);
+  const markedStartPattern = buildMarkedStartPattern(opts);
 
   function serialize(
     value: unknown,
@@ -249,6 +366,8 @@ function createSerializer(opts: ResolvedOptions) {
 
     if (Array.isArray(value)) {
       const items = value.map(v => serialize(v, standalone, true));
+      // A lone '' would read back as an empty array
+      if (value.length === 1 && value[0] === '') items[0] = opts.typeString;
       return `${opts.typeArray}${items.join(opts.separator)}${opts.terminator}`;
     }
 
@@ -257,28 +376,21 @@ function createSerializer(opts: ResolvedOptions) {
       for (const [k, v] of Object.entries(value)) {
         const val = serialize(v, false, false);
         if (val || v === undefined) {
-          entries.push(`${escapeStr(k, keyEscape, opts.escape, opts)}${val}`);
+          entries.push(
+            `${escapeStr(k, keyEscape, opts, keyStartPattern)}${val}`,
+          );
         }
       }
       return `${opts.typeObject}${entries.join(opts.separator)}${opts.terminator}`;
     }
 
-    // String: escape date-like pattern and type markers at start
-    const strVal = String(value);
-    let escaped = escapeStr(strVal, valueEscape, opts.escape, opts);
-
-    // Escape if string starts with date prefix or any type marker (in standalone/array context)
-    if (dateStartPattern.test(strVal)) {
-      escaped = opts.escape + escaped;
-    } else if (
-      (standalone || inArray) &&
-      (strVal.startsWith(opts.typeObject) ||
-        strVal.startsWith(opts.typeArray) ||
-        strVal.startsWith(opts.typePrimitive) ||
-        strVal.startsWith(opts.typeString))
-    ) {
-      escaped = opts.escape + escaped;
-    }
+    // String: escape date-like pattern and type markers (in standalone/array context) at start
+    const escaped = escapeStr(
+      String(value),
+      valueEscape,
+      opts,
+      standalone || inArray ? markedStartPattern : dateStartPattern,
+    );
 
     return standalone || inArray ? escaped : `${opts.typeString}${escaped}`;
   }
@@ -293,7 +405,10 @@ function createSerializer(opts: ResolvedOptions) {
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
+  const keyStartPattern = buildKeyStartPattern(opts);
   const datePattern = buildDatePattern(opts);
+  const dateStartPattern = buildDateStartPattern(opts);
+  const markedStartPattern = buildMarkedStartPattern(opts);
 
   // Pre-calculate token lengths for multi-character support
   const tokens = {
@@ -310,10 +425,6 @@ function createParser(opts: ResolvedOptions) {
   return function parseSource<T>(source: string): T {
     let pos = 0;
 
-    function peek(len: number = 1): string {
-      return source.slice(pos, pos + len);
-    }
-
     function startsWith(token: string): boolean {
       return source.slice(pos, pos + token.length) === token;
     }
@@ -323,48 +434,16 @@ function createParser(opts: ResolvedOptions) {
     }
 
     function readUntil(
-      stopPattern: RegExp,
-      checkEscape: boolean = false,
+      stop: RegExp,
+      start?: RegExp,
     ): { value: string; wasEscaped: boolean } {
-      let result = '';
-      let wasEscaped = false;
-
-      while (pos < source.length) {
-        // Check for escape sequence - only if followed by a stop char or date prefix
-        if (startsWith(tokens.escape)) {
-          const nextPos = pos + tokens.escape.length;
-          const nextChar = source.slice(nextPos, nextPos + 1);
-          const isEscapeSequence = stopPattern.test(nextChar);
-          const isDateEscape =
-            checkEscape &&
-            source.slice(nextPos, nextPos + tokens.datePrefix.length) ===
-              tokens.datePrefix;
-
-          if (isEscapeSequence || isDateEscape) {
-            if (isDateEscape) {
-              wasEscaped = true;
-            }
-            advance(tokens.escape.length);
-            /* v8 ignore next 4 -- @preserve: defensive - handles escape char at very end of source */
-            if (pos < source.length) {
-              result += peek();
-              advance();
-            }
-            continue;
-          }
-        }
-
-        const ch = peek();
-        if (stopPattern.test(ch)) break;
-        result += ch;
-        advance();
-      }
-
-      return { value: result, wasEscaped };
+      const read = readEscaped(source, pos, tokens.escape, stop, stop, start);
+      pos = read.end;
+      return read;
     }
 
-    function parseString(): string | Date {
-      const { value, wasEscaped } = readUntil(valueStop, true);
+    function parseString(start: RegExp): string | Date {
+      const { value, wasEscaped } = readUntil(valueStop, start);
 
       if (!wasEscaped && datePattern.test(value)) {
         const timestamp = parseInt(value.slice(tokens.datePrefix.length), 10);
@@ -378,7 +457,7 @@ function createParser(opts: ResolvedOptions) {
     }
 
     function parsePrimitive(): number | boolean | null | undefined {
-      const { value } = readUntil(valueStop, false);
+      const { value } = readUntil(valueStop);
       if (value === 'null') return null;
       if (value === 'undefined') return undefined;
       if (value === 'true') return true;
@@ -408,7 +487,14 @@ function createParser(opts: ResolvedOptions) {
         ) {
           result.push(parseValue());
         } else {
-          result.push(parseString());
+          const start = pos;
+          result.push(parseString(markedStartPattern));
+          // Part of a multi-character token reads as nothing, and the loop would never end
+          if (pos === start) {
+            throw new Error(
+              `Unexpected "${source.charAt(pos)}" at position ${pos}`,
+            );
+          }
         }
 
         if (pos < source.length && startsWith(tokens.separator)) {
@@ -431,8 +517,14 @@ function createParser(opts: ResolvedOptions) {
     function parseObject(): Record<string, unknown> {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
-        const { value: key } = readUntil(keyStop, false);
-        result[key] = parseValue();
+        const { value: key } = readUntil(keyStop, keyStartPattern);
+        // Defined, not assigned: assigning a __proto__ key would set the prototype
+        Object.defineProperty(result, key, {
+          value: parseValue(),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
         if (
           pos < source.length &&
           !startsWith(tokens.terminator) &&
@@ -460,11 +552,12 @@ function createParser(opts: ResolvedOptions) {
       }
       if (startsWith(tokens.typeString)) {
         advance(tokens.typeString.length);
-        return parseString();
+        return parseString(dateStartPattern);
       }
 
-      /* v8 ignore next 2 -- @preserve: defensive code - all valid types are handled above */
-      throw new Error(`Unexpected type "${peek()}" at position ${pos}`);
+      throw new Error(
+        `Unexpected type "${source.charAt(pos)}" at position ${pos}`,
+      );
     }
 
     return parseValue() as T;
@@ -485,7 +578,7 @@ export function stringify(
 ): string {
   const opts = resolveOptions(options);
   const serialize = createSerializer(opts);
-  return cleanResult(serialize(value, standalone), standalone, opts);
+  return cleanResult(serialize(value, standalone), value, standalone, opts);
 }
 
 /**
@@ -522,24 +615,16 @@ export function parse<T = unknown>(
         return new Date(timestamp) as T;
       }
     }
-    // Unescape the string value - remove escape characters before special chars
-    let result = '';
-    for (let i = 0; i < str.length; i++) {
-      if (
-        str.slice(i, i + opts.escape.length) === opts.escape &&
-        i + opts.escape.length < str.length
-      ) {
-        // Skip escape char, take next char literally
-        i += opts.escape.length - 1;
-        result += str[i + 1];
-        i++;
-      } else {
-        result += str[i];
-      }
-    }
-    return result as T;
+    return readEscaped(
+      str,
+      0,
+      opts.escape,
+      null,
+      buildValueStopPattern(opts),
+      buildMarkedStartPattern(opts),
+    ).value as T;
   } else {
-    // Build pattern for detecting if this looks like object data
+    // Object data has an unescaped type marker after a key
     const escapedMarkers = [
       opts.typeString,
       opts.typePrimitive,
@@ -548,15 +633,17 @@ export function parse<T = unknown>(
     ]
       .map(escapeRegex)
       .join('');
-    const escapedEscape = escapeRegex(opts.escape);
-    const escapedSeparator = escapeRegex(opts.separator);
-    const escapedTerminator = escapeRegex(opts.terminator);
-    const objectPattern = new RegExp(
-      `[^${escapedEscape}${escapedMarkers}${escapedSeparator}${escapedTerminator}][${escapedMarkers}]`,
+    const { end } = readEscaped(
+      str,
+      0,
+      opts.escape,
+      new RegExp(`[${escapedMarkers}]`, 'u'),
+      buildKeyStopPattern(opts),
     );
-    source = objectPattern.test(str)
-      ? `${opts.typeObject}${str}`
-      : `${opts.typeString}${str}`;
+    source =
+      end < str.length
+        ? `${opts.typeObject}${str}`
+        : `${opts.typeString}${str}`;
   }
 
   const parseSource = createParser(opts);
