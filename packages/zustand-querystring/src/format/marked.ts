@@ -366,6 +366,8 @@ function createSerializer(opts: ResolvedOptions) {
 
     if (Array.isArray(value)) {
       const items = value.map(v => serialize(v, standalone, true));
+      // A lone '' would read back as an empty array
+      if (value.length === 1 && value[0] === '') items[0] = opts.typeString;
       return `${opts.typeArray}${items.join(opts.separator)}${opts.terminator}`;
     }
 

@@ -260,6 +260,20 @@ describe('marked format', () => {
       expect(parse(stringify(obj, standalone), standalone)).toEqual(obj);
     });
 
+    testBothModes(
+      'should keep an array holding one empty string',
+      standalone => {
+        for (const value of [[''], ['', ''], ['a', '']]) {
+          expect(
+            parse(stringify({ tags: value }, standalone), standalone),
+          ).toEqual({ tags: value });
+        }
+        expect(parse(stringify({ tags: [] }, standalone), standalone)).toEqual({
+          tags: [],
+        });
+      },
+    );
+
     it('rejects a value with no type marker', () => {
       expect(() => parse('.k')).toThrow('Unexpected type "" at position 2');
       expect(() => parse('.a:1,,b:2')).toThrow(
