@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm build
+      - run: pnpm --filter zustand-querystring exec vitest run --coverage
+
+      - name: Publish the coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: packages/zustand-querystring
+        run: |
+          # A slower run of an older commit, or a re-run of one, must not overwrite the newer number
+          tip=$(git ls-remote "https://github.com/${{ github.repository }}.git" refs/heads/main | cut -f1)
+          if [ "$tip" != "$GITHUB_SHA" ]; then echo "main moved on to $tip, skipping"; exit 0; fi
+          pct=$(jq -r '.total.lines.pct' coverage/coverage-summary.json)
+          color=$(awk -v p="$pct" 'BEGIN { print (p >= 95 ? "brightgreen" : p >= 85 ? "green" : p >= 75 ? "yellow" : "red") }')
+          mkdir -p "$RUNNER_TEMP/badges" && cd "$RUNNER_TEMP/badges"
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${pct}%\",\"color\":\"${color}\"}" > coverage.json
+          git init -q -b badges
+          git add coverage.json
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -qm "coverage ${pct}%"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges

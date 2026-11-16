@@ -5,6 +5,10 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   test: {
+    coverage: {
+      include: ['src/**'],
+      reporter: ['text', 'json-summary'],
+    },
     projects: [
       {
         test: {
@@ -21,7 +25,8 @@ export default defineConfig({
           include: ['src/**/*.browser.test.tsx'],
           browser: {
             enabled: true,
-            provider: playwright(),
+            // The installed Google Chrome, so no browser download is needed.
+            provider: playwright({ launchOptions: { channel: 'chrome' } }),
             headless: true,
             instances: [{ browser: 'chromium' }],
           },
