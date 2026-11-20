@@ -452,7 +452,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         }
         requestAnimationFrame(cb);
       };
-      requestAnimationFrame(cb);
+      // React may create a store twice and keep one; only the kept one is subscribed.
+      let started = false;
+      const originalSubscribe = api.subscribe;
+      api.subscribe = (...args) => {
+        if (!started) {
+          started = true;
+          requestAnimationFrame(cb);
+        }
+        return originalSubscribe(...args);
+      };
     }
     const originalSetState = api.setState;
     api.setState = (...args) => {
