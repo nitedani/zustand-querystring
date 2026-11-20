@@ -892,6 +892,25 @@ describe('Edge Cases and Regression Tests', () => {
     });
   });
 
+  describe('parameters without a value', () => {
+    it('should keep a parameter without a value in its place', () => {
+      window.history.replaceState(
+        {},
+        '',
+        `?closed&state=${marked.stringify({ sort: 'name' })}`,
+      );
+      const useStore = create<{ sort: string }>()(
+        querystring(() => ({ sort: '' }), { key: 'state', format: marked }),
+      );
+
+      useStore.setState({ sort: 'date' });
+
+      expect(window.location.search).toBe(
+        `?closed&state=${marked.stringify({ sort: 'date' })}`,
+      );
+    });
+  });
+
   describe('string with comma (regression test)', () => {
     it('marked: should preserve comma in string through round-trip', async () => {
       interface Store {

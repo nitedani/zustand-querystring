@@ -408,8 +408,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // Process existing params
       params.forEach(param => {
         const eqIndex = param.indexOf('=');
-        if (eqIndex === -1) return;
-        const key = param.slice(0, eqIndex);
+        const key = eqIndex === -1 ? param : param.slice(0, eqIndex);
 
         if (!managedKeys.has(key)) {
           // Not ours - keep as-is
