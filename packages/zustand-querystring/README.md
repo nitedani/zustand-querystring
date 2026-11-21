@@ -166,8 +166,9 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 ## How State Syncs
 
-1. **On page load**: URL → State
+1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
+3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Keys the URL carries are set, other keys keep their value.
 
 Only values **different from initial state** are written to URL:
 
@@ -183,6 +184,25 @@ Type handling:
 - Objects: recursively diffed
 - Arrays, Dates: compared as whole values
 - Functions: never synced
+
+---
+
+## Links
+
+`useStore.href(pathname, state)` returns the URL the store would write after `setState(state)` on that page. The keys in `state` are written even at their initial value, so a link can clear a filter:
+
+```tsx
+// Initial: { status: 'all', search: '' }
+// Current: { status: 'active', search: 'acme' }
+<a href={useStore.href('/customers', { status: 'all' })}>All customers</a>
+// href: /customers?search=acme&status=all
+```
+
+`href` reads the state when it is called. To update the link when the state changes, call it in a selector:
+
+```tsx
+const href = useStore(() => useStore.href('/customers', { status: 'all' }));
+```
 
 ---
 
