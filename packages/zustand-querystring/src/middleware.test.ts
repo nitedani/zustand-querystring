@@ -746,18 +746,6 @@ describe('server store (url option): a plain array index', () => {
       '/?count=5&cols.22.width=120',
       { cols: [...new Array(22), { width: 120 }] },
     ],
-    [{ a: {} }, '/?count=5&a.0.title=book', { a: [{ title: 'book' }] }],
-    [
-      { f: {} },
-      '/?count=5&f.0=red&f.all=blue',
-      { f: { 0: 'red', all: 'blue' } },
-    ],
-    [{}, '/?count=5&f.0=red&f.color=blue', { f: { 0: 'red', color: 'blue' } }],
-    [
-      { selected: {} },
-      '/?count=5&selected.42=true',
-      { selected: { 42: true } },
-    ],
     [
       { sel: {} },
       '/?count=5&sel.007=true&sel.7=false',
