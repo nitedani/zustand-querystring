@@ -2692,6 +2692,26 @@ describe('href', () => {
     expect(reloaded.getState().filters).toEqual({});
   });
 
+  it('a link passing only fields select leaves out keeps the synced ones', async () => {
+    const useStore = create<{
+      filters: { shown?: string; localSort: string };
+    }>()(
+      querystring(() => ({ filters: { shown: 'open', localSort: 'oldest' } }), {
+        select: () => ({ filters: { shown: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    const href = useStore.href('/report', { filters: { localSort: 'newest' } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/report');
+    expect(useStore.getState().filters.shown).toBe('open');
+    expect(url()).toBe('/report');
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),

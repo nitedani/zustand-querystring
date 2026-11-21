@@ -742,6 +742,27 @@ describe('href', () => {
     expect(store.href('/b', { inner: { v: null, w: undefined } })).toBe('/b');
   });
 
+  it('leaves out a passed object none of whose fields select syncs, so its link keeps them', () => {
+    const create = (url?: string) =>
+      createStore<{ filters: { shown?: string; localSort: string } }>()(
+        querystring(
+          () => ({ filters: { shown: 'open', localSort: 'oldest' } }),
+          { url, select: () => ({ filters: { shown: true } }) },
+        ),
+      );
+
+    const href = create('/review').href('/report', {
+      filters: { localSort: 'newest' },
+    });
+    expect(href).toBe('/report');
+    expect(create(href).getState()).toStrictEqual({
+      filters: { shown: 'open', localSort: 'oldest' },
+    });
+    expect(create('/review').href('/report', { filters: {} })).toBe(
+      '/report?filters=.',
+    );
+  });
+
   it('with select, leaves out an object none of whose fields are selected', () => {
     const store = createStore<{
       filters: { shown?: string; hidden?: string };

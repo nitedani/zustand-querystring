@@ -513,9 +513,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    const stateForUrl = urlStateOf({ ...get(), ...partial }, pathname);
-    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
+    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter; a key with no field select syncs keeps its state.
     const passed = getSelectedState(partial, pathname, 'partial');
+    const stateForUrl = urlStateOf({ ...get(), ...passed }, pathname);
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
     const { output } = compact(
       stateForUrl,
