@@ -6,7 +6,10 @@ type Write<T, U> = Omit<T, keyof U> & U;
 
 type WithQueryString<S, T> = Write<
   S,
-  { setDefaults: (partial: Partial<T>) => void }
+  {
+    setDefaults: (partial: Partial<T>) => void;
+    href: (pathname: string, state?: Partial<T>) => string;
+  }
 >;
 
 declare module 'zustand/vanilla' {
@@ -305,8 +308,75 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
   };
 
+  let initialState: ReturnType<typeof fn>;
+
+  // Pre-compute the mapped initial state for diffing when map is used
+  const getMappedInitial = (pathname: string) => {
+    if (defaultedOptions.map) {
+      return applyMapTo(getSelectedState(initialState, pathname), pathname);
+    }
+    return initialState;
+  };
+
+  /** The URL params (with prefix) for a compacted state */
+  const toParams = (compacted: object): QueryStringParams => {
+    if (standalone) {
+      const params: QueryStringParams = {};
+      for (const [key, values] of Object.entries(
+        format.stringifyStandalone(compacted),
+      )) {
+        params[defaultedOptions.prefix + key] = values;
+      }
+      return params;
+    }
+    return Object.keys(compacted).length > 0
+      ? {
+          [defaultedOptions.prefix + (defaultedOptions.key as string)]: [
+            format.stringify(compacted),
+          ],
+        }
+      : {};
+  };
+
+  // @ts-ignore - typed via StoreMutators augmentation
+  api.href = (pathname: string, partial: object = {}) => {
+    const stateForUrl = applyMapTo(
+      getSelectedState({ ...get(), ...partial }, pathname),
+      pathname,
+    );
+    const { output } = compact(
+      stateForUrl,
+      getMappedInitial(pathname),
+      defaultedOptions.syncNull,
+      defaultedOptions.syncUndefined,
+    );
+    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
+    const { output: passed } = compact(
+      map && !isEmpty(partial)
+        ? stateForUrl
+        : getSelectedState(partial, pathname),
+      {},
+      defaultedOptions.syncNull,
+      defaultedOptions.syncUndefined,
+    );
+    const pairs: string[] = [];
+    for (const [key, values] of Object.entries(
+      toParams(
+        mergeWith({}, output, passed, (_objValue, srcValue) => {
+          if (Array.isArray(srcValue)) {
+            return srcValue;
+          }
+          return undefined;
+        }),
+      ),
+    )) {
+      values.forEach(value => pairs.push(`${key}=${value}`));
+    }
+    return pathname + (pairs.length ? '?' + pairs.join('&') : '');
+  };
+
   if (typeof window !== 'undefined') {
-    let initialState = fn(
+    initialState = fn(
       (...args) => {
         readUrl();
         set(...(args as Parameters<typeof set>));
@@ -319,14 +389,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Track previously managed URL keys so we can remove orphaned params
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
     let previouslyManagedKeys = new Set<string>();
-
-    // Pre-compute the mapped initial state for diffing when map is used
-    const getMappedInitial = (pathname: string) => {
-      if (defaultedOptions.map) {
-        return applyMapTo(getSelectedState(initialState, pathname), pathname);
-      }
-      return initialState;
-    };
 
     // @ts-ignore - typed via StoreMutators augmentation
     api.setDefaults = (partial: Partial<typeof initialState>) => {
@@ -374,8 +436,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
       const previous = url.search;
 
-      // Get the key-value pairs based on mode
-      let stateParams: QueryStringParams;
+      // Get the managed keys based on mode
       let managedKeys: Set<string>;
 
       if (standalone) {
@@ -393,24 +454,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           ...Array.from(previouslyManagedKeys),
         ]);
         previouslyManagedKeys = currentKeys;
-
-        // Stringify compacted state for values to write (with prefix)
-        const compactedParams = format.stringifyStandalone(newCompacted);
-        stateParams = {};
-        for (const [key, values] of Object.entries(compactedParams)) {
-          stateParams[defaultedOptions.prefix + key] = values;
-        }
       } else {
         // Namespaced mode: single key (with prefix)
         const fullKey =
           defaultedOptions.prefix + (defaultedOptions.key as string);
-        if (Object.keys(newCompacted).length > 0) {
-          stateParams = { [fullKey]: [format.stringify(newCompacted)] };
-        } else {
-          stateParams = {};
-        }
         managedKeys = new Set([fullKey]);
       }
+      const stateParams = toParams(newCompacted);
 
       // Build a map of key -> array of values to write
       const valuesToWrite = new Map<string, string[]>();
@@ -508,15 +558,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
+    initialState = fn(set, get, api);
     const initialized = initialize(
       new URL(defaultedOptions.url, 'http://localhost'),
-      fn(set, get, api),
+      initialState,
     );
     api.getInitialState = () => initialized;
     return initialized;
   }
 
-  return fn(set, get, api);
+  initialState = fn(set, get, api);
+  return initialState;
 };
 
 export const querystring = queryStringImpl as unknown as QueryString;

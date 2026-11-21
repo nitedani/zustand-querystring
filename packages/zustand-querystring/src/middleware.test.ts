@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { compact } from './middleware';
+import { createStore } from 'zustand/vanilla';
+import { compact, querystring } from './middleware';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -449,5 +450,17 @@ describe('compact', () => {
 
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
+  });
+});
+
+describe('href', () => {
+  it('works on the server, with the url option', () => {
+    const store = createStore<{ count: number; other: number }>()(
+      querystring(() => ({ count: 0, other: 0 }), { url: '/a?count=:5' }),
+    );
+
+    expect(decodeURIComponent(store.href('/b', { other: 0 }))).toBe(
+      '/b?count=:5&other=:0',
+    );
   });
 });

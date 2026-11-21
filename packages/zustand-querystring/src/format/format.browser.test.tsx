@@ -17,6 +17,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
+import type { QueryStringOptions } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
 import type { MarkedFormatOptions } from './marked.js';
@@ -1779,42 +1780,44 @@ describe('map option', () => {
 // NAVIGATION - a URL the store didn't write is read like at creation
 // =============================================================================
 
+interface NavState {
+  count: number;
+  other: number;
+  status: string;
+  filters: { tags: string[]; sort: string };
+  setCount: (count: number) => void;
+}
+
+function createNavStore(options: QueryStringOptions<NavState> = {}) {
+  return create<NavState>()(
+    querystring(
+      set => ({
+        count: 0,
+        other: 0,
+        status: 'all',
+        filters: { tags: [], sort: 'name' },
+        setCount: count => set({ count }),
+      }),
+      options,
+    ),
+  );
+}
+
+// A store follows the URL while something is subscribed to it.
+function subscribe(useStore: ReturnType<typeof createNavStore>) {
+  function Count() {
+    useStore(state => state.count);
+    return null;
+  }
+  return render(<Count />);
+}
+
+const url = () =>
+  window.location.pathname + decodeURIComponent(window.location.search);
+// The store writes 100ms after it reads a navigation.
+const settle = () => new Promise(r => setTimeout(r, 200));
+
 describe('navigation', () => {
-  interface NavState {
-    count: number;
-    other: number;
-    filters: { tags: string[]; sort: string };
-    setCount: (count: number) => void;
-  }
-
-  function createNavStore(format = marked) {
-    return create<NavState>()(
-      querystring(
-        set => ({
-          count: 0,
-          other: 0,
-          filters: { tags: [], sort: 'name' },
-          setCount: count => set({ count }),
-        }),
-        { format },
-      ),
-    );
-  }
-
-  // A store follows the URL while something is subscribed to it.
-  function subscribe(useStore: ReturnType<typeof createNavStore>) {
-    function Count() {
-      useStore(state => state.count);
-      return null;
-    }
-    return render(<Count />);
-  }
-
-  const url = () =>
-    window.location.pathname + decodeURIComponent(window.location.search);
-  // The store writes 100ms after it reads a navigation.
-  const settle = () => new Promise(r => setTimeout(r, 200));
-
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
   });
@@ -1908,10 +1911,12 @@ describe('navigation', () => {
   it("doesn't read its own writes", async () => {
     let parses = 0;
     const useStore = createNavStore({
-      ...marked,
-      parseStandalone: (params, ctx) => {
-        parses++;
-        return marked.parseStandalone(params, ctx);
+      format: {
+        ...marked,
+        parseStandalone: (params, ctx) => {
+          parses++;
+          return marked.parseStandalone(params, ctx);
+        },
       },
     });
     await subscribe(useStore);
@@ -1981,5 +1986,62 @@ describe('navigation', () => {
     await settle();
     expect(useStore.getState().count).toBe(0);
     expect(url()).toBe('/b');
+  });
+});
+
+describe('href', () => {
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('is typed by the state', () => {
+    const useStore = createNavStore();
+    // @ts-expect-error count is a number
+    useStore.href('/b', { count: 'x' });
+    // @ts-expect-error not a key of the state
+    useStore.href('/b', { nope: 1 });
+  });
+
+  it('writes the passed keys at their initial value too, so a link can clear a filter', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ other: 3, status: 'active' });
+
+    const href = useStore.href('/b', { status: 'all' });
+    expect(decodeURIComponent(href)).toBe('/b?other=:3&status=all');
+
+    window.history.pushState({}, '', href);
+    await settle();
+    expect(useStore.getState().status).toBe('all');
+    expect(url()).toBe('/b?other=:3');
+  });
+
+  it('leaves out a key that select excludes on that page', () => {
+    const useStore = createNavStore({
+      select: pathname => ({ count: pathname === '/b', other: true }),
+    });
+
+    expect(useStore.href('/home', { count: 7 })).toBe('/home');
+    expect(decodeURIComponent(useStore.href('/b', { count: 7 }))).toBe(
+      '/b?count=:7',
+    );
+  });
+
+  it('works in standalone and namespaced mode, with a prefix', () => {
+    const standalone = createNavStore({ prefix: 'a_' });
+    expect(decodeURIComponent(standalone.href('/b', { count: 2 }))).toBe(
+      '/b?a_count=:2',
+    );
+
+    const namespaced = createNavStore({ key: 'state' });
+    expect(namespaced.href('/b')).toBe('/b');
+    expect(namespaced.href('/b', { count: 2 })).toBe(
+      `/b?state=${marked.stringify({ count: 2 })}`,
+    );
+
+    const prefixed = createNavStore({ key: 'state', prefix: 'a_' });
+    expect(prefixed.href('/b', { count: 2 })).toBe(
+      `/b?a_state=${marked.stringify({ count: 2 })}`,
+    );
   });
 });
