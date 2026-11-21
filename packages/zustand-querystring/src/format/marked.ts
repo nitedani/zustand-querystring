@@ -410,18 +410,6 @@ function createParser(opts: ResolvedOptions) {
   const dateStartPattern = buildDateStartPattern(opts);
   const markedStartPattern = buildMarkedStartPattern(opts);
 
-  // Pre-calculate token lengths for multi-character support
-  const tokens = {
-    typePrimitive: opts.typePrimitive,
-    typeArray: opts.typeArray,
-    typeObject: opts.typeObject,
-    typeString: opts.typeString,
-    separator: opts.separator,
-    terminator: opts.terminator,
-    escape: opts.escape,
-    datePrefix: opts.datePrefix,
-  };
-
   return function parseSource<T>(source: string): T {
     let pos = 0;
 
@@ -437,7 +425,7 @@ function createParser(opts: ResolvedOptions) {
       stop: RegExp,
       start?: RegExp,
     ): { value: string; wasEscaped: boolean } {
-      const read = readEscaped(source, pos, tokens.escape, stop, stop, start);
+      const read = readEscaped(source, pos, opts.escape, stop, stop, start);
       pos = read.end;
       return read;
     }
@@ -446,7 +434,7 @@ function createParser(opts: ResolvedOptions) {
       const { value, wasEscaped } = readUntil(valueStop, start);
 
       if (!wasEscaped && datePattern.test(value)) {
-        const timestamp = parseInt(value.slice(tokens.datePrefix.length), 10);
+        const timestamp = parseInt(value.slice(opts.datePrefix.length), 10);
         /* v8 ignore next 3 -- @preserve: defensive - parseInt on digit string won't produce NaN */
         if (!isNaN(timestamp)) {
           return new Date(timestamp);
@@ -469,10 +457,10 @@ function createParser(opts: ResolvedOptions) {
       const result: unknown[] = [];
       let lastWasSeparator = false;
 
-      while (pos < source.length && !startsWith(tokens.terminator)) {
-        if (startsWith(tokens.separator)) {
+      while (pos < source.length && !startsWith(opts.terminator)) {
+        if (startsWith(opts.separator)) {
           result.push('');
-          advance(tokens.separator.length);
+          advance(opts.separator.length);
           lastWasSeparator = true;
           continue;
         }
@@ -480,10 +468,10 @@ function createParser(opts: ResolvedOptions) {
         lastWasSeparator = false;
 
         if (
-          startsWith(tokens.typePrimitive) ||
-          startsWith(tokens.typeArray) ||
-          startsWith(tokens.typeObject) ||
-          startsWith(tokens.typeString)
+          startsWith(opts.typePrimitive) ||
+          startsWith(opts.typeArray) ||
+          startsWith(opts.typeObject) ||
+          startsWith(opts.typeString)
         ) {
           result.push(parseValue());
         } else {
@@ -497,26 +485,26 @@ function createParser(opts: ResolvedOptions) {
           }
         }
 
-        if (pos < source.length && startsWith(tokens.separator)) {
-          advance(tokens.separator.length);
+        if (pos < source.length && startsWith(opts.separator)) {
+          advance(opts.separator.length);
           lastWasSeparator = true;
         }
       }
 
       if (
         lastWasSeparator &&
-        (startsWith(tokens.terminator) || pos >= source.length)
+        (startsWith(opts.terminator) || pos >= source.length)
       ) {
         result.push('');
       }
 
-      if (startsWith(tokens.terminator)) advance(tokens.terminator.length);
+      if (startsWith(opts.terminator)) advance(opts.terminator.length);
       return result;
     }
 
     function parseObject(): Record<string, unknown> {
       const result: Record<string, unknown> = {};
-      while (pos < source.length && !startsWith(tokens.terminator)) {
+      while (pos < source.length && !startsWith(opts.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
         // Defined, not assigned: assigning a __proto__ key would set the prototype
         Object.defineProperty(result, key, {
@@ -527,31 +515,31 @@ function createParser(opts: ResolvedOptions) {
         });
         if (
           pos < source.length &&
-          !startsWith(tokens.terminator) &&
-          startsWith(tokens.separator)
+          !startsWith(opts.terminator) &&
+          startsWith(opts.separator)
         ) {
-          advance(tokens.separator.length);
+          advance(opts.separator.length);
         }
       }
-      if (startsWith(tokens.terminator)) advance(tokens.terminator.length);
+      if (startsWith(opts.terminator)) advance(opts.terminator.length);
       return result;
     }
 
     function parseValue(): unknown {
-      if (startsWith(tokens.typePrimitive)) {
-        advance(tokens.typePrimitive.length);
+      if (startsWith(opts.typePrimitive)) {
+        advance(opts.typePrimitive.length);
         return parsePrimitive();
       }
-      if (startsWith(tokens.typeArray)) {
-        advance(tokens.typeArray.length);
+      if (startsWith(opts.typeArray)) {
+        advance(opts.typeArray.length);
         return parseArray();
       }
-      if (startsWith(tokens.typeObject)) {
-        advance(tokens.typeObject.length);
+      if (startsWith(opts.typeObject)) {
+        advance(opts.typeObject.length);
         return parseObject();
       }
-      if (startsWith(tokens.typeString)) {
-        advance(tokens.typeString.length);
+      if (startsWith(opts.typeString)) {
+        advance(opts.typeString.length);
         return parseString(dateStartPattern);
       }
 
