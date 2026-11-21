@@ -19,6 +19,7 @@ import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
+import { json } from './json.js';
 import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
 
@@ -910,6 +911,93 @@ describe('Edge Cases and Regression Tests', () => {
         `?closed&state=${marked.stringify({ sort: 'date' })}`,
       );
     });
+  });
+
+  describe("a parameter the format can't read", () => {
+    it('marked: ?count=:5&utm_content=50%off&next=./sale/50%off keeps every param', () => {
+      window.history.replaceState(
+        {},
+        '',
+        '?count=:5&utm_content=50%off&next=./sale/50%off',
+      );
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format: marked }),
+      );
+      expect(useStore.getState()).toEqual({
+        count: 5,
+        utm_content: '50%off',
+        next: './sale/50%off',
+      });
+    });
+
+    it('plain: ?count=5&a=1&a.b=2 keeps a=1', () => {
+      window.history.replaceState({}, '', '?count=5&a=1&a.b=2');
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format: plain }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, a: 1 });
+    });
+
+    it('plain: ?count=5&gr%c3%b6%c3%9fe=L keeps L across reloads until it changes', () => {
+      window.history.replaceState({}, '', '?count=5&gr%c3%b6%c3%9fe=L');
+      const createUseStore = () =>
+        create<{ count: number; größe: string }>()(
+          querystring(() => ({ count: 0, größe: '' }), {
+            key: false,
+            format: plain,
+          }),
+        );
+      const first = createUseStore();
+      expect(first.getState()).toEqual({ count: 5, größe: 'L' });
+      first.setState({ count: 6 });
+      const second = createUseStore();
+      expect(second.getState()).toEqual({ count: 6, größe: 'L' });
+      second.setState({ größe: 'XL' });
+      expect(createUseStore().getState()).toEqual({ count: 6, größe: 'XL' });
+    });
+
+    it.each([
+      ['json', '?count=5&q=%22100%%22', false],
+      ['json', '?state=%7B%22count%22:5,%22q%22:%22100%%22%7D', 'state'],
+    ] as const)('%s: %s decodes the valid escapes', (_, search, key) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number; q: string }>()(
+        querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, q: '100%' });
+    });
+
+    it.each([false, 'state'] as const)(
+      'json (key: %s): a & in a value survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; q: string }>()(
+            querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+          );
+        createUseStore().setState({ count: 5, q: 'a&b' });
+        expect(createUseStore().getState()).toEqual({ count: 5, q: 'a&b' });
+      },
+    );
+
+    it.each([false, 'state'] as const)(
+      'plain (key: %s): selected.42 under selected: {} survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; selected: Record<string, boolean> }>()(
+            querystring(() => ({ count: 0, selected: {} }), {
+              key,
+              format: plain,
+            }),
+          );
+        createUseStore().setState({ count: 5, selected: { 42: true } });
+        expect(createUseStore().getState()).toEqual({
+          count: 5,
+          selected: { 42: true },
+        });
+      },
+    );
   });
 
   describe('React Strict Mode', () => {

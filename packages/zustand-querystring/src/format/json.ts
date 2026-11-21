@@ -3,13 +3,15 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { decodeComponent } from './decode.js';
 
 function encodeValue(input: unknown): string {
-  return encodeURI(JSON.stringify(input));
+  // encodeURI leaves &, # and + as written: & splits the query, # ends it, and + reads as a space in form decoding.
+  return encodeURI(JSON.stringify(input)).replace(/[&#+]/g, encodeURIComponent);
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURI(str));
+  return JSON.parse(decodeComponent(str));
 }
 
 export const json: QueryStringFormat = {
