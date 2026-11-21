@@ -355,18 +355,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     | QueryStringMap<object, object>
     | undefined;
 
-  /** Apply map.to if configured, otherwise pass through */
-  const applyMapTo = (state: object, pathname: string): object => {
-    return map ? map.to(state, pathname) : state;
-  };
-
   // The selected state in URL shape for a pathname.
-  const urlStateOf = (state, pathname: string): object =>
-    applyMapTo(getSelectedState(state, pathname), pathname);
-
-  /** Apply map.from if configured, otherwise pass through */
-  const applyMapFrom = (urlState: object, pathname: string): object => {
-    return map ? map.from(urlState, pathname) : urlState;
+  const urlStateOf = (state, pathname: string): object => {
+    const selected = getSelectedState(state, pathname);
+    return map ? map.to(selected, pathname) : selected;
   };
 
   // URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
@@ -426,7 +418,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return state;
       }
       // stateFromUrl is in URL shape — map.from converts it back to store shape
-      const storeState = applyMapFrom(stateFromUrl, url.pathname);
+      const storeState = map
+        ? map.from(stateFromUrl, url.pathname)
+        : stateFromUrl;
       const selected = getSelectedState(storeState, url.pathname, 'partial');
       return mergeUrlState(state, selected, navigation);
     } catch (error) {
