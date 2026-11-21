@@ -2287,6 +2287,21 @@ describe('navigation', () => {
     expect(useStore.getState().menu.toggle()).toBe('toggled');
   });
 
+  it('keeps an object holding an action deeper inside', async () => {
+    const useStore = create<{ group: { nested?: { clear: () => number } } }>()(
+      querystring(() => ({ group: { nested: { clear: () => 1 } } }), {
+        format: json,
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/b', { group: {} }));
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().group.nested?.clear()).toBe(1);
+  });
+
   it('leaves a class instance as it is', async () => {
     class Panel {
       #title = 'Panel';

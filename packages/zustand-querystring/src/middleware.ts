@@ -181,6 +181,11 @@ const translateSelectionToState = <T>(
   }, {} as T);
 };
 
+// A function, or a plain object holding one at any depth.
+const holdsFunction = (value: unknown): boolean =>
+  typeof value === 'function' ||
+  (isPlainObject(value) && Object.values(value as object).some(holdsFunction));
+
 // The params of a search in order, as raw text; a param without a value has none.
 const splitSearch = (search: string) =>
   search
@@ -345,10 +350,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (
         navigation &&
         Object.prototype.hasOwnProperty.call(merged, key) &&
+        holdsFunction(current) &&
         (typeof current === 'function' ||
-          ((!isPlainObject(value) || isEmpty(value)) &&
-            isPlainObject(current) &&
-            Object.values(current).some(v => typeof v === 'function')))
+          !isPlainObject(value) ||
+          isEmpty(value))
       )
         continue;
       if (
@@ -488,7 +493,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      // A navigation never replaces a function, like an action, nor an object holding one with anything but a non-empty plain object.
+      // A navigation never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>
