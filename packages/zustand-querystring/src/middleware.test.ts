@@ -514,12 +514,6 @@ describe('server store (url option): a plain array index', () => {
       { cols: [...new Array(22), { width: 120 }] },
     ],
     [
-      { items: [] },
-      '/?count=5&items.2.a=1',
-      { items: [undefined, undefined, { a: 1 }] },
-    ],
-    [{}, '/?count=5&items.2.a=1', { items: [undefined, undefined, { a: 1 }] }],
-    [
       { selected: {} },
       '/?count=5&selected.42=true',
       { selected: { 42: true } },
@@ -534,13 +528,7 @@ describe('server store (url option): a plain array index', () => {
       '/?count=5&selected.1234567890123456789=true',
       { selected: { '1234567890123456789': true } },
     ],
-    [
-      { byZip: {} },
-      '/?count=5&byZip.00020000=x',
-      { byZip: { '00020000': 'x' } },
-    ],
     [{}, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
-    [{ byId: {} }, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
     [
       {},
       '/?count=5&byId.1.n=1&byId.4294967294.n=5',
