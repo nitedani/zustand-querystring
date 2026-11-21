@@ -442,7 +442,7 @@ function setAtPath(
   path: string[],
   value: unknown,
   initialState: object,
-  childKeys: Map<string, string[]>,
+  childKeys: Map<string, Set<string>>,
 ): void {
   let current = obj;
   // The first container this path makes joins obj only once the value is set
@@ -458,7 +458,7 @@ function setAtPath(
       const containerPath = path.slice(0, i + 1);
       next = isArrayContainer(
         getHintAtPath(initialState, containerPath),
-        childKeys.get(JSON.stringify(containerPath)) ?? [],
+        Array.from(childKeys.get(JSON.stringify(containerPath)) ?? []),
       )
         ? []
         : {};
@@ -599,14 +599,12 @@ function unflatten(
   });
 
   // Every container path's child keys, which decide whether it is an array
-  const childKeys = new Map<string, string[]>();
+  const childKeys = new Map<string, Set<string>>();
   for (const key of keys) {
     const path = parseKeyPath(key, opts);
     for (let i = 1; i < path.length; i++) {
       const parent = JSON.stringify(path.slice(0, i));
-      const children = childKeys.get(parent) ?? [];
-      if (children.indexOf(path[i]) === -1) children.push(path[i]);
-      childKeys.set(parent, children);
+      childKeys.set(parent, (childKeys.get(parent) ?? new Set()).add(path[i]));
     }
   }
 
