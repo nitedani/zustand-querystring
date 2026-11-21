@@ -481,25 +481,22 @@ describe('url option', () => {
     expect(create(true).getState()).toStrictEqual({ tag: undefined });
   });
 
-  it('a URL key merges into a class instance, keeping its methods and other fields', () => {
-    class Panel {
-      selected = 0;
-      description = 'local';
-      open() {
-        return this.selected + 42;
+  it('a URL key merges into a class instance, keeping its private fields', () => {
+    class Filter {
+      #scope = 'all';
+      rating = 0;
+      label() {
+        return this.#scope + ':' + this.rating;
       }
     }
-    const store = createStore<{ panel: Panel }>()(
-      querystring(() => ({ panel: new Panel() }), {
-        url: '/b?panel=.selected:5',
-        select: () => ({ panel: { selected: true } }),
+    const store = createStore<{ filter: Filter }>()(
+      querystring(() => ({ filter: new Filter() }), {
+        url: '/results?filter=.rating:4',
+        select: () => ({ filter: { rating: true } }),
       }),
     );
 
-    const { panel } = store.getState();
-    expect(panel).toBeInstanceOf(Panel);
-    expect(panel.description).toBe('local');
-    expect(panel.open()).toBe(47);
+    expect(store.getState().filter.label()).toBe('all:4');
   });
 });
 

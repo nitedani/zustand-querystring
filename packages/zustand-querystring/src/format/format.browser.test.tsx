@@ -2200,33 +2200,28 @@ describe('navigation', () => {
     expect(typeof useStore.getState().filters.clear).toBe('function');
   });
 
-  it('a link merges into a class instance, keeping its methods and other fields', async () => {
+  it('leaves a class instance as it is', async () => {
     class Panel {
+      #title = 'Panel';
       selected = 0;
-      description = 'local';
-      open() {
-        return this.selected + 42;
+      label() {
+        return this.#title + ':' + this.selected;
       }
     }
+    const panel = new Panel();
     const useStore = create<{ panel: Panel }>()(
-      querystring(() => ({ panel: new Panel() }), {
+      querystring(() => ({ panel }), {
         select: () => ({ panel: { selected: true } }),
       }),
     );
     const unsubscribe = useStore.subscribe(() => {});
 
-    const href = useStore.href('/b', {
-      panel: Object.assign(new Panel(), { selected: 5 }),
-    });
-    window.history.pushState({}, '', href);
+    window.history.pushState({}, '', '/b?panel=.selected:5');
     await settle();
     unsubscribe();
 
-    const { panel } = useStore.getState();
-    expect(decodeURIComponent(href)).toBe('/b?panel=.selected:5');
-    expect(panel).toBeInstanceOf(Panel);
-    expect(panel.description).toBe('local');
-    expect(panel.open()).toBe(47);
+    expect(useStore.getState().panel).toBe(panel);
+    expect(panel.label()).toBe('Panel:0');
   });
 
   it("reads the URL with the initial state's types, like at creation", async () => {

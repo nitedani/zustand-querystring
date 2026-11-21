@@ -297,34 +297,37 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.from(urlState, pathname) : urlState;
   };
 
-  // URL state replaces the values it carries, arrays too, and undefined with syncUndefined; a plain object merges key by key, into a class instance too.
+  // URL state replaces the values it carries, arrays too, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
   const mergeUrlState = (
     state: object,
     urlState: object,
-    keepFunctions = false,
+    navigation = false,
   ) => {
-    const merged = Object.assign(
-      Object.create(Object.getPrototypeOf(state)),
-      state,
-    );
+    const merged = isPlainObject(state) ? { ...state } : state;
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       if (
-        keepFunctions &&
+        navigation &&
         Object.prototype.hasOwnProperty.call(merged, key) &&
         typeof merged[key] === 'function'
       )
         continue;
       const current = merged[key];
-      merged[key] =
-        isPlainObject(value) && isObjectLike(current) && !Array.isArray(current)
-          ? mergeUrlState(current, value, keepFunctions)
-          : value;
+      if (
+        isPlainObject(value) &&
+        isObjectLike(current) &&
+        !Array.isArray(current)
+      ) {
+        if (navigation && !isPlainObject(current)) continue;
+        merged[key] = mergeUrlState(current, value, navigation);
+      } else {
+        merged[key] = value;
+      }
     }
     return merged;
   };
 
-  const initialize = (url: URL, state, keepFunctions = false) => {
+  const initialize = (url: URL, state, navigation = false) => {
     try {
       // When map is used, getStateFromUrl returns the URL-shape state.
       // We need the mapped initial state for type inference in parsing.
@@ -339,7 +342,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
       const selected = getSelectedState(storeState, url.pathname);
-      return mergeUrlState(state, selected, keepFunctions);
+      return mergeUrlState(state, selected, navigation);
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
