@@ -513,6 +513,21 @@ describe("server store (url option): a parameter the format can't read", () => {
   });
 
   it.each([
+    ['/?s_count=5&s_a.comment=promo', ['keep']],
+    ['/?s_count=5&s_a.0.tags.length=oops', [{ tags: ['keep'] }]],
+  ])('plain: %s leaves the default of a dropped path', (url, a) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, a }), {
+        url,
+        key: false,
+        prefix: 's_',
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, a });
+  });
+
+  it.each([
     ['/?s_count=5&s_filters.0=red&s_filters.all=blue', false],
     ['/?s_state=count=5,filters.0=red,filters.all=blue', 'state'],
   ] as const)(

@@ -431,11 +431,14 @@ function setAtPath(
   initialState: object,
 ): void {
   let current = obj;
+  // The first container this path makes joins obj only once the value is set
+  let detached: [Record<string, unknown>, string, object] | undefined;
 
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
     const nextKey = path[i + 1];
     const nextIsIndex = /^\d+$/.test(nextKey);
+    let next = current[key];
 
     if (!(key in current)) {
       // The default's kind wins: filters.0 under filters: {} is a key
@@ -444,16 +447,18 @@ function setAtPath(
         typeof hint === 'object' && hint !== null
           ? Array.isArray(hint)
           : nextIsIndex;
-      current[key] = isArray ? [] : {};
-      containers.add(current[key] as object);
+      next = isArray ? [] : {};
+      containers.add(next as object);
+      if (detached) current[key] = next;
+      else detached = [current, key, next as object];
     }
     // A value already at a shorter path (a=1 beside a.b=2) wins
-    if (!containers.has(current[key] as object)) return;
+    if (!containers.has(next as object)) return;
 
     // a.length addresses no array element
-    if (Array.isArray(current[key]) && !nextIsIndex) return;
+    if (Array.isArray(next) && !nextIsIndex) return;
 
-    current = current[key] as Record<string, unknown>;
+    current = next as Record<string, unknown>;
   }
 
   const lastKey = path[path.length - 1];
@@ -463,6 +468,7 @@ function setAtPath(
   } else {
     current[lastKey] = value;
   }
+  if (detached) detached[0][detached[1]] = detached[2];
 }
 
 // =============================================================================
