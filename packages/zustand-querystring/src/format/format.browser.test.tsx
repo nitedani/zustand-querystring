@@ -1929,6 +1929,47 @@ describe('navigation', () => {
     expect(url()).toBe('/b?count=:5');
   });
 
+  it('pays the write a navigation owes while the page gets no frames', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    await new Promise(requestAnimationFrame);
+    // A hidden page gets no animation frames.
+    const { requestAnimationFrame: raf } = window;
+    window.requestAnimationFrame = () => 0;
+    try {
+      await settle();
+    } finally {
+      window.requestAnimationFrame = raf;
+      unsubscribe();
+    }
+
+    expect(url()).toBe('/b?count=:5');
+  });
+
+  it('pays the write a navigation owes when the clock is set back', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    await new Promise(requestAnimationFrame);
+    const { now } = Date;
+    Date.now = () => now() - 60_000;
+    try {
+      await settle();
+    } finally {
+      Date.now = now;
+      unsubscribe();
+    }
+
+    expect(url()).toBe('/b?count=:5');
+  });
+
   it('a subscriber that unsubscribes in its callback stops the store following the URL', async () => {
     const useStore = createNavStore();
     const unsubscribe = useStore.subscribe(state => {
@@ -1942,6 +1983,31 @@ describe('navigation', () => {
     await settle();
 
     expect(useStore.getState().count).toBe(2);
+  });
+
+  it("a store a slow callback unsubscribes doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    let useStore = replaced;
+    let unsubscribeNext = () => {};
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 2) return;
+      unsubscribe();
+      useStore = createNavStore();
+      unsubscribeNext = useStore.subscribe(() => {});
+      useStore.setState({ count: 0 });
+      // An unmount and render slower than the 100ms the write waits.
+      const end = performance.now() + 150;
+      while (performance.now() < end);
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    await settle();
+    await settle();
+    unsubscribeNext();
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
   });
 
   it("a nested key the URL carries keeps the object's other keys", async () => {

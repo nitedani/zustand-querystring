@@ -412,12 +412,18 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
     // The URL this store last wrote or read; any other URL is a navigation.
     let lastUrl = '';
-    // When the write after a navigation is due; the frame loop pays it.
-    let writeDue: number | undefined;
+    // A navigation owes a URL write; a timer pays it 100ms later while the store has a subscriber.
+    let writeOwed = false;
+    let writeTimer: ReturnType<typeof setTimeout> | undefined;
+    const armWrite = () => {
+      clearTimeout(writeTimer);
+      writeTimer = setTimeout(setQuery, 100);
+    };
     const readUrl = () => {
       if (location.pathname + location.search === lastUrl) return;
       lastUrl = location.pathname + location.search;
-      writeDue = Date.now() + 100;
+      writeOwed = true;
+      armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
       // Only changed keys, so the others keep their references; without select, only the store's own keys.
@@ -431,8 +437,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
 
     const setQuery = () => {
-      // Cleared first, so a write that throws isn't retried every frame.
-      writeDue = undefined;
+      // Cleared first, so a write that throws isn't owed again.
+      writeOwed = false;
+      clearTimeout(writeTimer);
       readUrl();
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
@@ -528,7 +535,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const cb = () => {
         frame = requestAnimationFrame(cb);
         readUrl();
-        if (writeDue !== undefined && Date.now() >= writeDue) setQuery();
       };
       // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
       let subscribers = 0;
@@ -536,12 +542,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       api.subscribe = (...args) => {
         if (subscribers++ === 0) {
           frame = requestAnimationFrame(cb);
+          if (writeOwed) armWrite();
         }
         const unsubscribe = originalSubscribe(...args);
         let subscribed = true;
         return () => {
           if (subscribed && --subscribers === 0) {
             cancelAnimationFrame(frame);
+            clearTimeout(writeTimer);
           }
           subscribed = false;
           unsubscribe();
