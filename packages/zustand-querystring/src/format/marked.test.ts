@@ -1152,6 +1152,15 @@ describe('marked format', () => {
         expect(result).toEqual({ name: 'John', age: 30 });
       });
 
+      it('should keep a __proto__ param it reads as text as an own key', () => {
+        const params = JSON.parse('{"__proto__":["./sale"]}');
+        const result = marked.parseStandalone(params, { initialState: {} });
+        expect(
+          Object.getOwnPropertyDescriptor(result, '__proto__')?.value,
+        ).toBe('./sale');
+        expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      });
+
       it('should handle nested objects', () => {
         const params = {
           user: ['.name=John'],

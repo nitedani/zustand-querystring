@@ -20,6 +20,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { getOwn, setOwn } from '../own.js';
 import { decodeComponent } from './decode.js';
 
 // =============================================================================
@@ -510,15 +511,23 @@ interface PathNode {
 // What build returns for a path it leaves to the default
 const dropped = Symbol('dropped');
 
+/** A URL's index keys (like tags.5) can't make the reader allocate more list slots than this plus one per URL entry. */
+const SPARE_ARRAY_SLOTS = 10000;
+
+// The array slots a URL's index keys have left; all its lists draw from it
+interface Slots {
+  left: number;
+}
+
 /**
  * Group the entries into a tree of their key paths.
  */
 function plantEntries(
-  entries: FlatEntries,
+  entries: Map<string, string[]>,
   opts: ResolvedOptions,
 ): Map<string, PathNode> {
   const root = { children: new Map<string, PathNode>() };
-  for (const [key, values] of Object.entries(entries)) {
+  entries.forEach((values, key) => {
     let node: PathNode = root;
     for (const segment of parseKeyPath(key, opts)) {
       const children = (node.children ??= new Map());
@@ -528,7 +537,7 @@ function plantEntries(
     }
     // Of two spellings of one path (x_ and x__), the later one wins
     node.leaf = values;
-  }
+  });
   return root.children;
 }
 
@@ -537,37 +546,62 @@ function plantEntries(
  */
 function defaultOf(hint: unknown, key: string): unknown {
   if (hint === null || typeof hint !== 'object') return undefined;
-  return Array.isArray(hint) ? hint[0] : (hint as Record<string, unknown>)[key];
+  return Array.isArray(hint)
+    ? hint[0]
+    : getOwn(hint as Record<string, unknown>, key);
 }
 
 /**
  * Build the value at a path, or dropped when nothing under it can be placed.
  */
-function build(node: PathNode, hint: unknown, opts: ResolvedOptions): unknown {
+function build(
+  node: PathNode,
+  hint: unknown,
+  slots: Slots,
+  opts: ResolvedOptions,
+): unknown {
   // A value at a shorter path (a=1 beside a.b=2) wins
   if (node.leaf) return readLeaf(node.leaf, hint, opts);
   const children = node.children!;
-  return isArrayContainer(hint, Array.from(children.keys()))
-    ? buildList(children, hint, opts)
-    : buildRecord(children, hint, opts);
+  if (isArrayContainer(hint, Array.from(children.keys()))) {
+    const list = buildList(children, hint, slots, opts);
+    if (list !== undefined) return list;
+  }
+  return buildRecord(children, hint, slots, opts);
 }
 
 /**
- * Build an array from a path's index keys.
+ * Build an array from a path's index keys. An index past the slots left is dropped under an
+ * array default; elsewhere it makes the path a record, so this returns undefined.
  */
 function buildList(
   children: Map<string, PathNode>,
   hint: unknown,
+  slots: Slots,
   opts: ResolvedOptions,
-): unknown[] | typeof dropped {
+): unknown[] | typeof dropped | undefined {
+  const limit = slots.left;
+  let length = 0;
+  let fits = true;
+  children.forEach((_, key) => {
+    if (!/^\d+$/.test(key)) return;
+    const index = Number(key);
+    if (index >= limit) fits = false;
+    else if (index >= length) length = index + 1;
+  });
+  if (!fits && !Array.isArray(hint)) return undefined;
+  slots.left -= length;
+
   const result: unknown[] = [];
   let kept = false;
   children.forEach((child, key) => {
     // a.length addresses no array element
     if (!/^\d+$/.test(key)) return;
-    const value = build(child, defaultOf(hint, key), opts);
+    const index = Number(key);
+    if (index >= limit) return;
+    const value = build(child, defaultOf(hint, key), slots, opts);
     if (value === dropped) return;
-    result[parseInt(key, 10)] = value;
+    result[index] = value;
     kept = true;
   });
   return kept ? result : dropped;
@@ -579,20 +613,15 @@ function buildList(
 function buildRecord(
   children: Map<string, PathNode>,
   hint: unknown,
+  slots: Slots,
   opts: ResolvedOptions,
 ): Record<string, unknown> | typeof dropped {
   const result: Record<string, unknown> = {};
   let kept = false;
   children.forEach((child, key) => {
-    const value = build(child, defaultOf(hint, key), opts);
+    const value = build(child, defaultOf(hint, key), slots, opts);
     if (value === dropped) return;
-    // Defined, not assigned: assigning a __proto__ key would set the prototype
-    Object.defineProperty(result, key, {
-      value,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+    setOwn(result, key, value);
     kept = true;
   });
   return kept ? result : dropped;
@@ -664,11 +693,17 @@ function readLeaf(
  * Unflatten entries back to a nested object.
  */
 function unflatten(
-  entries: FlatEntries,
+  entries: Map<string, string[]>,
   initialState: object,
   opts: ResolvedOptions,
 ): object {
-  const result = buildRecord(plantEntries(entries, opts), initialState, opts);
+  const slots = { left: SPARE_ARRAY_SLOTS + entries.size };
+  const result = buildRecord(
+    plantEntries(entries, opts),
+    initialState,
+    slots,
+    opts,
+  );
   return result === dropped ? {} : result;
 }
 
@@ -676,16 +711,30 @@ function unflatten(
 // NAMESPACED MODE
 // =============================================================================
 
+/** Append a value to a key's entries. */
+function addValue(
+  entries: Map<string, string[]>,
+  key: string,
+  value: string,
+): void {
+  const values = entries.get(key);
+  if (values) values.push(value);
+  else entries.set(key, [value]);
+}
+
 /**
  * Parse namespaced string into flat entries.
  * Uses continuation logic: segments without '=' are continuations of the previous value.
  * This handles all cases uniformly - the '=' sign disambiguates entries.
  */
-function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
-  if (!input) return {};
+function parseNamespaced(
+  input: string,
+  opts: ResolvedOptions,
+): Map<string, string[]> {
+  const entries = new Map<string, string[]>();
+  if (!input) return entries;
 
   const decoded = decodeComponent(input);
-  const entries: FlatEntries = {};
   const parts = splitEscaped(decoded, opts.entrySep, opts.escape);
 
   let currentKey: string | null = null;
@@ -697,8 +746,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
       if (currentKey !== null) {
-        if (!entries[currentKey]) entries[currentKey] = [];
-        entries[currentKey].push(currentParts.join(opts.entrySep));
+        addValue(entries, currentKey, currentParts.join(opts.entrySep));
       }
 
       currentKey = part.slice(0, eqIndex);
@@ -711,8 +759,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
 
   // Flush the last key
   if (currentKey !== null) {
-    if (!entries[currentKey]) entries[currentKey] = [];
-    entries[currentKey].push(currentParts.join(opts.entrySep));
+    addValue(entries, currentKey, currentParts.join(opts.entrySep));
   }
 
   return entries;
@@ -785,11 +832,14 @@ function parseStandalone(
   initialState: object,
   opts: ResolvedOptions,
 ): object {
-  const entries: FlatEntries = {};
+  const entries = new Map<string, string[]>();
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeComponent(key);
-    entries[decodedKey] = values.map(v => decodeComponent(v));
+    entries.set(
+      decodedKey,
+      values.map(v => decodeComponent(v)),
+    );
   }
 
   return unflatten(entries, initialState, opts);
