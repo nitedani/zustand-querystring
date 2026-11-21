@@ -168,9 +168,7 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
-3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL. To set a new top-level field, use a namespace (`key`), a `prefix`, or a `select` that includes it.
-
-A navigation is read while something subscribes to the store, like a component that uses it. Back and Forward read the entry's URL the same way, so a key that URL leaves out keeps its current value.
+3. **On navigation** (a link, `router.push`, Back/Forward), while something subscribes to the store, like a component that uses it: URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
 
 When the store writes the current URL, only values **different from initial state** are written:
 
@@ -191,10 +189,16 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. To clear a filter, pass its initial value. Call it in a selector, so the link updates when the state changes:
+`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. Pass a field's initial value to restore it, like clearing a filter. Call it in a selector, so the link updates when the state changes:
 
 ```tsx
-// Initial: { status: 'all', search: '' }
+const useStore = create<{ status: string; search?: string }>()(
+  querystring(() => ({ status: 'all' }), {
+    // search isn't in the initial state, so select includes it for a link to set it
+    select: () => ({ status: true, search: true }),
+  }),
+);
+
 // Current: { status: 'active', search: 'acme' }
 const href = useStore(() => useStore.href('/customers', { status: 'all' }));
 // href: /customers?status=all&search=acme
@@ -202,7 +206,7 @@ const href = useStore(() => useStore.href('/customers', { status: 'all' }));
 <Link href={href}>All customers</Link>;
 ```
 
-Navigate to it on the client, with your router's `Link` or `router.push(href)`. A full page load creates the store again from the URL.
+A navigation sets a top-level field the initial state lacks only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
 
 ---
 
