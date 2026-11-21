@@ -197,7 +197,7 @@ Type handling:
 // Initial: { status: 'all', search: '' }
 // Current: { status: 'active', search: 'acme' }
 const href = useStore(() => useStore.href('/customers', { status: 'all' }));
-// href: /customers?search=acme&status=all
+// href: /customers?status=all&search=acme
 
 <Link href={href}>All customers</Link>;
 ```
