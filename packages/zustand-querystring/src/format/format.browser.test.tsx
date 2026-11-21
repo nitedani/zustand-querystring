@@ -2646,6 +2646,31 @@ describe('href', () => {
     }
   });
 
+  it('clears only the fields select syncs in an object', async () => {
+    const useStore = create<{
+      filters: { query?: string; localSort: string; reset: () => number };
+    }>()(
+      querystring(
+        () => ({
+          filters: { query: 'default', localSort: 'newest', reset: () => 1 },
+        }),
+        { select: () => ({ filters: { query: true } }) },
+      ),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState(state => ({
+      filters: { ...state.filters, query: 'open', localSort: 'oldest' },
+    }));
+
+    window.history.pushState({}, '', useStore.href('/report', { filters: {} }));
+    await settle();
+    unsubscribe();
+
+    expect('query' in useStore.getState().filters).toBe(false);
+    expect(useStore.getState().filters.localSort).toBe('oldest');
+    expect(useStore.getState().filters.reset()).toBe(1);
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),

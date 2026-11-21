@@ -512,6 +512,40 @@ describe('url option', () => {
     }
   });
 
+  it('an empty object clears only the fields select syncs in it', () => {
+    const store = createStore<{
+      filters: {
+        query?: string;
+        localSort: string;
+        paging: { page?: number; size: number };
+        actions: { next: () => number };
+      };
+    }>()(
+      querystring(
+        () => ({
+          filters: {
+            query: 'default',
+            localSort: 'newest',
+            paging: { page: 2, size: 20 },
+            actions: { next: () => 3 },
+          },
+        }),
+        {
+          url: '/report?filters=.',
+          select: () => ({
+            filters: { query: true, paging: { page: true }, actions: true },
+          }),
+        },
+      ),
+    );
+
+    const { filters } = store.getState();
+    expect('query' in filters).toBe(false);
+    expect(filters.localSort).toBe('newest');
+    expect(filters.paging).toStrictEqual({ size: 20 });
+    expect(filters.actions.next()).toBe(3);
+  });
+
   it('a URL key never replaces an action, nor an object holding one', () => {
     const store = createStore<{
       search: () => number;

@@ -216,6 +216,22 @@ const isSameState = (a: unknown, b: unknown) =>
     isInstance(x) || isInstance(y) ? x === y : undefined,
   );
 
+// The object without the fields a selection syncs; its other fields and its actions stay.
+const clearSelected = (state: object, selection: object) => {
+  const cleared = { ...state };
+  for (const [key, selected] of Object.entries(selection)) {
+    if (!Object.prototype.hasOwnProperty.call(cleared, key)) continue;
+    if (isPlainObject(selected)) {
+      if (isPlainObject(cleared[key])) {
+        cleared[key] = clearSelected(cleared[key], selected);
+      }
+    } else if (selected && !holdsFunction(cleared[key])) {
+      delete cleared[key];
+    }
+  }
+  return cleared;
+};
+
 // The params of a search in order, as raw text; a param without a value has none.
 const splitSearch = (search: string) =>
   search
@@ -362,15 +378,28 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
+  // The selection is the one of the URL's pathname, or true where all of it is selected.
   const mergeUrlState = (
     state: object,
     urlState: object,
+    selection: object | true,
     navigation = false,
   ) => {
     const merged = isPlainObject(state) ? { ...state } : state;
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       const current = merged[key];
+      const selected = selection === true ? true : selection[key];
+      // An empty object over an object whose fields select syncs only some of clears just those.
+      if (
+        isPlainObject(value) &&
+        isEmpty(value) &&
+        isPlainObject(current) &&
+        isPlainObject(selected)
+      ) {
+        merged[key] = clearSelected(current, selected);
+        continue;
+      }
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         Object.prototype.hasOwnProperty.call(merged, key) &&
@@ -387,7 +416,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         merged[key] =
           isEmpty(value) && isPlainObject(current)
             ? value
-            : mergeUrlState(current, value, navigation);
+            : mergeUrlState(
+                current,
+                value,
+                isPlainObject(selected) ? selected : true,
+                navigation,
+              );
       } else {
         merged[key] = value;
       }
@@ -422,7 +456,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ? map.from(stateFromUrl, url.pathname)
         : stateFromUrl;
       const selected = getSelectedState(storeState, url.pathname, 'partial');
-      return mergeUrlState(state, selected, navigation);
+      return mergeUrlState(
+        state,
+        selected,
+        defaultedOptions.select
+          ? (defaultedOptions.select(url.pathname) as object)
+          : true,
+        navigation,
+      );
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
