@@ -543,9 +543,9 @@ function flatten(
       continue;
     }
 
-    // Empty object: the key and the nesting separator, with an empty value
+    // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
     if (isPlainObject(value) && Object.keys(value).length === 0) {
-      result[fullKey + opts.nestingSep] = [''];
+      result[fullKey + opts.nestingSep + opts.escape] = [''];
       continue;
     }
 
@@ -588,10 +588,10 @@ function unflatten(
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
-    // Empty object: a path ending in an empty segment, with an empty value → {}
+    // Empty object: a path whose last escaped segment is a lone escape char, with an empty value → {}
     if (
       path.length > 1 &&
-      path[path.length - 1] === '' &&
+      splitEscaped(key, opts.nestingSep, opts.escape).pop() === opts.escape &&
       rawValues.length === 1 &&
       rawValues[0] === ''
     ) {
@@ -681,7 +681,11 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
   let currentParts: string[] = [];
 
   for (const part of parts) {
-    const eqIndex = findUnescaped(part, '=', opts.escape);
+    let eqIndex = findUnescaped(part, '=', opts.escape);
+    // An empty object's key ends in a lone escape char, which reads the '=' after it as escaped.
+    if (eqIndex === -1 && part.endsWith(opts.nestingSep + opts.escape + '=')) {
+      eqIndex = part.length - 1;
+    }
 
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
