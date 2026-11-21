@@ -917,6 +917,7 @@ describe('Edge Cases and Regression Tests', () => {
       ['marked', '?count=:5&next=./sale/50%off', marked],
       ['marked', '?count=:5&ext=.png', marked],
       ['plain', '?count=5&utm_content=50%off', plain],
+      ['plain', '?count=5&a=1&a.b=2', plain],
     ] as const)('%s: %s still restores count', (_, search, format) => {
       window.history.replaceState({}, '', search);
       const useStore = create<{ count: number }>()(

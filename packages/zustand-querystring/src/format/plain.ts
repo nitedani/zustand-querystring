@@ -436,6 +436,8 @@ function setAtPath(
     if (current[key] === undefined) {
       current[key] = nextIsIndex ? [] : {};
     }
+    // A value already at a shorter path (a=1 beside a.b=2) wins
+    if (typeof current[key] !== 'object' || current[key] === null) return;
 
     current = current[key] as Record<string, unknown>;
   }
