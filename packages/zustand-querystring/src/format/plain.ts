@@ -429,8 +429,12 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
-/** A path with a larger index is dropped: a sparse array that long hangs the page. */
+/** A larger index never makes an array slot: a sparse array that long hangs the page. */
 const MAX_INDEX = 10000;
+
+function isLargeIndex(key: string): boolean {
+  return /^\d+$/.test(key) && Number(key) > MAX_INDEX;
+}
 
 /**
  * Set a value at a path in an object, creating intermediate structures.
@@ -439,18 +443,24 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
+  initialState: object,
 ): void {
-  if (path.some(key => /^\d+$/.test(key) && Number(key) > MAX_INDEX)) return;
+  const underArray = (i: number) =>
+    Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
+  if (path.some((key, i) => isLargeIndex(key) && underArray(i))) return;
 
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
     const nextKey = path[i + 1];
-    const nextIsIndex = /^\d+$/.test(nextKey);
+    const nextIsIndex = /^\d+$/.test(nextKey) && !isLargeIndex(nextKey);
+    const next = getOwn(current, key);
 
-    if (getOwn(current, key) === undefined) {
+    if (next === undefined) {
       setOwn(current, key, nextIsIndex ? [] : {});
+    } else if (Array.isArray(next) && isLargeIndex(nextKey)) {
+      setOwn(current, key, { ...next });
     }
 
     current = current[key] as Record<string, unknown>;
@@ -624,13 +634,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, []);
+      setAtPath(result, path, [], initialState);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts));
+      setAtPath(result, path, parseValue(values[0], hint, opts), initialState);
       continue;
     }
 
@@ -640,6 +650,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
+      initialState,
     );
   }
 

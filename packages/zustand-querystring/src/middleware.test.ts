@@ -484,18 +484,26 @@ describe('server store (url option): keys naming prototype members', () => {
 
 describe('server store (url option): a plain array index', () => {
   it.each([
-    ['/?count=5&tags.4294967294=z', ['a']],
-    ['/?count=5&tags.30000000=z', ['a']],
-    ['/?count=5&tags.1=b&tags.0=a', ['a', 'b']],
-  ])('%s', (url, tags) => {
+    [{ tags: ['a'] }, '/?count=5&tags.4294967294=z', { tags: ['a'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.30000000=z', { tags: ['a'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.1=b&tags.0=a', { tags: ['a', 'b'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.4294967294.x=z', { tags: ['a'] }],
+    [{}, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
+    [{ byId: {} }, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
+    [
+      { byId: {} },
+      '/?count=5&byId.1.n=1&byId.4294967294.n=5',
+      { byId: { 1: { n: 1 }, 4294967294: { n: 5 } } },
+    ],
+  ])('initial %o: %s', (initial, url, expected) => {
     const store = createStore(
-      querystring(() => ({ count: 0, tags: ['a'] }), {
+      querystring(() => ({ count: 0, ...initial }), {
         url,
         key: false,
         format: plain,
       }),
     );
-    expect(store.getState()).toEqual({ count: 5, tags });
+    expect(store.getState()).toEqual({ count: 5, ...expected });
   });
 });
 
