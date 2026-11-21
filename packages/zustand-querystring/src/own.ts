@@ -3,12 +3,16 @@ export function getOwn<T>(obj: Record<string, T>, key: string): T | undefined {
   return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
 }
 
-/** Defined, not assigned: assigning a __proto__ key would set the prototype. */
+/** Assigns an own property; a __proto__ key is defined, since assigning it would set the prototype. */
 export function setOwn(obj: object, key: string, value: unknown): void {
-  Object.defineProperty(obj, key, {
-    value,
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  });
+  if (key === '__proto__') {
+    Object.defineProperty(obj, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } else {
+    (obj as Record<string, unknown>)[key] = value;
+  }
 }
