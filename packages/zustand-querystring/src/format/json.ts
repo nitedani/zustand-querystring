@@ -3,6 +3,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { setOwn } from '../own.js';
 
 function encodeValue(input: unknown): string {
   return encodeURI(JSON.stringify(input));
@@ -34,7 +35,7 @@ export const json: QueryStringFormat = {
     for (const [key, values] of Object.entries(params)) {
       try {
         // Always use first value (json format doesn't use repeated keys)
-        result[key] = decodeValue(values[0]);
+        setOwn(result, key, decodeValue(values[0]));
       } catch {
         // skip invalid values
       }

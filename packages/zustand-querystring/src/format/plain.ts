@@ -20,7 +20,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
-import { getOwn, setOwn } from '../own.js';
+import { getOwn, pushOwn, setOwn } from '../own.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -666,8 +666,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
       if (currentKey !== null) {
-        if (!entries[currentKey]) entries[currentKey] = [];
-        entries[currentKey].push(currentParts.join(opts.entrySep));
+        pushOwn(entries, currentKey, currentParts.join(opts.entrySep));
       }
 
       currentKey = part.slice(0, eqIndex);
@@ -680,8 +679,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
 
   // Flush the last key
   if (currentKey !== null) {
-    if (!entries[currentKey]) entries[currentKey] = [];
-    entries[currentKey].push(currentParts.join(opts.entrySep));
+    pushOwn(entries, currentKey, currentParts.join(opts.entrySep));
   }
 
   return entries;
@@ -758,7 +756,11 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeString(key);
-    entries[decodedKey] = values.map(v => decodeString(v));
+    setOwn(
+      entries,
+      decodedKey,
+      values.map(v => decodeString(v)),
+    );
   }
 
   return unflatten(entries, initialState, opts);

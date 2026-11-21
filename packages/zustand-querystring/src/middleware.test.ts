@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { compact, querystring } from './middleware';
+import { json } from './format/json';
+import { marked } from './format/marked';
 import { plain } from './format/plain';
 
 describe('compact', () => {
@@ -477,5 +479,51 @@ describe('server store (url option): keys naming prototype members', () => {
       delete (Array.prototype as { polluted?: string }).polluted;
       delete (Object.prototype.hasOwnProperty as { call?: unknown }).call;
     }
+  });
+});
+
+describe('server store (url option): a key naming an Object member keeps the rest of the URL', () => {
+  const formats = { marked, plain, json };
+  const urls = [
+    ['marked', false, '/?count=:5'],
+    ['marked', 'state', '/?state=count:5'],
+    ['plain', false, '/?count=5'],
+    ['plain', 'state', '/?state=count=5'],
+    ['json', false, '/?count=5'],
+    ['json', 'state', '/?state=%7B%22count%22:5%7D'],
+  ] as const;
+  it.each([
+    ...urls.flatMap(([format, key, url]) =>
+      ['constructor=1', 'toString=1', '__proto__=1'].map(
+        param => [format, key, `${url}&${param}`] as const,
+      ),
+    ),
+    ['plain', 'state', '/?state=count=5,constructor=1'],
+    ['marked', false, '/?count=:5&__proto__=.polluted=yes'],
+    ['marked', false, '/?count=:5&%5F%5Fproto%5F%5F=.polluted=yes'],
+    ['json', false, '/?count=5&__proto__=%7B%22polluted%22:%22yes%22%7D'],
+  ] as const)('%s, key %s: %s', (format, key, url) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), {
+        url,
+        key,
+        format: formats[format],
+      }),
+    );
+    const state = store.getState() as { count: number; polluted?: string };
+    expect(state.count).toBe(5);
+    expect(state.polluted).toBeUndefined();
+  });
+
+  it.each([
+    [{ key: false }, '/?count=5&__proto__=x'],
+    [{ key: false, prefix: 'p_' }, '/?p_count=5&p___proto__=x'],
+    [{ key: 'state' }, '/?state=count=5,__proto__=x'],
+  ] as const)('plain, %o: %s keeps __proto__ as data', (options, url) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), { ...options, url, format: plain }),
+    );
+    // A trailing __ is plain's escaped _
+    expect(store.getState()).toEqual({ count: 5, __proto_: 'x' });
   });
 });

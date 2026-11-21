@@ -12,3 +12,17 @@ export function setOwn(obj: object, key: string, value: unknown): void {
     configurable: true,
   });
 }
+
+/** Appends a value to the array at an own key, creating the array first. */
+export function pushOwn(
+  obj: Record<string, string[]>,
+  key: string,
+  value: string,
+): void {
+  const values = getOwn(obj, key);
+  if (values) {
+    values.push(value);
+  } else {
+    setOwn(obj, key, [value]);
+  }
+}

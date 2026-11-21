@@ -22,6 +22,7 @@ import type {
   QueryStringParams,
   ParseContext,
 } from '../middleware.js';
+import { setOwn } from '../own.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -518,13 +519,7 @@ function createParser(opts: ResolvedOptions) {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
-        // Defined, not assigned: assigning a __proto__ key would set the prototype
-        Object.defineProperty(result, key, {
-          value: parseValue(),
-          enumerable: true,
-          writable: true,
-          configurable: true,
-        });
+        setOwn(result, key, parseValue());
         if (
           pos < source.length &&
           !startsWith(tokens.terminator) &&
@@ -684,7 +679,11 @@ export function createFormat(
       const result: Record<string, unknown> = {};
       for (const [key, values] of Object.entries(params)) {
         if (values.length > 0) {
-          result[decodeURIComponent(key)] = parse(values[0], true, options);
+          setOwn(
+            result,
+            decodeURIComponent(key),
+            parse(values[0], true, options),
+          );
         }
       }
       return result;
