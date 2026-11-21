@@ -912,6 +912,27 @@ describe('Edge Cases and Regression Tests', () => {
         `?closed&state=${marked.stringify({ sort: 'date' })}`,
       );
     });
+
+    it('should ignore a parameter without a value on read, and keep it on write', () => {
+      window.history.replaceState({}, '', '/?closed&count=:5');
+      const useStore = createNavStore();
+      expect(useStore.getState()).not.toHaveProperty('closed');
+
+      useStore.setState({ count: 6 });
+
+      expect(window.location.search).toBe('?closed&count=:6');
+    });
+  });
+
+  describe('parameters of other code', () => {
+    it('should keep the place of a parameter the store rewrites', () => {
+      window.history.replaceState({}, '', '/?a=1&count=:5&b=2');
+      const useStore = createNavStore();
+
+      useStore.setState({ count: 6 });
+
+      expect(window.location.search).toBe('?a=1&count=:6&b=2');
+    });
   });
 
   describe('React Strict Mode', () => {
@@ -2428,6 +2449,22 @@ describe('href', () => {
         expect(createNavStore(options).getState().status).toBe(status);
       }
     }
+  });
+
+  it('encodes the # a custom format leaves in a value, like the store writes it', async () => {
+    // Escapes only the & that would end the param.
+    const format = {
+      stringify: (state: object) => JSON.stringify(state).replace(/&/g, '%26'),
+      parse: (value: string) => JSON.parse(decodeURIComponent(value)),
+    };
+    const useStore = createNavStore({ key: 'state', format });
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/b', { status: 'R&D #1' }));
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().status).toBe('R&D #1');
   });
 
   it('works in standalone and namespaced mode, with a prefix', () => {
