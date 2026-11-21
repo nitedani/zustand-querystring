@@ -482,6 +482,21 @@ describe('url option', () => {
     expect(create(true).getState()).toStrictEqual({ tag: undefined });
   });
 
+  it('a URL key never replaces an action, nor an object holding one', () => {
+    const store = createStore<{
+      search: () => number;
+      menu: { nested: { toggle: () => number } };
+    }>()(
+      querystring(
+        () => ({ search: () => 1, menu: { nested: { toggle: () => 2 } } }),
+        { url: '/results?search=acme&menu=.' },
+      ),
+    );
+
+    expect(store.getState().search()).toBe(1);
+    expect(store.getState().menu.nested.toggle()).toBe(2);
+  });
+
   it('a URL key merges into a class instance, keeping its private fields', () => {
     class Filter {
       #scope = 'all';

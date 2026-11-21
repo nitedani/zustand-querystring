@@ -347,8 +347,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       const current = merged[key];
+      // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
-        navigation &&
         Object.prototype.hasOwnProperty.call(merged, key) &&
         holdsFunction(current) &&
         (typeof current === 'function' ||
@@ -498,7 +498,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      // A navigation never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       // An instance, like one map.from returns, is changed unless it is the same one: isEqual may not see its fields.
