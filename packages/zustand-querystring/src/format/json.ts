@@ -35,7 +35,9 @@ export const json: QueryStringFormat = {
     for (const [key, values] of Object.entries(params)) {
       try {
         // Always use first value (json format doesn't use repeated keys)
-        result[key] = decodeValue(values[0]);
+        // JSON has no undefined; it is written as the text undefined.
+        result[key] =
+          values[0] === 'undefined' ? undefined : decodeValue(values[0]);
       } catch {
         // skip invalid values
       }

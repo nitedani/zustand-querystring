@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStore } from 'zustand/vanilla';
+import { json } from './format/json';
 import { compact, querystring, type ParseContext } from './middleware';
 
 describe('compact', () => {
@@ -557,6 +558,21 @@ describe('href', () => {
     expect(decodeURIComponent(store.href('/b', { filter: undefined }))).toBe(
       '/b?filter=:undefined',
     );
+  });
+
+  it('writes a passed undefined with the json format, which a store reads back', () => {
+    const create = (url: string) =>
+      createStore<{ tag?: string }>()(
+        querystring(() => ({ tag: 'active' }), {
+          url,
+          format: json,
+          syncUndefined: true,
+        }),
+      );
+
+    const href = create('/a').href('/b', { tag: undefined });
+    expect(href).toBe('/b?tag=undefined');
+    expect(create(href).getState()).toStrictEqual({ tag: undefined });
   });
 
   it('with map, forces the mapped keys only when select keeps a passed key', () => {
