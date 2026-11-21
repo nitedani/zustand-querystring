@@ -168,7 +168,7 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
-3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, a key the state lacks is set only with `key`, `prefix` or `select`, and other params, like `utm_source`, stay in the URL.
+3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL. To set a new top-level field, use a namespace (`key`), a `prefix`, or a `select` that includes it.
 
 A navigation is read while something subscribes to the store, like a component that uses it. Back and Forward read the entry's URL the same way, so a key that URL leaves out keeps its current value.
 
