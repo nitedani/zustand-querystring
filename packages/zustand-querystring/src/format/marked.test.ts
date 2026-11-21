@@ -489,6 +489,18 @@ describe('marked format', () => {
       expect(parsed.nan).toBe(NaN);
     });
 
+    it('should skip an object entry whose number is unreadable', () => {
+      expect(parse('count:5abc,q=x')).toEqual({ q: 'x' });
+      expect(parse('count:5,f.a:90%,b=x~,q=x')).toEqual({
+        count: 5,
+        f: { b: 'x' },
+        q: 'x',
+      });
+      expect(parse('.page:90%,status=open', true)).toEqual({ status: 'open' });
+      expect(() => parse('count:5,q')).toThrow();
+      expect(() => parse('count:5,f@:1,:2x~,q=x')).toThrow();
+    });
+
     testBothModes('should preserve null values in objects', standalone => {
       const obj = {
         name: 'John',
@@ -1438,8 +1450,9 @@ describe('marked format', () => {
       const state = { a: 1, b: 2 };
       const encoded1 = format1.stringify(state);
 
-      // Parsing with different config reads 1,b:2 as one number and fails
-      expect(() => format2.parse(encoded1)).toThrow();
+      // Parsing with different config should not produce same result
+      const parsed2 = format2.parse(encoded1);
+      expect(parsed2).not.toEqual(state);
     });
 
     it('should preserve original default tokens in values when using custom config', () => {

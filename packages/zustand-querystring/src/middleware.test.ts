@@ -568,4 +568,15 @@ describe("server store (url option): a parameter the format can't read", () => {
     );
     expect(store.getState()).toEqual({ count: 5, q });
   });
+
+  it('marked: /?state=count:5abc,q=x still reads q', () => {
+    const store = createStore(
+      querystring(() => ({ count: 0, q: '' }), {
+        url: '/?state=count:5abc,q=x',
+        key: 'state',
+        format: marked,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 0, q: 'x' });
+  });
 });

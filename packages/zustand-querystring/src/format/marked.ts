@@ -526,13 +526,19 @@ function createParser(opts: ResolvedOptions) {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
-        // Defined, not assigned: assigning a __proto__ key would set the prototype
-        Object.defineProperty(result, key, {
-          value: parseValue(),
-          enumerable: true,
-          writable: true,
-          configurable: true,
-        });
+        const isPrimitive = startsWith(tokens.typePrimitive);
+        try {
+          // Defined, not assigned: assigning a __proto__ key would set the prototype
+          Object.defineProperty(result, key, {
+            value: parseValue(),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
+        } catch (error) {
+          // An unreadable number (count:5abc) skips only its own entry
+          if (!isPrimitive) throw error;
+        }
         if (
           pos < source.length &&
           !startsWith(tokens.terminator) &&
