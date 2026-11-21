@@ -9,7 +9,7 @@ export interface QueryStringFormatNamespaced {
   parse: (value: string, ctx?: ParseContext) => object;
 }
 
-/** Context passed to parse methods for type inference and future extensibility */
+/** Context passed to parse methods for type inference */
 export interface ParseContext {
   /** Initial state for type inference */
   initialState: object;
