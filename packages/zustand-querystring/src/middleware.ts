@@ -198,7 +198,12 @@ const mergeUrlState = (
 ) => {
   const merged = { ...state };
   for (const [key, value] of Object.entries(urlState)) {
-    if (keepFunctions && typeof merged[key] === 'function') continue;
+    if (
+      keepFunctions &&
+      Object.prototype.hasOwnProperty.call(merged, key) &&
+      typeof merged[key] === 'function'
+    )
+      continue;
     merged[key] =
       isPlainObject(value) && isPlainObject(merged[key])
         ? mergeUrlState(merged[key], value, keepFunctions)

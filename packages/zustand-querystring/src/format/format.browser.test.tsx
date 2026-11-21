@@ -1760,6 +1760,23 @@ describe('map option', () => {
     expect(window.location.search).toBe(prevSearch);
   });
 
+  it('a link sets the entry of an id that names an Object method', async () => {
+    window.history.replaceState({}, '', '/view/page-1');
+    const useStore = createMappedStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    const href = useStore.href('/view/toString', {
+      itemsById: { toString: { tags: ['a'] } },
+    });
+
+    window.history.pushState({}, '', href);
+    await new Promise(r => setTimeout(r, 200));
+    unsubscribe();
+
+    expect(useStore.getState().itemsById.toString).toEqual({ tags: ['a'] });
+    expect(href).toBe('/view/toString?state=tags@a');
+    expect(window.location.search).toBe('?state=tags@a');
+  });
+
   it('should handle multiple pages independently', async () => {
     window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();
