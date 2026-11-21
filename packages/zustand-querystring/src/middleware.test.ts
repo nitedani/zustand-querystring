@@ -498,7 +498,7 @@ describe('server store (url option): a key naming an Object member keeps the res
         param => [format, key, `${url}&${param}`] as const,
       ),
     ),
-    ['plain', 'state', '/?state=count=5,constructor=1'],
+    ['plain', 'state', '/?state=constructor=1,count=5,toString=1'],
     ['marked', false, '/?count=:5&__proto__=.polluted=yes'],
     ['marked', false, '/?count=:5&%5F%5Fproto%5F%5F=.polluted=yes'],
     ['json', false, '/?count=5&__proto__=%7B%22polluted%22:%22yes%22%7D'],
