@@ -482,6 +482,23 @@ describe('server store (url option): keys naming prototype members', () => {
   });
 });
 
+describe('server store (url option): a plain array index', () => {
+  it.each([
+    ['/?count=5&tags.4294967294=z', ['a']],
+    ['/?count=5&tags.30000000=z', ['a']],
+    ['/?count=5&tags.1=b&tags.0=a', ['a', 'b']],
+  ])('%s', (url, tags) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, tags: ['a'] }), {
+        url,
+        key: false,
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toEqual({ count: 5, tags });
+  });
+});
+
 describe('server store (url option): a key naming an Object member keeps the rest of the URL', () => {
   const formats = { marked, plain, json };
   const urls = [

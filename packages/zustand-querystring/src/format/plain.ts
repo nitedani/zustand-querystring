@@ -429,6 +429,9 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
+/** A path with a larger index is dropped: a sparse array that long hangs the page. */
+const MAX_INDEX = 10000;
+
 /**
  * Set a value at a path in an object, creating intermediate structures.
  */
@@ -437,6 +440,8 @@ function setAtPath(
   path: string[],
   value: unknown,
 ): void {
+  if (path.some(key => /^\d+$/.test(key) && Number(key) > MAX_INDEX)) return;
+
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
