@@ -513,6 +513,27 @@ describe("server store (url option): a parameter the format can't read", () => {
   });
 
   it.each([
+    ['/?s_count=5&s_filters.0=red&s_filters.all=blue', false],
+    ['/?s_state=count=5,filters.0=red,filters.all=blue', 'state'],
+  ] as const)(
+    'plain: %s keeps numeric keys under an object default',
+    (url, key) => {
+      const store = createStore(
+        querystring(() => ({ count: 0, filters: {} }), {
+          url,
+          key,
+          prefix: 's_',
+          format: plain,
+        }),
+      );
+      expect(store.getState()).toStrictEqual({
+        count: 5,
+        filters: { 0: 'red', all: 'blue' },
+      });
+    },
+  );
+
+  it.each([
     ['/?count=:5&filters=.status', { filters: { status: 'all' } }],
     ['/?count=:5&page=.png', { page: 1 }],
     ['/?count=:5&on=.png', { on: true }],

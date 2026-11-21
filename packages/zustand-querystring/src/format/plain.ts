@@ -428,6 +428,7 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
+  initialState: object,
 ): void {
   let current = obj;
 
@@ -437,7 +438,13 @@ function setAtPath(
     const nextIsIndex = /^\d+$/.test(nextKey);
 
     if (!(key in current)) {
-      current[key] = nextIsIndex ? [] : {};
+      // The default's kind wins: filters.0 under filters: {} is a key
+      const hint = getHintAtPath(initialState, path.slice(0, i + 1));
+      const isArray =
+        typeof hint === 'object' && hint !== null
+          ? Array.isArray(hint)
+          : nextIsIndex;
+      current[key] = isArray ? [] : {};
       containers.add(current[key] as object);
     }
     // A value already at a shorter path (a=1 beside a.b=2) wins
@@ -451,7 +458,7 @@ function setAtPath(
 
   const lastKey = path[path.length - 1];
 
-  if (/^\d+$/.test(lastKey)) {
+  if (Array.isArray(current)) {
     (current as unknown as unknown[])[parseInt(lastKey, 10)] = value;
   } else {
     current[lastKey] = value;
@@ -617,13 +624,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, []);
+      setAtPath(result, path, [], initialState);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts));
+      setAtPath(result, path, parseValue(values[0], hint, opts), initialState);
       continue;
     }
 
@@ -633,6 +640,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
+      initialState,
     );
   }
 
