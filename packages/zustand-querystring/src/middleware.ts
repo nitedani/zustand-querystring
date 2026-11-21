@@ -415,15 +415,20 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // A navigation owes a URL write; a timer pays it 100ms later while the store has a subscriber.
     let writeOwed = false;
     let writeTimer: ReturnType<typeof setTimeout> | undefined;
+    // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
+    let subscribers = 0;
     const armWrite = () => {
       clearTimeout(writeTimer);
-      writeTimer = setTimeout(setQuery, 100);
+      writeTimer = setTimeout(() => {
+        readUrl();
+        if (subscribers > 0) setQuery();
+      }, 100);
     };
     const readUrl = () => {
       if (location.pathname + location.search === lastUrl) return;
       lastUrl = location.pathname + location.search;
       writeOwed = true;
-      armWrite();
+      if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
       // Only changed keys, so the others keep their references; a key the state lacks is new with select, and ignored without it.
@@ -436,10 +441,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
 
     const setQuery = () => {
-      // Cleared first, so a write that throws isn't owed again.
+      readUrl();
+      // Paid before the write, so a write that throws isn't owed again.
       writeOwed = false;
       clearTimeout(writeTimer);
-      readUrl();
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
       // When map is used, transform to URL shape before compacting
@@ -535,8 +540,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         frame = requestAnimationFrame(cb);
         readUrl();
       };
-      // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
-      let subscribers = 0;
       const originalSubscribe = api.subscribe;
       api.subscribe = (...args) => {
         if (subscribers++ === 0) {

@@ -2010,6 +2010,73 @@ describe('navigation', () => {
     expect(url()).toBe('/b');
   });
 
+  it("a store a callback unsubscribes and routes away from doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 5) return;
+      unsubscribe();
+      window.history.pushState({}, '', '/b');
+    });
+    await settle();
+
+    replaced.getState().setCount(5);
+    const useStore = createNavStore();
+    const unsubscribeNext = useStore.subscribe(() => {});
+    useStore.setState({ count: 0 });
+    await settle();
+    unsubscribeNext();
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
+  });
+
+  it("a store without a subscriber doesn't write the navigation a failed update read", async () => {
+    const useStore = createNavStore();
+    useStore.setState({ other: 5 });
+
+    window.history.pushState({}, '', '/b?count=:2');
+    expect(() =>
+      useStore.setState(() => {
+        throw new Error('failed');
+      }),
+    ).toThrow('failed');
+    await settle();
+
+    expect(url()).toBe('/b?count=:2');
+  });
+
+  it("a store unsubscribed by the navigation its timer reads doesn't write", async () => {
+    const replaced = createNavStore();
+    let useStore = replaced;
+    let unsubscribeNext = () => {};
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 4) return;
+      unsubscribe();
+      useStore = createNavStore();
+      unsubscribeNext = useStore.subscribe(() => {});
+      useStore.setState({ count: 0 });
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    // The store reads /b in this frame and would write 100ms later.
+    await new Promise(requestAnimationFrame);
+    const { requestAnimationFrame: raf } = window;
+    window.requestAnimationFrame = () => 0;
+    try {
+      // The store's last frame runs, so its timer reads /c.
+      await new Promise(raf);
+      window.history.pushState({}, '', '/c?count=:4');
+      await settle();
+    } finally {
+      window.requestAnimationFrame = raf;
+      unsubscribeNext();
+    }
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/c');
+  });
+
   it("a nested key the URL carries keeps the object's other keys", async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
