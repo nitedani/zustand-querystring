@@ -105,7 +105,6 @@ export const compact = (
   forced: string[] = [],
 ) => {
   const output = {};
-  const removed: string[] = [];
 
   Object.keys(newState).forEach(key => {
     const newValue = newState[key];
@@ -145,12 +144,10 @@ export const compact = (
       } else {
         output[key] = newValue;
       }
-    } else {
-      removed.push(key);
     }
   });
 
-  return { output, removed };
+  return { output };
 };
 
 const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
