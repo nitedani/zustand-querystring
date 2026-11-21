@@ -2,7 +2,7 @@ import type {
   ParseContext,
   QueryStringFormat,
   QueryStringParams,
-} from '../middleware.js';
+} from './types.js';
 
 function encodeValue(input: unknown): string {
   // encodeURI leaves &, # and + as they are, which would split or end the query.

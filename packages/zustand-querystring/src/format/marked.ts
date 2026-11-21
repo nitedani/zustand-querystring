@@ -21,7 +21,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
   ParseContext,
-} from '../middleware.js';
+} from './types.js';
 
 // =============================================================================
 // CONFIGURATION
