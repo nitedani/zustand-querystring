@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
+import { json } from './json.js';
 import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
 
@@ -909,6 +910,52 @@ describe('Edge Cases and Regression Tests', () => {
         `?closed&state=${marked.stringify({ sort: 'date' })}`,
       );
     });
+  });
+
+  describe("a parameter the format can't read", () => {
+    it.each([
+      ['marked', '?count=:5&utm_content=50%off', marked],
+      ['marked', '?count=:5&next=./sale/50%off', marked],
+      ['marked', '?count=:5&ext=.png', marked],
+    ] as const)('%s: %s still restores count', (_, search, format) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format }),
+      );
+      expect(useStore.getState().count).toBe(5);
+    });
+
+    it('plain: ?count=5&a=1&a.b=2 keeps a=1', () => {
+      window.history.replaceState({}, '', '?count=5&a=1&a.b=2');
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format: plain }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, a: 1 });
+    });
+
+    it.each([
+      ['json', '?count=5&q=%22100%%22', false],
+      ['json', '?state=%7B%22count%22:5,%22q%22:%22100%%22%7D', 'state'],
+    ] as const)('%s: %s decodes the valid escapes', (_, search, key) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number; q: string }>()(
+        querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, q: '100%' });
+    });
+
+    it.each([false, 'state'] as const)(
+      'json (key: %s): a & in a value survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; q: string }>()(
+            querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+          );
+        createUseStore().setState({ count: 5, q: 'a&b' });
+        expect(createUseStore().getState()).toEqual({ count: 5, q: 'a&b' });
+      },
+    );
   });
 
   describe('string with comma (regression test)', () => {

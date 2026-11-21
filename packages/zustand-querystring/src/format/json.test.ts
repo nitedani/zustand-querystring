@@ -138,4 +138,14 @@ describe('json format', () => {
       expect(result).toEqual({ valid: 'hello' });
     });
   });
+
+  it('should keep &, # and + escaped in the written value', () => {
+    const obj = { q: 'C# & C++' };
+    const namespaced = json.stringify(obj);
+    const standalone = json.stringifyStandalone(obj);
+    expect(namespaced).not.toMatch(/[&#+]/);
+    expect(standalone.q[0]).not.toMatch(/[&#+]/);
+    expect(json.parse(namespaced, { initialState: {} })).toEqual(obj);
+    expect(json.parseStandalone(standalone, { initialState: {} })).toEqual(obj);
+  });
 });
