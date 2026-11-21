@@ -5,11 +5,12 @@ import type {
 } from '../middleware.js';
 
 function encodeValue(input: unknown): string {
-  return encodeURI(JSON.stringify(input));
+  // encodeURI leaves &, # and + as they are, which would split or end the query.
+  return encodeURI(JSON.stringify(input)).replace(/[&#+]/g, encodeURIComponent);
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURI(str));
+  return JSON.parse(decodeURIComponent(str));
 }
 
 export const json: QueryStringFormat = {

@@ -2420,16 +2420,22 @@ describe('href', () => {
     );
   });
 
-  it('encodes the query like the store writes it, so a # stays in it', () => {
-    const standalone = createNavStore({ format: json });
-    expect(standalone.href('/b', { search: 'C#' })).toBe(
-      '/b?search=%22C%23%22',
-    );
+  it('keeps a # and a & in a json value, through a link, a write and a reload', async () => {
+    for (const options of [{ format: json }, { key: 'state', format: json }]) {
+      for (const status of ['C#', 'R&D']) {
+        window.history.replaceState({}, '', '/');
+        const linked = createNavStore(options);
+        const unsubscribe = linked.subscribe(() => {});
+        window.history.pushState({}, '', linked.href('/b', { status }));
+        await settle();
+        unsubscribe();
+        expect(linked.getState().status).toBe(status);
 
-    const namespaced = createNavStore({ key: 'state', format: json });
-    expect(namespaced.href('/b', { search: 'C#' })).toBe(
-      '/b?state=%7B%22search%22:%22C%23%22%7D',
-    );
+        window.history.replaceState({}, '', '/');
+        createNavStore(options).setState({ status });
+        expect(createNavStore(options).getState().status).toBe(status);
+      }
+    }
   });
 
   it('works in standalone and namespaced mode, with a prefix', () => {
