@@ -451,6 +451,20 @@ describe('compact', () => {
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
   });
+
+  it('keeps a forced key at its initial value', () => {
+    const initialState = { a: 1, b: 1 };
+    const newState = { a: 1, b: 2 };
+    const result = compact(newState, initialState, false, false, ['a']);
+    expect(result.output).toEqual({ a: 1, b: 2 });
+  });
+
+  it('compares nothing inside a forced key, and applies the flags there', () => {
+    const initialState = { inner: { v: 'x', w: 'x', n: 'x' } };
+    const newState = { inner: { v: 'x', w: undefined, n: null } };
+    const result = compact(newState, initialState, false, true, ['inner']);
+    expect(result.output).toStrictEqual({ inner: { v: 'x', w: undefined } });
+  });
 });
 
 describe('href', () => {
@@ -461,6 +475,26 @@ describe('href', () => {
 
     expect(decodeURIComponent(store.href('/b', { other: 0 }))).toBe(
       '/b?count=:5&other=:0',
+    );
+  });
+
+  it('writes a passed undefined, with syncUndefined', () => {
+    const store = createStore<{ filter?: string }>()(
+      querystring(() => ({}), { url: '/a?filter=active', syncUndefined: true }),
+    );
+
+    expect(decodeURIComponent(store.href('/b', { filter: undefined }))).toBe(
+      '/b?filter=:undefined',
+    );
+  });
+
+  it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
+    const store = createStore<{ inner: { v: string | null; w?: string } }>()(
+      querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
+    );
+
+    expect(store.href('/b', { inner: { v: null, w: undefined } })).toBe(
+      '/b?inner=.',
     );
   });
 });

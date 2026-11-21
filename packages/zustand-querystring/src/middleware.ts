@@ -118,6 +118,8 @@ export const compact = (
   initialState,
   syncNull = false,
   syncUndefined = false,
+  // Keys kept even at their initial value; nothing inside them is compared.
+  forced: string[] = [],
 ) => {
   const output = {};
   const removed: string[] = [];
@@ -125,10 +127,11 @@ export const compact = (
   Object.keys(newState).forEach(key => {
     const newValue = newState[key];
     const initialValue = initialState[key];
+    const isForced = forced.includes(key);
 
     if (
       typeof newValue !== 'function' &&
-      !isEqual(newValue, initialValue) &&
+      (isForced || !isEqual(newValue, initialValue)) &&
       (syncNull || newValue !== null) &&
       (syncUndefined || newValue !== undefined)
     ) {
@@ -139,7 +142,19 @@ export const compact = (
         !Array.isArray(newValue) &&
         newValue.constructor === Object;
 
-      if (isPlainObject && initialValue && typeof initialValue === 'object') {
+      if (isPlainObject && isForced) {
+        output[key] = compact(
+          newValue,
+          {},
+          syncNull,
+          syncUndefined,
+          Object.keys(newValue),
+        ).output;
+      } else if (
+        isPlainObject &&
+        initialValue &&
+        typeof initialValue === 'object'
+      ) {
         const result = compact(newValue, initialValue, syncNull, syncUndefined);
         if (result.output && Object.keys(result.output).length > 0) {
           output[key] = result.output;
@@ -345,32 +360,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       getSelectedState({ ...get(), ...partial }, pathname),
       pathname,
     );
+    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
+    const forced = Object.keys(
+      map && !isEmpty(partial)
+        ? stateForUrl
+        : getSelectedState(partial, pathname),
+    );
     const { output } = compact(
       stateForUrl,
       getMappedInitial(pathname),
       defaultedOptions.syncNull,
       defaultedOptions.syncUndefined,
-    );
-    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
-    const { output: passed } = compact(
-      map && !isEmpty(partial)
-        ? stateForUrl
-        : getSelectedState(partial, pathname),
-      {},
-      defaultedOptions.syncNull,
-      defaultedOptions.syncUndefined,
+      forced,
     );
     const pairs: string[] = [];
-    for (const [key, values] of Object.entries(
-      toParams(
-        mergeWith({}, output, passed, (_objValue, srcValue) => {
-          if (Array.isArray(srcValue)) {
-            return srcValue;
-          }
-          return undefined;
-        }),
-      ),
-    )) {
+    for (const [key, values] of Object.entries(toParams(output))) {
       values.forEach(value => pairs.push(`${key}=${value}`));
     }
     return pathname + (pairs.length ? '?' + pairs.join('&') : '');
