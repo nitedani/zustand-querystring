@@ -458,18 +458,44 @@ describe('compact', () => {
 
 describe("server store (url option): a parameter the format can't read", () => {
   it.each([
-    ['marked', '/?count=:5&utm_content=50%off', marked],
-    ['plain', '/?count=5&utm_content=50%off', plain],
-    ['json', '/?count=5&utm_content=50%off', json],
-    ['marked', '/?count=:5&50%off=1', marked],
-    ['marked', '/?count=:5&next=./sale/50%off', marked],
-    ['marked', '/?count=:5&ext=.png', marked],
-  ] as const)('%s: %s still restores count', (_, url, format) => {
-    const store = createStore(
-      querystring(() => ({ count: 0 }), { url, key: false, format }),
-    );
-    expect(store.getState().count).toBe(5);
-  });
+    [
+      'marked',
+      '/?count=:5&utm_content=50%off',
+      {},
+      { utm_content: '50%off' },
+      marked,
+    ],
+    [
+      'plain',
+      '/?count=5&utm_content=50%off',
+      {},
+      { utm_content: '50%off' },
+      plain,
+    ],
+    ['json', '/?count=5&utm_content=50%off', {}, {}, json],
+    ['marked', '/?count=:5&50%off=1', {}, { '50%off': '1' }, marked],
+    [
+      'marked',
+      '/?count=:5&next=./sale/50%off',
+      {},
+      { next: './sale/50%off' },
+      marked,
+    ],
+    ['marked', '/?count=:5&ext=.png', {}, { ext: '.png' }, marked],
+    ['marked', '/?count=:5&ext=.png', { ext: null }, { ext: '.png' }, marked],
+  ] as const)(
+    '%s: %s still restores count (initial %o)',
+    (_, url, initial, expected, format) => {
+      const store = createStore(
+        querystring(() => ({ count: 0, ...initial }), {
+          url,
+          key: false,
+          format,
+        }),
+      );
+      expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+    },
+  );
 
   it.each([
     ['/?count=5&a=1&a.b=2', 1],
