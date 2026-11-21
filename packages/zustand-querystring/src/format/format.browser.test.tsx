@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
+import { json } from './json.js';
 import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
 
@@ -924,6 +925,17 @@ describe('Edge Cases and Regression Tests', () => {
         querystring(() => ({ count: 0 }), { key: false, format }),
       );
       expect(useStore.getState().count).toBe(5);
+    });
+
+    it.each([
+      ['json', '?count=5&q=%22100%%22', false],
+      ['json', '?state=%7B%22count%22:5,%22q%22:%22100%%22%7D', 'state'],
+    ] as const)('%s: %s decodes the valid escapes', (_, search, key) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number; q: string }>()(
+        querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, q: '100%' });
     });
   });
 

@@ -477,6 +477,14 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['plain', '/?count=5&q=50%%20off', false, '50% off', plain],
     ['marked', '/?count=:5&q=caf%C3%A9%20100%', false, 'café 100%', marked],
     ['marked', '/?count=:5&q=./sale/50%off', false, './sale/50%off', marked],
+    ['json', '/?count=5&q=%22100%%22', false, '100%', json],
+    [
+      'json',
+      '/?state=%7B%22count%22:5,%22q%22:%22100%%22%7D',
+      'state',
+      '100%',
+      json,
+    ],
     [
       'marked',
       '/?state=count:5,q=John%20Doe%20100%',

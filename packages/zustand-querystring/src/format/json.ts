@@ -3,13 +3,14 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { decodeComponent } from './decode.js';
 
 function encodeValue(input: unknown): string {
   return encodeURI(JSON.stringify(input));
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURI(str));
+  return JSON.parse(decodeComponent(str));
 }
 
 export const json: QueryStringFormat = {
