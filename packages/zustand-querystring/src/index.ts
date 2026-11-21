@@ -7,6 +7,7 @@ export {
   QueryStringFormatNamespaced,
   QueryStringFormatStandalone,
   QueryStringFormatFor,
+  QueryStringParam,
   QueryStringParams,
   ParseContext,
 } from './middleware.js';

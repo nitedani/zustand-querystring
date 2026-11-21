@@ -26,6 +26,7 @@ export type {
   QueryStringFormatFor,
   QueryStringFormatNamespaced,
   QueryStringFormatStandalone,
+  QueryStringParam,
   QueryStringParams,
 } from './format/types.js';
 

@@ -1,3 +1,8 @@
+export interface QueryStringParam {
+  key: string;
+  value: string | string[];
+}
+
 /** Record of key to array of values - always arrays for consistency */
 export type QueryStringParams = Record<string, string[]>;
 
