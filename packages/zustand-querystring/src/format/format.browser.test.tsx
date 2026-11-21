@@ -2200,6 +2200,28 @@ describe('navigation', () => {
     expect(typeof useStore.getState().filters.clear).toBe('function');
   });
 
+  it('keeps an object holding an action, and merges into it', async () => {
+    const useStore = create<{
+      menu: { value: string; toggle: () => string };
+    }>()(
+      querystring(() => ({
+        menu: { value: 'closed', toggle: () => 'toggled' },
+      })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/results?menu=expanded');
+    await settle();
+    expect(useStore.getState().menu.value).toBe('closed');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+
+    window.history.pushState({}, '', '/results?menu=.value=open');
+    await settle();
+    unsubscribe();
+    expect(useStore.getState().menu.value).toBe('open');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+  });
+
   it('leaves a class instance as it is', async () => {
     class Panel {
       #title = 'Panel';

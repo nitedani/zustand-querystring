@@ -306,13 +306,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const merged = isPlainObject(state) ? { ...state } : state;
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
+      const current = merged[key];
       if (
         navigation &&
         Object.prototype.hasOwnProperty.call(merged, key) &&
-        typeof merged[key] === 'function'
+        (typeof current === 'function' ||
+          (!isPlainObject(value) &&
+            isPlainObject(current) &&
+            Object.values(current).some(v => typeof v === 'function')))
       )
         continue;
-      const current = merged[key];
       if (
         isPlainObject(value) &&
         isObjectLike(current) &&
@@ -459,7 +462,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      // A navigation never replaces a function, like an action.
+      // A navigation never replaces a function, like an action, nor an object holding one with a value that isn't a plain object.
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>
