@@ -307,6 +307,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.to(state, pathname) : state;
   };
 
+  // The selected state in URL shape for a pathname.
+  const urlStateOf = (state, pathname: string): object =>
+    applyMapTo(getSelectedState(state, pathname), pathname);
+
   /** Apply map.from if configured, otherwise pass through */
   const applyMapFrom = (urlState: object, pathname: string): object => {
     return map ? map.from(urlState, pathname) : urlState;
@@ -353,7 +357,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   // The initial state in URL shape: the parse hints and the diff baseline.
   const urlDefaults = (pathname: string): object => {
     if (defaultedOptions.map) {
-      return applyMapTo(getSelectedState(initialState, pathname), pathname);
+      return urlStateOf(initialState, pathname);
     }
     return initialState as object;
   };
@@ -405,10 +409,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    const stateForUrl = applyMapTo(
-      getSelectedState({ ...get(), ...partial }, pathname),
-      pathname,
-    );
+    const stateForUrl = urlStateOf({ ...get(), ...partial }, pathname);
     // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
     const passed = getSelectedState(partial, pathname);
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
@@ -493,9 +494,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = false;
       clearTimeout(writeTimer);
       const url = new URL(window.location.href);
-      const selectedState = getSelectedState(get(), url.pathname);
-      // When map is used, transform to URL shape before compacting
-      const stateForUrl = applyMapTo(selectedState, url.pathname);
+      const stateForUrl = urlStateOf(get(), url.pathname);
       const { output: newCompacted } = compact(
         stateForUrl,
         urlDefaults(url.pathname),
@@ -557,10 +556,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     previouslyManagedKeys = ownedKeys(
-      applyMapTo(
-        getSelectedState(initialized, location.pathname),
-        location.pathname,
-      ),
+      urlStateOf(initialized, location.pathname),
     );
     api.getInitialState = () => initialized;
     return initialized;
