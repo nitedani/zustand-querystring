@@ -464,12 +464,22 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['marked', '/?count=:5&50%off=1', marked],
     ['marked', '/?count=:5&next=./sale/50%off', marked],
     ['marked', '/?count=:5&ext=.png', marked],
-    ['plain', '/?count=5&a=1&a.b=2', plain],
   ] as const)('%s: %s still restores count', (_, url, format) => {
     const store = createStore(
       querystring(() => ({ count: 0 }), { url, key: false, format }),
     );
     expect(store.getState().count).toBe(5);
+  });
+
+  it('plain: /?count=5&a=1&a.b=2 keeps a=1', () => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), {
+        url: '/?count=5&a=1&a.b=2',
+        key: false,
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toEqual({ count: 5, a: 1 });
   });
 
   it('marked: /?count=:5&filters=.status keeps the default filters', () => {
