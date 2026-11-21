@@ -429,7 +429,7 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
-/** Array slots one URL may build beyond its entry count: a sparse array that long hangs the page. */
+/** Array slots one URL may build beyond one per entry; each slot is written back to the URL. */
 const SPARE_ARRAY_SLOTS = 10000;
 
 /**
