@@ -525,6 +525,18 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState()).toStrictEqual({ count: 5, 'q %': q });
   });
 
+  it('plain: /?s_count=5&s_toString=card reads toString as a key', () => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), {
+        url: '/?s_count=5&s_toString=card',
+        key: false,
+        prefix: 's_',
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, toString: 'card' });
+  });
+
   it.each([
     ['/?s_count=5&s_a.comment=promo', ['keep']],
     ['/?s_count=5&s_a.0.tags.length=oops', [{ tags: ['keep'] }]],
