@@ -441,8 +441,7 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
-  initialState: object,
-  childKeys: Map<string, Set<string>>,
+  isArrayAt: (containerPath: string[]) => boolean,
 ): void {
   let current = obj;
   // The first container this path makes joins obj only once the value is set
@@ -455,13 +454,7 @@ function setAtPath(
     let next = current[key];
 
     if (!(key in current)) {
-      const containerPath = path.slice(0, i + 1);
-      next = isArrayContainer(
-        getHintAtPath(initialState, containerPath),
-        Array.from(childKeys.get(JSON.stringify(containerPath)) ?? []),
-      )
-        ? []
-        : {};
+      next = isArrayAt(path.slice(0, i + 1)) ? [] : {};
       containers.add(next as object);
       if (detached) current[key] = next;
       else detached = [current, key, next as object];
@@ -607,6 +600,11 @@ function unflatten(
       childKeys.set(parent, (childKeys.get(parent) ?? new Set()).add(path[i]));
     }
   }
+  const isArrayAt = (containerPath: string[]) =>
+    isArrayContainer(
+      getHintAtPath(initialState, containerPath),
+      Array.from(childKeys.get(JSON.stringify(containerPath)) ?? []),
+    );
 
   for (const key of keys) {
     let rawValues = entries[key];
@@ -654,19 +652,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], initialState, childKeys);
+      setAtPath(result, path, [], isArrayAt);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(
-        result,
-        path,
-        parseValue(values[0], hint, opts),
-        initialState,
-        childKeys,
-      );
+      setAtPath(result, path, parseValue(values[0], hint, opts), isArrayAt);
       continue;
     }
 
@@ -676,8 +668,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
-      initialState,
-      childKeys,
+      isArrayAt,
     );
   }
 
