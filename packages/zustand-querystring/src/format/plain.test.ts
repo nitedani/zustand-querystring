@@ -273,17 +273,37 @@ describe('plain format', () => {
     it('should keep an empty object apart from an entry with an empty or escape-char label', () => {
       for (const fmt of [plain, createFormat({ nestingSeparator: '::' })]) {
         const sep = fmt === plain ? '.' : '::';
-        for (const [state, namespaced] of [
-          [{ filters: {} }, `filters${sep}_=`],
-          [{ filters: { '': '' } }, `filters${sep}=`],
-          [{ filters: { _: '' } }, `filters${sep}__=`],
+        for (const [state, namespaced, standalone] of [
+          [{ filters: {} }, `filters${sep}_=`, { filters: ['_'] }],
+          [
+            { filters: { '': '' } },
+            `filters${sep}=`,
+            { [`filters${sep}`]: [''] },
+          ],
+          [
+            { filters: { _: '' } },
+            `filters${sep}__=`,
+            { [`filters${sep}__`]: [''] },
+          ],
+          [{ filters: '_' }, 'filters=__', { filters: ['__'] }],
+          [{ filters: '__' }, 'filters=____', { filters: ['____'] }],
+          [
+            { filters: {}, query: 'x', tags: {} },
+            `filters${sep}_=,query=x,tags${sep}_=`,
+            { filters: ['_'], query: ['x'], tags: ['_'] },
+          ],
         ] as const) {
           const value = fmt.stringify(state);
           expect(decodeURIComponent(value)).toBe(namespaced);
           const params = fmt.stringifyStandalone(state);
-          expect(Object.keys(params).map(decodeURIComponent)).toEqual([
-            namespaced.slice(0, -1),
-          ]);
+          expect(
+            Object.fromEntries(
+              Object.entries(params).map(([k, v]) => [
+                decodeURIComponent(k),
+                v.map(decodeURIComponent),
+              ]),
+            ),
+          ).toEqual(standalone);
           for (const initialState of [{}, { filters: {} }]) {
             expect(fmt.parse(value, { initialState })).toEqual(state);
             expect(fmt.parseStandalone(params, { initialState })).toEqual(
@@ -292,11 +312,14 @@ describe('plain format', () => {
           }
         }
       }
-      expect(
-        plain.parse(plain.stringify({ filters: {}, query: 'x' }), {
-          initialState: {},
-        }),
-      ).toEqual({ filters: {}, query: 'x' });
+    });
+
+    it('should read the standalone filters. spelling as an empty label, as before', () => {
+      for (const initialState of [{}, { filters: {} }]) {
+        expect(
+          plain.parseStandalone({ 'filters.': [''] }, { initialState }),
+        ).toEqual({ filters: { '': '' } });
+      }
     });
 
     it('should read an empty value under an object hint as on main', () => {
@@ -689,7 +712,7 @@ describe('plain format', () => {
     it('should handle standalone mode with empty objects', () => {
       const initialState = { filters: { region: 'EU' } };
       const serialized = plain.stringifyStandalone({ filters: {} });
-      expect(serialized).toEqual({ 'filters._': [''] });
+      expect(serialized).toEqual({ filters: ['_'] });
       const parsed = plain.parseStandalone(serialized, { initialState });
       expect(parsed).toEqual({ filters: {} });
     });

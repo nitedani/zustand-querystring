@@ -463,6 +463,15 @@ function setAtPath(
   }
 }
 
+function emptyObjectKey(key: string, opts: ResolvedOptions): string {
+  return key + opts.nestingSep + opts.escape;
+}
+
+function isEmptyObjectKey(key: string, opts: ResolvedOptions): boolean {
+  const segments = splitEscaped(key, opts.nestingSep, opts.escape);
+  return segments.length > 1 && segments[segments.length - 1] === opts.escape;
+}
+
 // =============================================================================
 // FLATTENING (object → flat entries)
 // =============================================================================
@@ -545,7 +554,7 @@ function flatten(
 
     // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
     if (isPlainObject(value) && Object.keys(value).length === 0) {
-      result[fullKey + opts.nestingSep + opts.escape] = [''];
+      result[emptyObjectKey(fullKey, opts)] = [''];
       continue;
     }
 
@@ -590,8 +599,7 @@ function unflatten(
 
     // Empty object: a path whose last escaped segment is a lone escape char, with an empty value → {}
     if (
-      path.length > 1 &&
-      splitEscaped(key, opts.nestingSep, opts.escape).pop() === opts.escape &&
+      isEmptyObjectKey(key, opts) &&
       rawValues.length === 1 &&
       rawValues[0] === ''
     ) {
@@ -755,7 +763,13 @@ function stringifyStandalone(
   const entries = flatten(state, '', opts);
   const result: QueryStringParams = {};
 
-  for (const [key, values] of Object.entries(entries)) {
+  for (const [flatKey, flatValues] of Object.entries(entries)) {
+    // An empty object stands alone as its key with a lone escape char, which no escaped value is.
+    const emptyObject = isEmptyObjectKey(flatKey, opts);
+    const key = emptyObject
+      ? flatKey.slice(0, -emptyObjectKey('', opts).length)
+      : flatKey;
+    const values = emptyObject ? [opts.escape] : flatValues;
     const encodedKey = encodePreservingMarkers(key, opts);
     const encodedValues = values.map(v => encodePreservingMarkers(v, opts));
 
@@ -782,7 +796,12 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeString(key);
-    entries[decodedKey] = values.map(v => decodeString(v));
+    const decodedValues = values.map(v => decodeString(v));
+    if (decodedValues.length === 1 && decodedValues[0] === opts.escape) {
+      entries[emptyObjectKey(decodedKey, opts)] = [''];
+    } else {
+      entries[decodedKey] = decodedValues;
+    }
   }
 
   return unflatten(entries, initialState, opts);
