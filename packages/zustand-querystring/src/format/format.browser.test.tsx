@@ -937,6 +937,19 @@ describe('Edge Cases and Regression Tests', () => {
       );
       expect(useStore.getState()).toEqual({ count: 5, q: '100%' });
     });
+
+    it.each([false, 'state'] as const)(
+      'json (key: %s): a & in a value survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; q: string }>()(
+            querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+          );
+        createUseStore().setState({ count: 5, q: 'a&b' });
+        expect(createUseStore().getState()).toEqual({ count: 5, q: 'a&b' });
+      },
+    );
   });
 
   describe('string with comma (regression test)', () => {

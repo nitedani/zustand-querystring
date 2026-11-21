@@ -6,7 +6,8 @@ import type {
 import { decodeComponent } from './decode.js';
 
 function encodeValue(input: unknown): string {
-  return encodeURI(JSON.stringify(input));
+  // encodeURI leaves &, # and + as they are, which would split or end the query.
+  return encodeURI(JSON.stringify(input)).replace(/[&#+]/g, encodeURIComponent);
 }
 
 function decodeValue(str: string): unknown {
