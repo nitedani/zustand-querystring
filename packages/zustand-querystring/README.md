@@ -194,7 +194,7 @@ Type handling:
 ```tsx
 const useStore = create<{ status: string; search?: string }>()(
   querystring(() => ({ status: 'all' }), {
-    // search isn't in the initial state, so select includes it for a link to set it
+    // search starts out missing from the state, so select includes it for a link to set it
     select: () => ({ status: true, search: true }),
   }),
 );
@@ -206,7 +206,7 @@ const href = useStore(() => useStore.href('/customers', { status: 'all' }));
 <Link href={href}>All customers</Link>;
 ```
 
-A navigation sets a top-level field the initial state lacks only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
+A navigation sets a top-level field the store's state doesn't have yet only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
 
 ---
 
