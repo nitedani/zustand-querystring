@@ -20,6 +20,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { getOwn, setOwn } from '../own.js';
 import { decodeComponent } from './decode.js';
 
 // =============================================================================
@@ -514,11 +515,11 @@ const dropped = Symbol('dropped');
  * Group the entries into a tree of their key paths.
  */
 function plantEntries(
-  entries: FlatEntries,
+  entries: Map<string, string[]>,
   opts: ResolvedOptions,
 ): Map<string, PathNode> {
   const root = { children: new Map<string, PathNode>() };
-  for (const [key, values] of Object.entries(entries)) {
+  entries.forEach((values, key) => {
     let node: PathNode = root;
     for (const segment of parseKeyPath(key, opts)) {
       const children = (node.children ??= new Map());
@@ -527,7 +528,7 @@ function plantEntries(
       node = child;
     }
     node.leaf = node.leaf ? node.leaf.concat(values) : values;
-  }
+  });
   return root.children;
 }
 
@@ -536,7 +537,9 @@ function plantEntries(
  */
 function defaultOf(hint: unknown, key: string): unknown {
   if (hint === null || typeof hint !== 'object') return undefined;
-  return Array.isArray(hint) ? hint[0] : (hint as Record<string, unknown>)[key];
+  return Array.isArray(hint)
+    ? hint[0]
+    : getOwn(hint as Record<string, unknown>, key);
 }
 
 /**
@@ -585,13 +588,7 @@ function buildRecord(
   children.forEach((child, key) => {
     const value = build(child, defaultOf(hint, key), opts);
     if (value === dropped) return;
-    // Defined, not assigned: assigning a __proto__ key would set the prototype
-    Object.defineProperty(result, key, {
-      value,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+    setOwn(result, key, value);
     kept = true;
   });
   return kept ? result : dropped;
@@ -663,7 +660,7 @@ function readLeaf(
  * Unflatten entries back to a nested object.
  */
 function unflatten(
-  entries: FlatEntries,
+  entries: Map<string, string[]>,
   initialState: object,
   opts: ResolvedOptions,
 ): object {
@@ -675,16 +672,30 @@ function unflatten(
 // NAMESPACED MODE
 // =============================================================================
 
+/** Append a value to a key's entries. */
+function addValue(
+  entries: Map<string, string[]>,
+  key: string,
+  value: string,
+): void {
+  const values = entries.get(key);
+  if (values) values.push(value);
+  else entries.set(key, [value]);
+}
+
 /**
  * Parse namespaced string into flat entries.
  * Uses continuation logic: segments without '=' are continuations of the previous value.
  * This handles all cases uniformly - the '=' sign disambiguates entries.
  */
-function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
-  if (!input) return {};
+function parseNamespaced(
+  input: string,
+  opts: ResolvedOptions,
+): Map<string, string[]> {
+  const entries = new Map<string, string[]>();
+  if (!input) return entries;
 
   const decoded = decodeComponent(input);
-  const entries: FlatEntries = {};
   const parts = splitEscaped(decoded, opts.entrySep, opts.escape);
 
   let currentKey: string | null = null;
@@ -696,8 +707,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
       if (currentKey !== null) {
-        if (!entries[currentKey]) entries[currentKey] = [];
-        entries[currentKey].push(currentParts.join(opts.entrySep));
+        addValue(entries, currentKey, currentParts.join(opts.entrySep));
       }
 
       currentKey = part.slice(0, eqIndex);
@@ -710,8 +720,7 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
 
   // Flush the last key
   if (currentKey !== null) {
-    if (!entries[currentKey]) entries[currentKey] = [];
-    entries[currentKey].push(currentParts.join(opts.entrySep));
+    addValue(entries, currentKey, currentParts.join(opts.entrySep));
   }
 
   return entries;
@@ -784,11 +793,13 @@ function parseStandalone(
   initialState: object,
   opts: ResolvedOptions,
 ): object {
-  const entries: FlatEntries = {};
+  const entries = new Map<string, string[]>();
 
   for (const [key, values] of Object.entries(params)) {
-    const decodedKey = decodeComponent(key);
-    entries[decodedKey] = values.map(v => decodeComponent(v));
+    entries.set(
+      decodeComponent(key),
+      values.map(v => decodeComponent(v)),
+    );
   }
 
   return unflatten(entries, initialState, opts);

@@ -1183,4 +1183,11 @@ describe('plain format - a __proto__ key', () => {
       ).toStrictEqual({ x: 1 });
     }
   });
+
+  it('reads it as a key of no default, so its numeric child makes a list', () => {
+    const result = plain.parse('___proto____.5=x');
+    expect(
+      Object.getOwnPropertyDescriptor(result, '__proto__')?.value,
+    ).toStrictEqual([, , , , , 'x']);
+  });
 });
