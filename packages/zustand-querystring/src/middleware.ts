@@ -388,7 +388,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
     // Encoded like the store's own write, so a # in a value stays in the query.
     const query = new URL('http://localhost');
-    query.search = pairs.join('&');
+    query.search = '?' + pairs.join('&');
     return pathname + query.search;
   };
 

@@ -2367,5 +2367,8 @@ describe('href', () => {
 
     const prefixed = createNavStore({ key: 'state', prefix: 'a_' });
     expect(prefixed.href('/b', { count: 2 })).toBe('/b?a_state=count:2');
+
+    const questioned = createNavStore({ key: '?state' });
+    expect(questioned.href('/b', { count: 2 })).toBe('/b??state=count:2');
   });
 });
