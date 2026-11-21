@@ -191,12 +191,17 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
 };
 
 // URL state replaces the values it carries, undefined too; plain objects merge key by key.
-const mergeUrlState = (state: object, urlState: object) => {
+const mergeUrlState = (
+  state: object,
+  urlState: object,
+  keepFunctions = false,
+) => {
   const merged = { ...state };
   for (const [key, value] of Object.entries(urlState)) {
+    if (keepFunctions && typeof merged[key] === 'function') continue;
     merged[key] =
       isPlainObject(value) && isPlainObject(merged[key])
-        ? mergeUrlState(merged[key], value)
+        ? mergeUrlState(merged[key], value, keepFunctions)
         : value;
   }
   return merged;
@@ -302,7 +307,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.from(urlState, pathname) : urlState;
   };
 
-  const initialize = (url: URL, state) => {
+  const initialize = (url: URL, state, keepFunctions = false) => {
     try {
       // When map is used, getStateFromUrl returns the URL-shape state.
       // We need the mapped initial state for type inference in parsing.
@@ -317,7 +322,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
       const selected = getSelectedState(storeState, url.pathname);
-      return mergeUrlState(state, selected);
+      return mergeUrlState(state, selected, keepFunctions);
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
@@ -433,7 +438,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      const next = initialize(new URL(location.href), current);
+      // A navigation never replaces a function, like an action.
+      const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>
         key in current

@@ -2151,6 +2151,26 @@ describe('navigation', () => {
     expect(useStore.getState().search).toBe(undefined);
   });
 
+  it('keeps the actions a param has the name of, nested too', async () => {
+    const useStore = create<{
+      search: (query: string) => void;
+      filters: { tags: string[]; clear: () => void };
+    }>()(
+      querystring(() => ({
+        search: () => {},
+        filters: { tags: [], clear: () => {} },
+      })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/results?search=acme&filters=.clear=x');
+    await settle();
+    unsubscribe();
+
+    expect(typeof useStore.getState().search).toBe('function');
+    expect(typeof useStore.getState().filters.clear).toBe('function');
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),
