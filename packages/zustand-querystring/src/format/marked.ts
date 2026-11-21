@@ -22,6 +22,7 @@ import type {
   QueryStringParams,
   ParseContext,
 } from '../middleware.js';
+import { getOwn, setOwn } from '../own.js';
 import { decodeComponent } from './decode.js';
 
 // =============================================================================
@@ -535,15 +536,7 @@ function createParser(opts: ResolvedOptions) {
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
         const value = parseValue();
-        if (value !== unreadable) {
-          // Defined, not assigned: assigning a __proto__ key would set the prototype
-          Object.defineProperty(result, key, {
-            value,
-            enumerable: true,
-            writable: true,
-            configurable: true,
-          });
-        }
+        if (value !== unreadable) setOwn(result, key, value);
         if (
           pos < source.length &&
           !startsWith(tokens.terminator) &&
@@ -712,16 +705,16 @@ export function createFormat(
         if (values.length > 0) {
           const key = decodeComponent(rawKey);
           try {
-            result[key] = parse(values[0], true, options);
+            setOwn(result, key, parse(values[0], true, options));
           } catch {
             // Text like next=./sale reads as written; a field of another type keeps its value
-            const initial = initialState[key];
+            const initial = getOwn(initialState, key);
             if (
               initial === null ||
               initial === undefined ||
               typeof initial === 'string'
             ) {
-              result[key] = decodeComponent(values[0]);
+              setOwn(result, key, decodeComponent(values[0]));
             }
           }
         }

@@ -482,6 +482,13 @@ describe("server store (url option): a parameter the format can't read", () => {
       marked,
     ],
     ['marked', '/?count=:5&ext=.png', {}, { ext: '.png' }, marked],
+    [
+      'marked',
+      '/?count=:5&toString=./sale',
+      {},
+      { toString: './sale' },
+      marked,
+    ],
     ['marked', '/?count=:5&ext=.png', { ext: null }, { ext: '.png' }, marked],
   ] as const)(
     '%s: %s still restores count (initial %o)',
@@ -727,5 +734,98 @@ describe("server store (url option): a parameter the format can't read", () => {
       }),
     );
     expect(store.getState()).toStrictEqual(expected);
+  });
+});
+
+describe('server store (url option): a plain array index', () => {
+  it.each([
+    [{ tags: ['a'] }, '/?count=5&tags.4294967294=z', { tags: ['a'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.30000000=z', { tags: ['a'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.1=b&tags.0=a', { tags: ['a', 'b'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.4294967294.x=z', { tags: ['a'] }],
+    [
+      { tags: ['a'] },
+      '/?count=5&a.9000=x&tags.9000=z',
+      { a: expect.any(Array), tags: ['a'] },
+    ],
+    [
+      {},
+      '/?count=5&a.9000=x&k0.9000=y',
+      { a: expect.any(Array), k0: { 9000: 'y' } },
+    ],
+    [
+      { items: [] },
+      `/?count=5&${Array.from({ length: 150 }, (_, i) => `items.${i}.n=${i}`).join('&')}`,
+      { items: Array.from({ length: 150 }, (_, i) => ({ n: i })) },
+    ],
+    [
+      { cols: [] },
+      '/?count=5&cols.22.width=120',
+      { cols: [...new Array(22), { width: 120 }] },
+    ],
+    [
+      {},
+      '/?count=5&cols.22.width=120',
+      { cols: [...new Array(22), { width: 120 }] },
+    ],
+    [
+      { sel: {} },
+      '/?count=5&sel.007=true&sel.7=false',
+      { sel: { '007': true, 7: false } },
+    ],
+    [
+      { selected: {} },
+      '/?count=5&selected.1234567890123456789=true',
+      { selected: { '1234567890123456789': true } },
+    ],
+    [{}, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
+    [
+      {},
+      '/?count=5&byId.1.n=1&byId.4294967294.n=5',
+      { byId: { 1: { n: 1 }, 4294967294: { n: 5 } } },
+    ],
+  ])('initial %o: %s', (initial, url, expected) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, ...initial }), {
+        url,
+        key: false,
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toEqual({ count: 5, ...expected });
+  });
+});
+
+describe('server store (url option): a key naming an Object member keeps the rest of the URL', () => {
+  const formats = { marked, plain, json };
+  it.each([
+    ['marked', false, '/?count=:5&toString=1'],
+    ['plain', 'state', '/?state=constructor=1,count=5,toString=1'],
+    ['marked', false, '/?count=:5&__proto__=.polluted=yes'],
+    ['marked', false, '/?count=:5&%5F%5Fproto%5F%5F=.polluted=yes'],
+    ['json', false, '/?count=5&__proto__=%7B%22polluted%22:%22yes%22%7D'],
+  ] as const)('%s, key %s: %s', (format, key, url) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), {
+        url,
+        key,
+        format: formats[format],
+      }),
+    );
+    const state = store.getState() as { count: number; polluted?: string };
+    expect(state.count).toBe(5);
+    expect(state.polluted).toBeUndefined();
+  });
+
+  it.each([
+    [{ key: false }, '/?count=5&__proto__=x'],
+    [{ key: false, prefix: 'p_' }, '/?p_count=5&p___proto__=x'],
+    [{ key: 'state' }, '/?state=count=5,__proto__=x'],
+  ] as const)('plain, %o: %s keeps __proto__ as data', (options, url) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), { ...options, url, format: plain }),
+    );
+    // A trailing __ is plain's escaped _
+    expect(store.getState()).toEqual({ count: 5, __proto_: 'x' });
   });
 });
