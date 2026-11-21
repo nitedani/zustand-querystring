@@ -339,7 +339,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return initialState;
   };
 
-  /** The URL params (with prefix) for a compacted state */
   const toParams = (compacted: object): QueryStringParams => {
     if (standalone) {
       const params: QueryStringParams = {};
