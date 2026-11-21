@@ -511,10 +511,10 @@ interface PathNode {
 // What build returns for a path it leaves to the default
 const dropped = Symbol('dropped');
 
-/** A URL can't make the reader allocate more list slots than this plus one per URL entry. */
+/** A URL's index keys (like tags.5) can't make the reader allocate more list slots than this plus one per URL entry. */
 const SPARE_ARRAY_SLOTS = 10000;
 
-// The array slots a URL has left; all its arrays draw from it
+// The array slots a URL's index keys have left; all its lists draw from it
 interface Slots {
   left: number;
 }
