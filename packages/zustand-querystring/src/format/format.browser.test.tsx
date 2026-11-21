@@ -1911,6 +1911,21 @@ describe('navigation', () => {
     expect(url()).toBe('/b?tab=yes');
   });
 
+  it('a subscriber that unsubscribes in its callback stops the store following the URL', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(state => {
+      if (state.count === 2) unsubscribe();
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    await new Promise(requestAnimationFrame);
+    window.history.pushState({}, '', '/c?count=:4');
+    await settle();
+
+    expect(useStore.getState().count).toBe(2);
+  });
+
   it("doesn't read its own writes", async () => {
     let parses = 0;
     const useStore = createNavStore({

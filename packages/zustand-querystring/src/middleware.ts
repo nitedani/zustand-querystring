@@ -518,7 +518,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       let frame = 0;
       const cb = () => {
         readUrl();
-        frame = requestAnimationFrame(cb);
+        if (subscribers > 0) frame = requestAnimationFrame(cb);
       };
       // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
       let subscribers = 0;
