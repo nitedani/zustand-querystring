@@ -2325,13 +2325,9 @@ describe('href', () => {
 
     const namespaced = createNavStore({ key: 'state' });
     expect(namespaced.href('/b')).toBe('/b');
-    expect(namespaced.href('/b', { count: 2 })).toBe(
-      `/b?state=${marked.stringify({ count: 2 })}`,
-    );
+    expect(namespaced.href('/b', { count: 2 })).toBe('/b?state=count:2');
 
     const prefixed = createNavStore({ key: 'state', prefix: 'a_' });
-    expect(prefixed.href('/b', { count: 2 })).toBe(
-      `/b?a_state=${marked.stringify({ count: 2 })}`,
-    );
+    expect(prefixed.href('/b', { count: 2 })).toBe('/b?a_state=count:2');
   });
 });
