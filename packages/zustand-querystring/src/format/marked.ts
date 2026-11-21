@@ -405,7 +405,7 @@ function createSerializer(opts: ResolvedOptions) {
 
 // A whole number token, like the serializer's 5, -0.25, 1e+21, Infinity and NaN
 const numberPattern =
-  /^[+-]?(?:Infinity|NaN|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
+  /^[+-]?(?:Infinity|NaN|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$/;
 
 // What parsePrimitive returns for a token that is no primitive (:5abc)
 const unreadable = Symbol('unreadable');
