@@ -511,6 +511,14 @@ interface PathNode {
 // What build returns for a path it leaves to the default
 const dropped = Symbol('dropped');
 
+/** Array slots one URL may build beyond one per entry; each slot is written back to the URL. */
+const SPARE_ARRAY_SLOTS = 10000;
+
+// The array slots a URL has left; all its arrays draw from it
+interface Slots {
+  left: number;
+}
+
 /**
  * Group the entries into a tree of their key paths.
  */
@@ -545,31 +553,54 @@ function defaultOf(hint: unknown, key: string): unknown {
 /**
  * Build the value at a path, or dropped when nothing under it can be placed.
  */
-function build(node: PathNode, hint: unknown, opts: ResolvedOptions): unknown {
+function build(
+  node: PathNode,
+  hint: unknown,
+  slots: Slots,
+  opts: ResolvedOptions,
+): unknown {
   // A value at a shorter path (a=1 beside a.b=2) wins
   if (node.leaf) return readLeaf(node.leaf, hint, opts);
   const children = node.children!;
-  return isArrayContainer(hint, Array.from(children.keys()))
-    ? buildList(children, hint, opts)
-    : buildRecord(children, hint, opts);
+  if (isArrayContainer(hint, Array.from(children.keys()))) {
+    const list = buildList(children, hint, slots, opts);
+    if (list !== undefined) return list;
+  }
+  return buildRecord(children, hint, slots, opts);
 }
 
 /**
- * Build an array from a path's index keys.
+ * Build an array from a path's index keys. An index past the slots left is dropped under an
+ * array default; elsewhere it makes the path a record, so this returns undefined.
  */
 function buildList(
   children: Map<string, PathNode>,
   hint: unknown,
+  slots: Slots,
   opts: ResolvedOptions,
-): unknown[] | typeof dropped {
+): unknown[] | typeof dropped | undefined {
+  const limit = slots.left;
+  let length = 0;
+  let fits = true;
+  children.forEach((_, key) => {
+    if (!/^\d+$/.test(key)) return;
+    const index = Number(key);
+    if (index >= limit) fits = false;
+    else if (index >= length) length = index + 1;
+  });
+  if (!fits && !Array.isArray(hint)) return undefined;
+  slots.left -= length;
+
   const result: unknown[] = [];
   let kept = false;
   children.forEach((child, key) => {
     // a.length addresses no array element
     if (!/^\d+$/.test(key)) return;
-    const value = build(child, defaultOf(hint, key), opts);
+    const index = Number(key);
+    if (index >= limit) return;
+    const value = build(child, defaultOf(hint, key), slots, opts);
     if (value === dropped) return;
-    result[parseInt(key, 10)] = value;
+    result[index] = value;
     kept = true;
   });
   return kept ? result : dropped;
@@ -581,12 +612,13 @@ function buildList(
 function buildRecord(
   children: Map<string, PathNode>,
   hint: unknown,
+  slots: Slots,
   opts: ResolvedOptions,
 ): Record<string, unknown> | typeof dropped {
   const result: Record<string, unknown> = {};
   let kept = false;
   children.forEach((child, key) => {
-    const value = build(child, defaultOf(hint, key), opts);
+    const value = build(child, defaultOf(hint, key), slots, opts);
     if (value === dropped) return;
     setOwn(result, key, value);
     kept = true;
@@ -664,7 +696,13 @@ function unflatten(
   initialState: object,
   opts: ResolvedOptions,
 ): object {
-  const result = buildRecord(plantEntries(entries, opts), initialState, opts);
+  const slots = { left: SPARE_ARRAY_SLOTS + entries.size };
+  const result = buildRecord(
+    plantEntries(entries, opts),
+    initialState,
+    slots,
+    opts,
+  );
   return result === dropped ? {} : result;
 }
 
