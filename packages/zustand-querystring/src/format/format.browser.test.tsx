@@ -2047,6 +2047,24 @@ describe('navigation', () => {
     expect(url()).toBe('/b?search=acme');
   });
 
+  it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {
+    const useStore = createNavStore({
+      syncUndefined: true,
+      select: () => ({ count: true, search: true }),
+    });
+    await subscribe(useStore);
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { search: undefined }),
+    );
+    await settle();
+
+    expect('search' in useStore.getState()).toBe(true);
+    expect(useStore.getState().search).toBe(undefined);
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),
