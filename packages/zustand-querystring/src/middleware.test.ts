@@ -556,9 +556,28 @@ describe('href', () => {
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
     );
 
-    expect(store.href('/b', { inner: { v: null, w: undefined } })).toBe(
-      '/b?inner=.',
+    expect(store.href('/b', { inner: { v: null, w: undefined } })).toBe('/b');
+  });
+
+  it('with select, leaves out an object none of whose fields are selected', () => {
+    const store = createStore<{
+      filters: { shown?: string; hidden?: string };
+    }>()(
+      querystring(() => ({ filters: { shown: 'open' } }), {
+        url: '/review',
+        select: () => ({ filters: { shown: true } }),
+        map: {
+          // map.to gets the object even when select keeps none of its fields.
+          to: state => ({ v: state.filters.shown ?? 'open' }),
+          from: urlState => ({ filters: { shown: urlState.v as string } }),
+        },
+      }),
     );
+
+    expect(store.href('/review', { filters: { hidden: 'internal' } })).toBe(
+      '/review',
+    );
+    expect(store.href('/review', { filters: {} })).toBe('/review?v=open');
   });
 });
 

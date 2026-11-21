@@ -124,13 +124,17 @@ export const compact = (
         newValue.constructor === Object;
 
       if (isPlainObject && isForced) {
-        output[key] = compact(
+        const fields = compact(
           newValue,
           {},
           syncNull,
           syncUndefined,
           Object.keys(newValue),
         ).output;
+        // An object whose every field the flags leave out is left out too.
+        if (!isEmpty(fields) || isEmpty(newValue)) {
+          output[key] = fields;
+        }
       } else if (
         isPlainObject &&
         initialValue &&
@@ -149,7 +153,12 @@ export const compact = (
   return { output };
 };
 
-const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
+// A partial state leaves out an object none of whose fields are selected, unless it is empty.
+const translateSelectionToState = <T>(
+  selection: DeepSelect<T>,
+  state: T,
+  partial = false,
+) => {
   if (typeof state !== 'object' || !state) {
     return {};
   }
@@ -163,7 +172,10 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
         acc[key] = state[key];
       }
     } else {
-      acc[key] = translateSelectionToState(value, state[key]);
+      const selected = translateSelectionToState(value, state[key], partial);
+      if (!partial || !isEmpty(selected) || isEqual(state[key], {})) {
+        acc[key] = selected;
+      }
     }
     return acc;
   }, {} as T);
@@ -287,10 +299,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
   };
 
-  const getSelectedState = (state, pathname) => {
+  const getSelectedState = (state, pathname, partial = false) => {
     if (defaultedOptions.select) {
       const selection = defaultedOptions.select(pathname);
-      const selectedState = translateSelectionToState(selection, state);
+      const selectedState = translateSelectionToState(
+        selection,
+        state,
+        partial,
+      );
       return selectedState;
     }
     return state ?? {};
@@ -380,7 +396,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
-      const selected = getSelectedState(storeState, url.pathname);
+      const selected = getSelectedState(storeState, url.pathname, true);
       return mergeUrlState(state, selected, navigation);
     } catch (error) {
       console.error('[initialize] error:', error);
@@ -426,7 +442,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   api.href = (pathname: string, partial: object = {}) => {
     const stateForUrl = urlStateOf({ ...get(), ...partial }, pathname);
     // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
-    const passed = getSelectedState(partial, pathname);
+    const passed = getSelectedState(partial, pathname, true);
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
     const { output } = compact(
       stateForUrl,

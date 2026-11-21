@@ -2146,6 +2146,25 @@ describe('navigation', () => {
     expect(useStore.getState().filters).toEqual({ tags: ['a'], sort: 'name' });
   });
 
+  it("a param of a field select leaves out doesn't change the object", async () => {
+    const useStore = create<{ filters: { shown: string; hidden: string } }>()(
+      querystring(() => ({ filters: { shown: 'open', hidden: 'internal' } }), {
+        format: json,
+        select: () => ({ filters: { shown: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/b?filters={"hidden":"external"}');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().filters).toEqual({
+      shown: 'open',
+      hidden: 'internal',
+    });
+  });
+
   it('a carried undefined clears the key, with syncUndefined', async () => {
     window.history.replaceState({}, '', '/?status=:undefined');
     const useStore = createNavStore({ syncUndefined: true });
