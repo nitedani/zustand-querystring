@@ -511,18 +511,15 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState()).toStrictEqual({ count: 5, a });
   });
 
-  it.each([
-    ['/?count=5&q%20%=red&q%20%25=blue', ['red', 'blue']],
-    ['/?count=5&q%20%25=blue&q%20%=red', ['blue', 'red']],
-  ])('plain: %s keeps the values of both spellings of one key', (url, q) => {
+  it('plain: /?count=5&x_=1&x__=2 reads the later spelling of x_', () => {
     const store = createStore(
-      querystring(() => ({ count: 0, 'q %': [] as string[] }), {
-        url,
+      querystring(() => ({ count: 0, x_: '' }), {
+        url: '/?count=5&x_=1&x__=2',
         key: false,
         format: plain,
       }),
     );
-    expect(store.getState()).toStrictEqual({ count: 5, 'q %': q });
+    expect(store.getState()).toStrictEqual({ count: 5, x_: '2' });
   });
 
   it('plain: /?s_count=5&s_toString=card reads toString as a key', () => {

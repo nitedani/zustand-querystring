@@ -526,7 +526,8 @@ function plantEntries(
       if (!child) children.set(segment, (child = {}));
       node = child;
     }
-    node.leaf = node.leaf ? node.leaf.concat(values) : values;
+    // Of two spellings of one path (x_ and x__), the later one wins
+    node.leaf = values;
   }
   return root.children;
 }
@@ -788,14 +789,7 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeComponent(key);
-    const decodedValues = values.map(v => decodeComponent(v));
-    // Two raw keys can decode to one (q%20% and q%20%25): keep both values in URL order
-    entries[decodedKey] = Object.prototype.hasOwnProperty.call(
-      entries,
-      decodedKey,
-    )
-      ? entries[decodedKey].concat(decodedValues)
-      : decodedValues;
+    entries[decodedKey] = values.map(v => decodeComponent(v));
   }
 
   return unflatten(entries, initialState, opts);
