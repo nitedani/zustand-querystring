@@ -386,8 +386,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     urlState: object,
     selection: object | true,
     navigation = false,
+    // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
+    merges = new Map<object, object>(),
   ) => {
     const merged = isPlainObject(state) ? { ...state } : state;
+    merges.set(urlState, merged);
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       const current = merged[key];
@@ -413,6 +416,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         merged[key] = value;
         continue;
       }
+      if (merges.has(value)) {
+        merged[key] = merges.get(value);
+        continue;
+      }
       // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
       const into =
         isObjectLike(current) &&
@@ -426,6 +433,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         value,
         isPlainObject(selected) ? selected : true,
         navigation,
+        merges,
       );
     }
     return merged;

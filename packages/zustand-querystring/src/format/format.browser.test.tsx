@@ -2333,6 +2333,33 @@ describe('navigation', () => {
     expect(useStore.getState().count).toBe(3);
   });
 
+  it('sets the rest of a link when map.from returns a circular object', async () => {
+    type Filters = { region: string; self?: Filters };
+    const preset: Filters = { region: 'EU' };
+    preset.self = preset;
+    const useStore = create<{ page: number; filters?: Filters }>()(
+      querystring(() => ({ page: 1 }), {
+        prefix: 'app_',
+        map: {
+          to: state => ({ page: state.page }),
+          from: urlState => ({
+            page: urlState.page as number,
+            filters: preset,
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/report?app_page=:2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().page).toBe(2);
+    expect(useStore.getState().filters?.region).toBe('EU');
+    expect(url()).toBe('/report?app_page=:2');
+  });
+
   it('leaves a class instance as it is', async () => {
     class Panel {
       #title = 'Panel';

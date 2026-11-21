@@ -580,6 +580,30 @@ describe('url option', () => {
     expect(create().getState().filters).toStrictEqual({ region: 'EU' });
   });
 
+  it('copies a circular object map.from returns as the same cycle', () => {
+    type Filters = { region: string; self?: Filters };
+    const preset: Filters = { region: 'EU' };
+    preset.self = preset;
+    const store = createStore<{ page: number; filters?: Filters }>()(
+      querystring(() => ({ page: 1 }), {
+        url: '/report?page=:2',
+        map: {
+          to: state => ({ page: state.page }),
+          from: urlState => ({
+            page: urlState.page as number,
+            filters: preset,
+          }),
+        },
+      }),
+    );
+
+    const { page, filters } = store.getState();
+    expect(page).toBe(2);
+    expect(filters!.region).toBe('EU');
+    expect(filters).not.toBe(preset);
+    expect(filters!.self).toBe(filters);
+  });
+
   it('a URL key never replaces an action, nor an object holding one', () => {
     const store = createStore<{
       search: () => number;
