@@ -2667,6 +2667,30 @@ describe('navigation', () => {
     expect(useStore.getState().count).toBe(7);
   });
 
+  it("a store a component created doesn't write to a later page after the component unmounts", async () => {
+    const createStore = () =>
+      create<{ step: number }>()(querystring(() => ({ step: 0 })));
+    let store!: ReturnType<typeof createStore>;
+    function Page() {
+      const [useStore] = useState(createStore);
+      useStore(state => state.step);
+      store = useStore;
+      return null;
+    }
+    const { unmount } = await render(<Page />);
+    store.setState({ step: 5 });
+    expect(url()).toBe('/?step=:5');
+    await unmount();
+
+    window.history.pushState({}, '', '/other-page');
+    await settle();
+    expect(url()).toBe('/other-page');
+
+    window.history.pushState({}, '', '/other-page?step=:7');
+    await settle();
+    expect(store.getState().step).toBe(5);
+  });
+
   it("a store that was replaced doesn't undo the store that replaced it", async () => {
     const replaced = createNavStore();
     const { unmount } = await subscribe(replaced);
