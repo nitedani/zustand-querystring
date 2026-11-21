@@ -521,6 +521,16 @@ describe('server store (url option): a plain array index', () => {
     [{}, '/?count=5&items.2.a=1', { items: [undefined, undefined, { a: 1 }] }],
     [
       { selected: {} },
+      '/?count=5&selected.42=true',
+      { selected: { 42: true } },
+    ],
+    [
+      { sel: {} },
+      '/?count=5&sel.007=true&sel.7=false',
+      { sel: { '007': true, 7: false } },
+    ],
+    [
+      { selected: {} },
       '/?count=5&selected.1234567890123456789=true',
       { selected: { '1234567890123456789': true } },
     ],

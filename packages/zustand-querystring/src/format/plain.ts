@@ -459,19 +459,19 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
-  pastBudget: boolean[],
+  asKey: boolean[],
 ): void {
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
     const nextKey = path[i + 1];
-    const nextIsIndex = /^\d+$/.test(nextKey) && !pastBudget[i + 1];
+    const nextIsIndex = /^\d+$/.test(nextKey) && !asKey[i + 1];
     const next = getOwn(current, key);
 
     if (next === undefined) {
       setOwn(current, key, nextIsIndex ? [] : {});
-    } else if (Array.isArray(next) && pastBudget[i + 1]) {
+    } else if (Array.isArray(next) && asKey[i + 1]) {
       setOwn(current, key, { ...next });
     }
 
@@ -606,15 +606,19 @@ function unflatten(
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
-    const pastBudget: boolean[] = [];
+    const hintAbove = (i: number) =>
+      getHintAtPath(initialState, path.slice(0, i));
+    const added = slotsAdded(result, path);
+    // A numeric segment is a key under an object default, or past the slot budget
+    const asKey: boolean[] = [];
     let left = slotsLeft;
-    for (const added of slotsAdded(result, path)) {
-      pastBudget.push(added > left);
-      if (added <= left) left -= added;
+    for (let i = 0; i < path.length; i++) {
+      asKey.push(
+        (/^\d+$/.test(path[i]) && isObject(hintAbove(i))) || added[i] > left,
+      );
+      if (!asKey[i]) left -= added[i];
     }
-    const underArray = (i: number) =>
-      Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
-    if (path.some((_, i) => pastBudget[i] && underArray(i))) continue;
+    if (path.some((_, i) => asKey[i] && Array.isArray(hintAbove(i)))) continue;
     slotsLeft = left;
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
@@ -659,13 +663,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], pastBudget);
+      setAtPath(result, path, [], asKey);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts), pastBudget);
+      setAtPath(result, path, parseValue(values[0], hint, opts), asKey);
       continue;
     }
 
@@ -675,7 +679,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
-      pastBudget,
+      asKey,
     );
   }
 
