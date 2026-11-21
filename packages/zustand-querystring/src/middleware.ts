@@ -408,24 +408,24 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           ((!isPlainObject(value) || isEmpty(value)) && holdsFunction(current)))
       )
         continue;
-      if (
-        isPlainObject(value) &&
-        isObjectLike(current) &&
-        !Array.isArray(current)
-      ) {
-        if (navigation && !isPlainObject(current)) continue;
-        merged[key] =
-          isEmpty(value) && isPlainObject(current)
-            ? value
-            : mergeUrlState(
-                current,
-                value,
-                isPlainObject(selected) ? selected : true,
-                navigation,
-              );
-      } else {
+      if (!isPlainObject(value)) {
         merged[key] = value;
+        continue;
       }
+      // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
+      const into =
+        isObjectLike(current) &&
+        !Array.isArray(current) &&
+        !(isEmpty(value) && isPlainObject(current))
+          ? current
+          : {};
+      if (navigation && !isPlainObject(into)) continue;
+      merged[key] = mergeUrlState(
+        into,
+        value,
+        isPlainObject(selected) ? selected : true,
+        navigation,
+      );
     }
     return merged;
   };

@@ -557,6 +557,29 @@ describe('url option', () => {
     expect(filters.actions.next()).toBe(3);
   });
 
+  it('gives each store its own copy of an object map.from returns', () => {
+    const presets = { eu: { region: 'EU' } };
+    const create = () =>
+      createStore<{ filters?: { region: string } }>()(
+        querystring(() => ({}), {
+          url: '/report?preset=eu',
+          map: {
+            to: state => ({ preset: state.filters ? 'eu' : '' }),
+            from: urlState => ({
+              filters: presets[urlState.preset as 'eu'],
+            }),
+          },
+        }),
+      );
+
+    const first = create();
+    expect(first.getState().filters).not.toBe(presets.eu);
+    first.getState().filters!.region = 'APAC';
+
+    expect(presets.eu.region).toBe('EU');
+    expect(create().getState().filters).toStrictEqual({ region: 'EU' });
+  });
+
   it('a URL key never replaces an action, nor an object holding one', () => {
     const store = createStore<{
       search: () => number;
