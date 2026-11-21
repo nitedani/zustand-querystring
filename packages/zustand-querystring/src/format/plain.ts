@@ -393,35 +393,6 @@ function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
 }
 
 /**
- * Get type hint at a path in the initial state.
- */
-function getHintAtPath(state: object, path: string[]): unknown {
-  let current: unknown = state;
-
-  for (const key of path) {
-    if (
-      current === null ||
-      current === undefined ||
-      typeof current !== 'object'
-    ) {
-      return undefined;
-    }
-
-    if (Array.isArray(current)) {
-      current = current[0];
-      continue;
-    }
-
-    current = (current as Record<string, unknown>)[key];
-  }
-
-  return current;
-}
-
-// The objects and arrays setAtPath made; any other value is a leaf it never writes into
-const containers = new WeakSet<object>();
-
-/**
  * Whether a container is an array, from its default and every child key the URL gives it.
  */
 function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
@@ -432,50 +403,6 @@ function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
     k => /^(0|[1-9]\d*)$/.test(k) && Number(k) < childKeys.length,
   );
   return isDense || typeof hint !== 'object' || hint === null;
-}
-
-/**
- * Set a value at a path in an object, creating intermediate structures.
- */
-function setAtPath(
-  obj: Record<string, unknown>,
-  path: string[],
-  value: unknown,
-  isArrayAt: (containerPath: string[]) => boolean,
-): void {
-  let current = obj;
-  // The first container this path makes joins obj only once the value is set
-  let detached: [Record<string, unknown>, string, object] | undefined;
-
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i];
-    const nextKey = path[i + 1];
-    const nextIsIndex = /^\d+$/.test(nextKey);
-    let next = current[key];
-
-    if (!(key in current)) {
-      next = isArrayAt(path.slice(0, i + 1)) ? [] : {};
-      containers.add(next as object);
-      if (detached) current[key] = next;
-      else detached = [current, key, next as object];
-    }
-    // A value already at a shorter path (a=1 beside a.b=2) wins
-    if (!containers.has(next as object)) return;
-
-    // a.length addresses no array element
-    if (Array.isArray(next) && !nextIsIndex) return;
-
-    current = next as Record<string, unknown>;
-  }
-
-  const lastKey = path[path.length - 1];
-
-  if (Array.isArray(current)) {
-    (current as unknown as unknown[])[parseInt(lastKey, 10)] = value;
-  } else {
-    current[lastKey] = value;
-  }
-  if (detached) detached[0][detached[1]] = detached[2];
 }
 
 // =============================================================================
@@ -573,6 +500,166 @@ function flatten(
 // =============================================================================
 
 /**
+ * One path of the URL: the raw values an entry gave it, and the paths under it.
+ */
+interface PathNode {
+  leaf?: string[];
+  children?: Map<string, PathNode>;
+}
+
+// What build returns for a path it leaves to the default
+const dropped = Symbol('dropped');
+
+/**
+ * Group the entries into a tree of their key paths.
+ */
+function plantEntries(
+  entries: FlatEntries,
+  opts: ResolvedOptions,
+): Map<string, PathNode> {
+  const root = { children: new Map<string, PathNode>() };
+  for (const [key, values] of Object.entries(entries)) {
+    let node: PathNode = root;
+    for (const segment of parseKeyPath(key, opts)) {
+      const children = (node.children ??= new Map());
+      let child = children.get(segment);
+      if (!child) children.set(segment, (child = {}));
+      node = child;
+    }
+    node.leaf = node.leaf ? node.leaf.concat(values) : values;
+  }
+  return root.children;
+}
+
+/**
+ * The default for a child key, from its container's default.
+ */
+function defaultOf(hint: unknown, key: string): unknown {
+  if (hint === null || typeof hint !== 'object') return undefined;
+  return Array.isArray(hint) ? hint[0] : (hint as Record<string, unknown>)[key];
+}
+
+/**
+ * Build the value at a path, or dropped when nothing under it can be placed.
+ */
+function build(node: PathNode, hint: unknown, opts: ResolvedOptions): unknown {
+  // A value at a shorter path (a=1 beside a.b=2) wins
+  if (node.leaf) return readLeaf(node.leaf, hint, opts);
+  const children = node.children!;
+  return isArrayContainer(hint, Array.from(children.keys()))
+    ? buildList(children, hint, opts)
+    : buildRecord(children, hint, opts);
+}
+
+/**
+ * Build an array from a path's index keys.
+ */
+function buildList(
+  children: Map<string, PathNode>,
+  hint: unknown,
+  opts: ResolvedOptions,
+): unknown[] | typeof dropped {
+  const result: unknown[] = [];
+  let kept = false;
+  children.forEach((child, key) => {
+    // a.length addresses no array element
+    if (!/^\d+$/.test(key)) return;
+    const value = build(child, defaultOf(hint, key), opts);
+    if (value === dropped) return;
+    result[parseInt(key, 10)] = value;
+    kept = true;
+  });
+  return kept ? result : dropped;
+}
+
+/**
+ * Build an object from a path's keys.
+ */
+function buildRecord(
+  children: Map<string, PathNode>,
+  hint: unknown,
+  opts: ResolvedOptions,
+): Record<string, unknown> | typeof dropped {
+  const result: Record<string, unknown> = {};
+  let kept = false;
+  children.forEach((child, key) => {
+    const value = build(child, defaultOf(hint, key), opts);
+    if (value === dropped) return;
+    // Defined, not assigned: assigning a __proto__ key would set the prototype
+    Object.defineProperty(result, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    kept = true;
+  });
+  return kept ? result : dropped;
+}
+
+/**
+ * Read the raw values an entry gave one path, typed by its hint.
+ */
+function readLeaf(
+  rawValues: string[],
+  hint: unknown,
+  opts: ResolvedOptions,
+): unknown {
+  const isArrayHint = Array.isArray(hint);
+
+  // Characters that may be escaped in values
+  const valueSpecials: string[] = [opts.entrySep];
+  if (opts.arraySep !== 'repeat') {
+    valueSpecials.push(opts.arraySep);
+  }
+
+  const unescapeValue = (v: string) => unescape(v, opts.escape, valueSpecials);
+
+  // ── Step 1: Determine if this is an array ──
+  //
+  // Three ways a value can be an array:
+  //   a) Multiple raw values (arraySep='repeat' mode, e.g. ?tag=a&tag=b)
+  //   b) A single raw value containing unescaped arraySep (e.g. "Blackwell,Ada")
+  //   c) initialState says it's an array (isArrayHint)
+  //
+  // Escaped separators (e.g. "_,") are NOT split — splitEscaped skips them.
+  // So an unescaped separator always means "array boundary", even without a hint.
+  //
+  // We must split BEFORE unescaping, otherwise "_," becomes "," and looks
+  // like a real separator.
+
+  let values: string[];
+  if (opts.arraySep !== 'repeat' && rawValues.length === 1) {
+    // (b) Try splitting the single raw value on unescaped arraySep
+    const parts = splitEscaped(rawValues[0], opts.arraySep, opts.escape);
+    // (c) Or initialState says it's an array
+    const isArray = parts.length > 1 || isArrayHint;
+    values = isArray
+      ? parts.map(unescapeValue) // split into array elements, then unescape each
+      : [unescapeValue(rawValues[0])]; // single scalar, just unescape
+  } else {
+    // (a) Already multiple raw values (repeat mode, e.g. ?tag=a&tag=b)
+    values = rawValues.map(unescapeValue);
+  }
+
+  // ── Step 2: Type the parsed value ──
+
+  // Empty array: single empty string + array hint → []
+  if (values.length === 1 && values[0] === '' && isArrayHint) {
+    return [];
+  }
+
+  // Single scalar value
+  if (values.length === 1 && !isArrayHint) {
+    return parseValue(values[0], hint, opts);
+  }
+
+  // Array (multiple values, or single value with array hint)
+  const elementHint = isArrayHint ? hint[0] : undefined;
+  return values.map(v => parseValue(v, elementHint, opts));
+}
+
+/**
  * Unflatten entries back to a nested object.
  */
 function unflatten(
@@ -580,99 +667,8 @@ function unflatten(
   initialState: object,
   opts: ResolvedOptions,
 ): object {
-  const result: Record<string, unknown> = {};
-
-  // Sort by path depth (shorter first)
-  const keys = Object.keys(entries).sort((a, b) => {
-    const pathA = parseKeyPath(a, opts);
-    const pathB = parseKeyPath(b, opts);
-    return pathA.length !== pathB.length
-      ? pathA.length - pathB.length
-      : a.localeCompare(b);
-  });
-
-  // Every container path's child keys, which decide whether it is an array
-  const childKeys = new Map<string, Set<string>>();
-  for (const key of keys) {
-    const path = parseKeyPath(key, opts);
-    for (let i = 1; i < path.length; i++) {
-      const parent = JSON.stringify(path.slice(0, i));
-      childKeys.set(parent, (childKeys.get(parent) ?? new Set()).add(path[i]));
-    }
-  }
-  const isArrayAt = (containerPath: string[]) =>
-    isArrayContainer(
-      getHintAtPath(initialState, containerPath),
-      Array.from(childKeys.get(JSON.stringify(containerPath)) ?? []),
-    );
-
-  for (const key of keys) {
-    let rawValues = entries[key];
-    const path = parseKeyPath(key, opts);
-    const hint = getHintAtPath(initialState, path);
-    const isArrayHint = Array.isArray(hint);
-
-    // Characters that may be escaped in values
-    const valueSpecials: string[] = [opts.entrySep];
-    if (opts.arraySep !== 'repeat') {
-      valueSpecials.push(opts.arraySep);
-    }
-
-    const unescapeValue = (v: string) =>
-      unescape(v, opts.escape, valueSpecials);
-
-    // ── Step 1: Determine if this is an array ──
-    //
-    // Three ways a value can be an array:
-    //   a) Multiple raw values (arraySep='repeat' mode, e.g. ?tag=a&tag=b)
-    //   b) A single raw value containing unescaped arraySep (e.g. "Blackwell,Ada")
-    //   c) initialState says it's an array (isArrayHint)
-    //
-    // Escaped separators (e.g. "_,") are NOT split — splitEscaped skips them.
-    // So an unescaped separator always means "array boundary", even without a hint.
-    //
-    // We must split BEFORE unescaping, otherwise "_," becomes "," and looks
-    // like a real separator.
-
-    let values: string[];
-    if (opts.arraySep !== 'repeat' && rawValues.length === 1) {
-      // (b) Try splitting the single raw value on unescaped arraySep
-      const parts = splitEscaped(rawValues[0], opts.arraySep, opts.escape);
-      // (c) Or initialState says it's an array
-      const isArray = parts.length > 1 || isArrayHint;
-      values = isArray
-        ? parts.map(unescapeValue) // split into array elements, then unescape each
-        : [unescapeValue(rawValues[0])]; // single scalar, just unescape
-    } else {
-      // (a) Already multiple raw values (repeat mode, e.g. ?tag=a&tag=b)
-      values = rawValues.map(unescapeValue);
-    }
-
-    // ── Step 2: Store the parsed value ──
-
-    // Empty array: single empty string + array hint → []
-    if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], isArrayAt);
-      continue;
-    }
-
-    // Single scalar value
-    if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts), isArrayAt);
-      continue;
-    }
-
-    // Array (multiple values, or single value with array hint)
-    const elementHint = isArrayHint ? hint[0] : undefined;
-    setAtPath(
-      result,
-      path,
-      values.map(v => parseValue(v, elementHint, opts)),
-      isArrayAt,
-    );
-  }
-
-  return result;
+  const result = buildRecord(plantEntries(entries, opts), initialState, opts);
+  return result === dropped ? {} : result;
 }
 
 // =============================================================================
