@@ -22,6 +22,8 @@ import type {
   QueryStringParams,
   ParseContext,
 } from './types.js';
+import { getOwn, setOwn } from '../own.js';
+import { decodeComponent } from './decode.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -402,6 +404,13 @@ function createSerializer(opts: ResolvedOptions) {
 // PARSING
 // =============================================================================
 
+// A whole number token, like the serializer's 5, -0.25, 1e+21, Infinity and NaN
+const numberPattern =
+  /^[+-]?(?:Infinity|NaN|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$/;
+
+// What parsePrimitive returns for a token that is no primitive (:5abc)
+const unreadable = Symbol('unreadable');
+
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
@@ -444,12 +453,18 @@ function createParser(opts: ResolvedOptions) {
       return value;
     }
 
-    function parsePrimitive(): number | boolean | null | undefined {
+    function parsePrimitive():
+      | number
+      | boolean
+      | null
+      | undefined
+      | typeof unreadable {
       const { value } = readUntil(valueStop);
       if (value === 'null') return null;
       if (value === 'undefined') return undefined;
       if (value === 'true') return true;
       if (value === 'false') return false;
+      if (!numberPattern.test(value)) return unreadable;
       return parseFloat(value);
     }
 
@@ -473,7 +488,9 @@ function createParser(opts: ResolvedOptions) {
           startsWith(opts.typeObject) ||
           startsWith(opts.typeString)
         ) {
-          result.push(parseValue());
+          const value = parseValue();
+          // An unreadable number skips only its own element
+          if (value !== unreadable) result.push(value);
         } else {
           const start = pos;
           result.push(parseString(markedStartPattern));
@@ -506,13 +523,8 @@ function createParser(opts: ResolvedOptions) {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(opts.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
-        // Defined, not assigned: assigning a __proto__ key would set the prototype
-        Object.defineProperty(result, key, {
-          value: parseValue(),
-          enumerable: true,
-          writable: true,
-          configurable: true,
-        });
+        const value = parseValue();
+        if (value !== unreadable) setOwn(result, key, value);
         if (
           pos < source.length &&
           !startsWith(opts.terminator) &&
@@ -548,7 +560,13 @@ function createParser(opts: ResolvedOptions) {
       );
     }
 
-    return parseValue() as T;
+    const isPrimitive = startsWith(opts.typePrimitive);
+    const value = parseValue();
+    // A root primitive is the whole value: :90, off% is no number
+    if (value === unreadable || (isPrimitive && pos < source.length)) {
+      throw new Error('Unexpected primitive');
+    }
+    return value as T;
   };
 }
 
@@ -579,7 +597,7 @@ export function parse<T = unknown>(
 ): T {
   const opts = resolveOptions(options);
   const datePattern = buildDatePattern(opts);
-  const str = decodeURIComponent(input);
+  const str = decodeComponent(input);
 
   if (str.length === 0) {
     return (standalone ? '' : {}) as T;
@@ -668,11 +686,25 @@ export function createFormat(
       return result;
     },
 
-    parseStandalone(params: QueryStringParams, _ctx: ParseContext): object {
+    parseStandalone(params: QueryStringParams, ctx: ParseContext): object {
+      const initialState = ctx.initialState as Record<string, unknown>;
       const result: Record<string, unknown> = {};
-      for (const [key, values] of Object.entries(params)) {
+      for (const [rawKey, values] of Object.entries(params)) {
         if (values.length > 0) {
-          result[decodeURIComponent(key)] = parse(values[0], true, options);
+          const key = decodeComponent(rawKey);
+          try {
+            setOwn(result, key, parse(values[0], true, options));
+          } catch {
+            // Text like next=./sale reads as written; a field of another type keeps its value
+            const initial = getOwn(initialState, key);
+            if (
+              initial === null ||
+              initial === undefined ||
+              typeof initial === 'string'
+            ) {
+              setOwn(result, key, decodeComponent(values[0]));
+            }
+          }
         }
       }
       return result;

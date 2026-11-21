@@ -174,6 +174,18 @@ describe('plain format', () => {
         plain.parse('path=a___,b__', { initialState: { path: '' } }),
       ).toEqual({ path: 'a_,b_' });
     });
+
+    it('should keep a __proto__ key as data', () => {
+      for (const obj of [
+        JSON.parse('{"__proto__":{"isAdmin":true}}'),
+        JSON.parse('{"__proto__":"x"}'),
+      ]) {
+        const result = plain.parse(plain.stringify(obj));
+        expect(Object.hasOwn(result, '__proto__')).toBe(true);
+        expect(result).toEqual(obj);
+        expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      }
+    });
   });
 
   describe('stringifyStandalone', () => {
@@ -1223,5 +1235,43 @@ describe('plain format - non-finite number parsing', () => {
     const parsed = plain.parse('val=1e999') as any;
     // auto-parse: tryParseNumber returns null (non-finite) → kept as string
     expect(parsed.val).toBe('1e999');
+  });
+});
+
+describe('plain format - a __proto__ key', () => {
+  // The writer's spelling of __proto__: an _ before an _ or at the end is escaped
+  const initialState = { filters: {} };
+  it.each([
+    [
+      'namespaced',
+      () =>
+        plain.parse('___proto____.x=1,filters.___proto____.x=1', {
+          initialState,
+        }),
+    ],
+    [
+      'standalone',
+      () =>
+        plain.parseStandalone(
+          { '___proto____.x': ['1'], 'filters.___proto____.x': ['1'] },
+          { initialState },
+        ),
+    ],
+  ])('%s: reads it as an own key, not as the prototype', (_, parse) => {
+    const result = parse() as { filters: object };
+    expect(({} as { x?: unknown }).x).toBeUndefined();
+    for (const value of [result, result.filters]) {
+      expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+      expect(
+        Object.getOwnPropertyDescriptor(value, '__proto__')?.value,
+      ).toStrictEqual({ x: 1 });
+    }
+  });
+
+  it('reads it as a key of no default, so its numeric child makes a list', () => {
+    const result = plain.parse('___proto____.5=x');
+    expect(
+      Object.getOwnPropertyDescriptor(result, '__proto__')?.value,
+    ).toStrictEqual([, , , , , 'x']);
   });
 });

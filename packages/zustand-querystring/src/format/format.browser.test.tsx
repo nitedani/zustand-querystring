@@ -935,6 +935,93 @@ describe('Edge Cases and Regression Tests', () => {
     });
   });
 
+  describe("a parameter the format can't read", () => {
+    it('marked: ?count=:5&utm_content=50%off&next=./sale/50%off keeps every param', () => {
+      window.history.replaceState(
+        {},
+        '',
+        '?count=:5&utm_content=50%off&next=./sale/50%off',
+      );
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format: marked }),
+      );
+      expect(useStore.getState()).toEqual({
+        count: 5,
+        utm_content: '50%off',
+        next: './sale/50%off',
+      });
+    });
+
+    it('plain: ?count=5&a=1&a.b=2 keeps a=1', () => {
+      window.history.replaceState({}, '', '?count=5&a=1&a.b=2');
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format: plain }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, a: 1 });
+    });
+
+    it('plain: ?count=5&gr%c3%b6%c3%9fe=L keeps L across reloads until it changes', () => {
+      window.history.replaceState({}, '', '?count=5&gr%c3%b6%c3%9fe=L');
+      const createUseStore = () =>
+        create<{ count: number; größe: string }>()(
+          querystring(() => ({ count: 0, größe: '' }), {
+            key: false,
+            format: plain,
+          }),
+        );
+      const first = createUseStore();
+      expect(first.getState()).toEqual({ count: 5, größe: 'L' });
+      first.setState({ count: 6 });
+      const second = createUseStore();
+      expect(second.getState()).toEqual({ count: 6, größe: 'L' });
+      second.setState({ größe: 'XL' });
+      expect(createUseStore().getState()).toEqual({ count: 6, größe: 'XL' });
+    });
+
+    it.each([
+      ['json', '?count=5&q=%22100%%22', false],
+      ['json', '?state=%7B%22count%22:5,%22q%22:%22100%%22%7D', 'state'],
+    ] as const)('%s: %s decodes the valid escapes', (_, search, key) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number; q: string }>()(
+        querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+      );
+      expect(useStore.getState()).toEqual({ count: 5, q: '100%' });
+    });
+
+    it.each([false, 'state'] as const)(
+      'json (key: %s): a & in a value survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; q: string }>()(
+            querystring(() => ({ count: 0, q: '' }), { key, format: json }),
+          );
+        createUseStore().setState({ count: 5, q: 'a&b' });
+        expect(createUseStore().getState()).toEqual({ count: 5, q: 'a&b' });
+      },
+    );
+
+    it.each([false, 'state'] as const)(
+      'plain (key: %s): selected.42 under selected: {} survives a write and a reread',
+      key => {
+        window.history.replaceState({}, '', '/');
+        const createUseStore = () =>
+          create<{ count: number; selected: Record<string, boolean> }>()(
+            querystring(() => ({ count: 0, selected: {} }), {
+              key,
+              format: plain,
+            }),
+          );
+        createUseStore().setState({ count: 5, selected: { 42: true } });
+        expect(createUseStore().getState()).toEqual({
+          count: 5,
+          selected: { 42: true },
+        });
+      },
+    );
+  });
+
   describe('React Strict Mode', () => {
     it('should keep the state in the URL after a pathname change', async () => {
       const createStore = () =>
@@ -2222,6 +2309,17 @@ describe('navigation', () => {
       expect(useStore.getState().search).toBe('acme');
       expect(url()).toBe(expected);
     }
+  });
+
+  it('leaves out a param named like an Object member, without select, key or prefix', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/b?count=:7&toString=./sale');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(Object.keys(useStore.getState())).not.toContain('toString');
   });
 
   it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {

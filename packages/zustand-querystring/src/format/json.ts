@@ -3,14 +3,16 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from './types.js';
+import { setOwn } from '../own.js';
+import { decodeComponent } from './decode.js';
 
 function encodeValue(input: unknown): string {
-  // encodeURI leaves &, # and + as they are, which would split or end the query.
+  // encodeURI leaves &, # and + as written: & splits the query, # ends it, and + reads as a space in form decoding.
   return encodeURI(JSON.stringify(input)).replace(/[&#+]/g, encodeURIComponent);
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURIComponent(str));
+  return JSON.parse(decodeComponent(str));
 }
 
 export const json: QueryStringFormat = {
@@ -36,8 +38,11 @@ export const json: QueryStringFormat = {
       try {
         // Always use first value (json format doesn't use repeated keys)
         // JSON has no undefined; it is written as the text undefined.
-        result[key] =
-          values[0] === 'undefined' ? undefined : decodeValue(values[0]);
+        setOwn(
+          result,
+          key,
+          values[0] === 'undefined' ? undefined : decodeValue(values[0]),
+        );
       } catch {
         // skip invalid values
       }

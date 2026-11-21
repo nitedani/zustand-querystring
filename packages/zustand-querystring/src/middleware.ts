@@ -19,6 +19,7 @@ import type {
   QueryStringFormatFor,
   QueryStringParams,
 } from './format/types.js';
+import { getOwn, setOwn } from './own.js';
 
 export type {
   ParseContext,
@@ -256,10 +257,9 @@ const parseSearchString = (search: string): QueryStringParams => {
 
   splitSearch(search).forEach(({ key, value }) => {
     if (value === undefined) return;
-    if (!result[key]) {
-      result[key] = [];
-    }
-    result[key].push(value);
+    const values = getOwn(result, key);
+    if (values) values.push(value);
+    else setOwn(result, key, [value]);
   });
 
   return result;
@@ -328,7 +328,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         filteredParams = {};
         for (const [key, values] of Object.entries(params)) {
           if (key.startsWith(defaultedOptions.prefix)) {
-            filteredParams[key.slice(defaultedOptions.prefix.length)] = values;
+            setOwn(
+              filteredParams,
+              key.slice(defaultedOptions.prefix.length),
+              values,
+            );
           }
         }
       }
@@ -384,17 +388,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const mergeUrlState = (
     state: object,
     urlState: object,
-    selection: object | true,
+    selection: Record<string, any> | true,
     navigation = false,
     // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
     merges = new Map<object, object>(),
   ) => {
-    const merged = isPlainObject(state) ? { ...state } : state;
+    const merged: Record<string, any> = isPlainObject(state)
+      ? { ...state }
+      : state;
     merges.set(urlState, merged);
     for (const [key, value] of Object.entries(urlState)) {
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
-      const current = merged[key];
-      const selected = selection === true ? true : selection[key];
+      const current = getOwn(merged, key);
+      const selected = selection === true ? true : getOwn(selection, key);
       // An empty object over an object whose fields select syncs only some of clears just those.
       if (
         isPlainObject(value) &&
@@ -402,22 +408,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         isPlainObject(current) &&
         isPlainObject(selected)
       ) {
-        merged[key] = clearSelected(current, selected);
+        setOwn(merged, key, clearSelected(current, selected));
         continue;
       }
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
-        Object.prototype.hasOwnProperty.call(merged, key) &&
-        (typeof current === 'function' ||
-          ((!isPlainObject(value) || isEmpty(value)) && holdsFunction(current)))
+        typeof current === 'function' ||
+        ((!isPlainObject(value) || isEmpty(value)) && holdsFunction(current))
       )
         continue;
       if (!isPlainObject(value)) {
-        merged[key] = value;
+        setOwn(merged, key, value);
         continue;
       }
       if (merges.has(value)) {
-        merged[key] = merges.get(value);
+        setOwn(merged, key, merges.get(value));
         continue;
       }
       // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
@@ -428,12 +433,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           ? current
           : {};
       if (navigation && !isPlainObject(into)) continue;
-      merged[key] = mergeUrlState(
-        into,
-        value,
-        isPlainObject(selected) ? selected : true,
-        navigation,
-        merges,
+      setOwn(
+        merged,
+        key,
+        mergeUrlState(
+          into,
+          value,
+          isPlainObject(selected) ? selected : true,
+          navigation,
+          merges,
+        ),
       );
     }
     return merged;
@@ -576,7 +585,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>
-        key in current
+        Object.prototype.hasOwnProperty.call(current, key)
           ? !isSameState(value, current[key])
           : !standalone ||
             Boolean(defaultedOptions.prefix || defaultedOptions.select),

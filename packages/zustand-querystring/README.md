@@ -308,7 +308,11 @@ const myFormat: QueryStringFormat = {
   parseStandalone(params: QueryStringParams, ctx: ParseContext): object {
     const result: Record<string, unknown> = {};
     for (const [key, values] of Object.entries(params)) {
-      result[key] = JSON.parse(decodeURIComponent(values[0]));
+      try {
+        result[key] = JSON.parse(decodeURIComponent(values[0]));
+      } catch {
+        // Skip values that cannot be decoded or parsed as JSON, such as utm_content=50%off.
+      }
     }
     return result;
   },
