@@ -11,6 +11,7 @@
  * - State types: strings, numbers, booleans, null, arrays, nested objects, dates
  * - Edge cases: special characters, unicode, empty values, escape sequences
  */
+import { StrictMode, useState } from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
@@ -907,6 +908,35 @@ describe('Edge Cases and Regression Tests', () => {
 
       expect(window.location.search).toBe(
         `?closed&state=${marked.stringify({ sort: 'date' })}`,
+      );
+    });
+  });
+
+  describe('React Strict Mode', () => {
+    it('should keep the state in the URL after a pathname change', async () => {
+      const createStore = () =>
+        create<{ step: number }>()(querystring(() => ({ step: 0 })));
+      let store!: ReturnType<typeof createStore>;
+
+      function Provider() {
+        const [useStore] = useState(createStore);
+        useStore(state => state.step);
+        store = useStore;
+        return null;
+      }
+
+      await render(
+        <StrictMode>
+          <Provider />
+        </StrictMode>,
+      );
+      store.setState({ step: 5 });
+      window.history.pushState({}, '', '/strict-mode');
+      // The URL is rewritten 100ms after a pathname change.
+      await new Promise(r => setTimeout(r, 200));
+
+      expect(new URLSearchParams(window.location.search).get('step')).toBe(
+        ':5',
       );
     });
   });
