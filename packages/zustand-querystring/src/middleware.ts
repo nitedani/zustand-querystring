@@ -181,10 +181,13 @@ const translateSelectionToState = <T>(
   }, {} as T);
 };
 
-// A function, or a plain object holding one at any depth.
-const holdsFunction = (value: unknown): boolean =>
-  typeof value === 'function' ||
-  (isPlainObject(value) && Object.values(value as object).some(holdsFunction));
+// A function, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
+const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
+  if (typeof value === 'function') return true;
+  if (!isPlainObject(value) || seen.has(value)) return false;
+  seen.add(value);
+  return Object.values(value as object).some(v => holdsFunction(v, seen));
+};
 
 // The params of a search in order, as raw text; a param without a value has none.
 const splitSearch = (search: string) =>
@@ -350,10 +353,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         Object.prototype.hasOwnProperty.call(merged, key) &&
-        holdsFunction(current) &&
         (typeof current === 'function' ||
-          !isPlainObject(value) ||
-          isEmpty(value))
+          ((!isPlainObject(value) || isEmpty(value)) && holdsFunction(current)))
       )
         continue;
       if (

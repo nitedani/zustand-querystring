@@ -2302,6 +2302,35 @@ describe('navigation', () => {
     expect(useStore.getState().group.nested?.clear()).toBe(1);
   });
 
+  it('reads a link when the state holds a circular object map.to leaves out', async () => {
+    type Graph = { id: number; parent?: Graph };
+    const graph: Graph = { id: 1 };
+    graph.parent = graph;
+    const useStore = create<{ graph: Graph; count: number }>()(
+      querystring(() => ({ graph, count: 0 }), {
+        map: {
+          to: state => ({ id: state.graph.id, count: state.count }),
+          from: urlState => ({
+            graph: { id: urlState.id as number },
+            count: urlState.count as number,
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { graph: { id: 2 }, count: 3 }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().graph.id).toBe(2);
+    expect(useStore.getState().count).toBe(3);
+  });
+
   it('leaves a class instance as it is', async () => {
     class Panel {
       #title = 'Panel';

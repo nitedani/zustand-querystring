@@ -527,6 +527,34 @@ describe('url option', () => {
     expect(store.getState().menu.nested.toggle()).toBe(2);
   });
 
+  it('reads the URL when the state holds a circular object map.to leaves out', () => {
+    type Graph = { id: number; parent?: Graph };
+    const create = (url: string, from: (id: number) => Graph) => {
+      const graph: Graph = { id: 1 };
+      graph.parent = graph;
+      return createStore<{ graph: Graph; count: number }>()(
+        querystring(() => ({ graph, count: 0 }), {
+          url,
+          map: {
+            to: state => ({ id: state.graph.id, count: state.count }),
+            from: urlState => ({
+              graph: from(urlState.id as number),
+              count: urlState.count as number,
+            }),
+          },
+        }),
+      );
+    };
+
+    const merged = create('/review?id=:2&count=:3', id => ({ id }));
+    expect(merged.getState().graph.id).toBe(2);
+    expect(merged.getState().count).toBe(3);
+
+    const replaced = create('/review?count=:3', () => ({}) as Graph);
+    expect(replaced.getState().graph).toEqual({});
+    expect(replaced.getState().count).toBe(3);
+  });
+
   it('a URL key merges into a class instance, keeping its private fields', () => {
     class Filter {
       #scope = 'all';
