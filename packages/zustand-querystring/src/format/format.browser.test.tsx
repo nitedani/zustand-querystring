@@ -19,6 +19,7 @@ import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
 import type { QueryStringOptions } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
+import { json } from './json.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
 import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
@@ -2281,6 +2282,18 @@ describe('href', () => {
     expect(useStore.href('/home', { count: 7 })).toBe('/home');
     expect(decodeURIComponent(useStore.href('/b', { count: 7 }))).toBe(
       '/b?count=:7',
+    );
+  });
+
+  it('encodes the query like the store writes it, so a # stays in it', () => {
+    const standalone = createNavStore({ format: json });
+    expect(standalone.href('/b', { search: 'C#' })).toBe(
+      '/b?search=%22C%23%22',
+    );
+
+    const namespaced = createNavStore({ key: 'state', format: json });
+    expect(namespaced.href('/b', { search: 'C#' })).toBe(
+      '/b?state=%7B%22search%22:%22C%23%22%7D',
     );
   });
 

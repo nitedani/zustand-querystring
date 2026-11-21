@@ -377,7 +377,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     for (const [key, values] of Object.entries(toParams(output))) {
       values.forEach(value => pairs.push(`${key}=${value}`));
     }
-    return pathname + (pairs.length ? '?' + pairs.join('&') : '');
+    // Encoded like the store's own write, so a # in a value stays in the query.
+    const query = new URL('http://localhost');
+    query.search = pairs.join('&');
+    return pathname + query.search;
   };
 
   if (typeof window !== 'undefined') {
