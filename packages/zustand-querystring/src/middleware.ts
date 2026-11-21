@@ -1,4 +1,4 @@
-import { isEmpty, isEqual, mergeWith, pickBy } from 'lodash-es';
+import { isEmpty, isEqual, isPlainObject, mergeWith, pickBy } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
 
@@ -175,6 +175,18 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
+// URL state replaces the values it carries, undefined too; plain objects merge key by key.
+const mergeUrlState = (state: object, urlState: object) => {
+  const merged = { ...state };
+  for (const [key, value] of Object.entries(urlState)) {
+    merged[key] =
+      isPlainObject(value) && isPlainObject(merged[key])
+        ? mergeUrlState(merged[key], value)
+        : value;
+  }
+  return merged;
+};
+
 const parseSearchString = (search: string): QueryStringParams => {
   const result: QueryStringParams = {};
 
@@ -290,18 +302,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
       const selected = getSelectedState(storeState, url.pathname);
-      const merged = mergeWith(
-        {},
-        initialState,
-        selected,
-        (_objValue, srcValue) => {
-          if (Array.isArray(srcValue)) {
-            return srcValue;
-          }
-          return undefined;
-        },
-      );
-      return merged;
+      return mergeUrlState(initialState, selected);
     } catch (error) {
       console.error('[initialize] error:', error);
       return initialState;

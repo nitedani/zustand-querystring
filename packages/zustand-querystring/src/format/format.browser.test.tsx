@@ -1926,6 +1926,30 @@ describe('navigation', () => {
     expect(useStore.getState().count).toBe(2);
   });
 
+  it("a nested key the URL carries keeps the object's other keys", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/b?filters=.tags@a');
+    await settle();
+
+    expect(useStore.getState().filters).toEqual({ tags: ['a'], sort: 'name' });
+  });
+
+  it('a carried undefined clears the key, with syncUndefined', async () => {
+    window.history.replaceState({}, '', '/?status=:undefined');
+    const useStore = createNavStore({ syncUndefined: true });
+    await subscribe(useStore);
+    expect(useStore.getState().status).toBe(undefined);
+
+    useStore.setState({ status: 'active' });
+    window.history.pushState({}, '', '/b?status=:undefined');
+    await settle();
+
+    expect(useStore.getState().status).toBe(undefined);
+    expect(url()).toBe('/b?status=:undefined');
+  });
+
   it("doesn't read its own writes", async () => {
     let parses = 0;
     const useStore = createNavStore({
