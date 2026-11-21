@@ -350,6 +350,27 @@ describe('plain format', () => {
       ).toEqual({ filters: undefined });
     });
 
+    it('should read an empty object beside other entries of its path', () => {
+      // A value at a shorter path wins
+      expect(plain.parse('f=x,f._=', { initialState: {} })).toEqual({ f: 'x' });
+      // Keys beside it make the path a record
+      expect(plain.parse('f._=,f.a=1', { initialState: {} })).toEqual({
+        f: { a: 1 },
+      });
+      expect(plain.parse('f._=,f.0=1', { initialState: {} })).toEqual({
+        f: { 0: 1 },
+      });
+      expect(
+        plain.parseStandalone({ f: ['_'], 'f.a': ['1'] }, { initialState: {} }),
+      ).toEqual({ f: { a: 1 } });
+      // An array default drops it
+      const initialState = { tags: ['a'] };
+      expect(plain.parse('tags._=', { initialState })).toEqual({});
+      expect(plain.parseStandalone({ tags: ['_'] }, { initialState })).toEqual(
+        {},
+      );
+    });
+
     it('should round-trip dates', () => {
       const obj = { created: new Date('2024-01-15T12:00:00.000Z') };
       const serialized = plain.stringify(obj);

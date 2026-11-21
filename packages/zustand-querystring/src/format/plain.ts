@@ -388,16 +388,6 @@ function escapeKey(key: string, opts: ResolvedOptions): string {
 }
 
 /**
- * Parse a dot-notation key path into segments, handling escapes.
- */
-function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
-  const segments = splitEscaped(path, opts.nestingSep, opts.escape);
-  // Keys can have nestingSep, entrySep, and = escaped
-  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
-  return segments.map(seg => unescape(seg, opts.escape, keySpecials));
-}
-
-/**
  * Whether a container is an array, from its default and every child key the URL gives it.
  */
 function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
@@ -547,16 +537,23 @@ function plantEntries(
   opts: ResolvedOptions,
 ): Map<string, PathNode> {
   const root = { children: new Map<string, PathNode>() };
+  // Keys can have nestingSep, entrySep, and = escaped
+  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
   entries.forEach((values, key) => {
+    const path = splitEscaped(key, opts.nestingSep, opts.escape);
     // Empty object: a path whose last escaped segment is a lone escape char, with an empty value
     const isEmptyObject =
-      isEmptyObjectKey(key, opts) && values.length === 1 && values[0] === '';
-    const path = parseKeyPath(key, opts);
+      path.length > 1 &&
+      path[path.length - 1] === opts.escape &&
+      values.length === 1 &&
+      values[0] === '';
+    if (isEmptyObject) path.pop();
     let node: PathNode = root;
-    for (const segment of isEmptyObject ? path.slice(0, -1) : path) {
+    for (const segment of path) {
+      const name = unescape(segment, opts.escape, keySpecials);
       const children = (node.children ??= new Map());
-      let child = children.get(segment);
-      if (!child) children.set(segment, (child = {}));
+      let child = children.get(name);
+      if (!child) children.set(name, (child = {}));
       node = child;
     }
     if (isEmptyObject) {
