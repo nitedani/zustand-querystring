@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStore } from 'zustand/vanilla';
-import { compact, querystring } from './middleware';
+import { compact, createMap, querystring } from './middleware';
 import { marked } from './format/marked';
 import { plain } from './format/plain';
 import { json } from './format/json';
@@ -486,15 +486,41 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState()).toStrictEqual({ count: 5, a });
   });
 
-  it('marked: /?count=:5&filters=.status keeps the default filters', () => {
+  it.each([
+    ['/?count=:5&filters=.status', { filters: { status: 'all' } }],
+    ['/?count=:5&page=.png', { page: 1 }],
+    ['/?count=:5&on=.png', { on: true }],
+  ])('marked: %s keeps the default of a non-string field', (url, initial) => {
     const store = createStore(
-      querystring(() => ({ count: 0, filters: { status: 'all' } }), {
-        url: '/?count=:5&filters=.status',
+      querystring(() => ({ count: 0, ...initial }), {
+        url,
         key: false,
         format: marked,
       }),
     );
-    expect(store.getState()).toEqual({ count: 5, filters: { status: 'all' } });
+    expect(store.getState()).toStrictEqual({ count: 5, ...initial });
+  });
+
+  it('marked: a typed map never sees the text of a number field', () => {
+    const map = createMap({
+      to: ({ page, count }: { page: number; count: number }) => ({
+        page,
+        count,
+      }),
+      from: ({ page, count }) => ({
+        page: page === undefined ? undefined : Number(page.toFixed(0)),
+        count,
+      }),
+    });
+    const store = createStore(
+      querystring(() => ({ count: 0, page: 1 }), {
+        url: '/?count=:5&page=.png',
+        key: false,
+        format: marked,
+        map,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, page: 1 });
   });
 
   it.each([

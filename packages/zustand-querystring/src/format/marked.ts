@@ -690,9 +690,13 @@ export function createFormat(
           try {
             result[key] = parse(values[0], true, options);
           } catch {
-            // Text like next=./sale reads as written; an object field keeps its value
+            // Text like next=./sale reads as written; a field of another type keeps its value
             const initial = initialState[key];
-            if (typeof initial !== 'object' || initial === null) {
+            if (
+              initial === null ||
+              initial === undefined ||
+              typeof initial === 'string'
+            ) {
               result[key] = decodeComponent(values[0]);
             }
           }
