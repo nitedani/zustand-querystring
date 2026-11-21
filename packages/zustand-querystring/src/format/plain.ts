@@ -388,6 +388,16 @@ function escapeKey(key: string, opts: ResolvedOptions): string {
 }
 
 /**
+ * Parse a dot-notation key path into segments, handling escapes.
+ */
+function parseKeyPath(path: string, opts: ResolvedOptions): string[] {
+  const segments = splitEscaped(path, opts.nestingSep, opts.escape);
+  // Keys can have nestingSep, entrySep, and = escaped
+  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
+  return segments.map(seg => unescape(seg, opts.escape, keySpecials));
+}
+
+/**
  * Whether a container is an array, from its default and every child key the URL gives it.
  */
 function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
@@ -398,15 +408,6 @@ function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
     k => /^(0|[1-9]\d*)$/.test(k) && Number(k) < childKeys.length,
   );
   return isDense || typeof hint !== 'object' || hint === null;
-}
-
-function emptyObjectKey(key: string, opts: ResolvedOptions): string {
-  return key + opts.nestingSep + opts.escape;
-}
-
-function isEmptyObjectKey(key: string, opts: ResolvedOptions): boolean {
-  const segments = splitEscaped(key, opts.nestingSep, opts.escape);
-  return segments.length > 1 && segments[segments.length - 1] === opts.escape;
 }
 
 // =============================================================================
@@ -489,9 +490,9 @@ function flatten(
       continue;
     }
 
-    // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
+    // Empty object: the key with no values
     if (isPlainObject(value) && Object.keys(value).length === 0) {
-      result[emptyObjectKey(fullKey, opts)] = [''];
+      result[fullKey] = [];
       continue;
     }
 
@@ -537,26 +538,16 @@ function plantEntries(
   opts: ResolvedOptions,
 ): Map<string, PathNode> {
   const root = { children: new Map<string, PathNode>() };
-  // Keys can have nestingSep, entrySep, and = escaped
-  const keySpecials = [opts.nestingSep, opts.entrySep, '='];
   entries.forEach((values, key) => {
-    const path = splitEscaped(key, opts.nestingSep, opts.escape);
-    // Empty object: a path whose last escaped segment is a lone escape char, with an empty value
-    const isEmptyObject =
-      path.length > 1 &&
-      path[path.length - 1] === opts.escape &&
-      values.length === 1 &&
-      values[0] === '';
-    if (isEmptyObject) path.pop();
     let node: PathNode = root;
-    for (const segment of path) {
-      const name = unescape(segment, opts.escape, keySpecials);
+    for (const segment of parseKeyPath(key, opts)) {
       const children = (node.children ??= new Map());
-      let child = children.get(name);
-      if (!child) children.set(name, (child = {}));
+      let child = children.get(segment);
+      if (!child) children.set(segment, (child = {}));
       node = child;
     }
-    if (isEmptyObject) {
+    // An empty object's entry has no values
+    if (values.length === 0) {
       node.emptyObject = true;
     } else {
       // Of two spellings of one path (x_ and x__), the later one wins
@@ -769,20 +760,28 @@ function parseNamespaced(
 
   let currentKey: string | null = null;
   let currentParts: string[] = [];
+  // An empty object's key ends in a lone escape char, which reads the '=' after it as escaped.
+  const emptyObjectEnd = opts.nestingSep + opts.escape + '=';
+  // An empty object's entry has no values; a value at its path wins
+  const flush = () => {
+    if (currentKey === null) return;
+    if (currentParts.length > 0) {
+      addValue(entries, currentKey, currentParts.join(opts.entrySep));
+    } else if (!entries.has(currentKey)) {
+      entries.set(currentKey, []);
+    }
+  };
 
   for (const part of parts) {
-    let eqIndex = findUnescaped(part, '=', opts.escape);
-    // An empty object's key ends in a lone escape char, which reads the '=' after it as escaped.
-    if (eqIndex === -1 && part.endsWith(opts.nestingSep + opts.escape + '=')) {
-      eqIndex = part.length - 1;
-    }
+    const eqIndex = findUnescaped(part, '=', opts.escape);
 
-    if (eqIndex !== -1) {
+    if (eqIndex === -1 && part.endsWith(emptyObjectEnd)) {
+      flush();
+      currentKey = part.slice(0, -emptyObjectEnd.length);
+      currentParts = [];
+    } else if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
-      if (currentKey !== null) {
-        addValue(entries, currentKey, currentParts.join(opts.entrySep));
-      }
-
+      flush();
       currentKey = part.slice(0, eqIndex);
       currentParts = [part.slice(eqIndex + 1)];
     } else if (currentKey !== null) {
@@ -792,9 +791,7 @@ function parseNamespaced(
   }
 
   // Flush the last key
-  if (currentKey !== null) {
-    addValue(entries, currentKey, currentParts.join(opts.entrySep));
-  }
+  flush();
 
   return entries;
 }
@@ -807,7 +804,13 @@ function stringifyNamespaced(state: object, opts: ResolvedOptions): string {
   const parts: string[] = [];
 
   for (const [key, values] of Object.entries(entries)) {
-    if (opts.arraySep === 'repeat') {
+    if (values.length === 0) {
+      // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
+      parts.push(
+        encodePreservingMarkers(key + opts.nestingSep + opts.escape, opts) +
+          '=',
+      );
+    } else if (opts.arraySep === 'repeat') {
       // Repeated keys for arrays
       for (const value of values) {
         parts.push(
@@ -843,13 +846,9 @@ function stringifyStandalone(
   const entries = flatten(state, '', opts);
   const result: QueryStringParams = {};
 
-  for (const [flatKey, flatValues] of Object.entries(entries)) {
+  for (const [key, flatValues] of Object.entries(entries)) {
     // An empty object stands alone as its key with a lone escape char, which no escaped value is.
-    const emptyObject = isEmptyObjectKey(flatKey, opts);
-    const key = emptyObject
-      ? flatKey.slice(0, -emptyObjectKey('', opts).length)
-      : flatKey;
-    const values = emptyObject ? [opts.escape] : flatValues;
+    const values = flatValues.length === 0 ? [opts.escape] : flatValues;
     const encodedKey = encodePreservingMarkers(key, opts);
     const encodedValues = values.map(v => encodePreservingMarkers(v, opts));
 
@@ -877,11 +876,10 @@ function parseStandalone(
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeComponent(key);
     const decodedValues = values.map(v => decodeComponent(v));
-    if (decodedValues.length === 1 && decodedValues[0] === opts.escape) {
-      entries.set(emptyObjectKey(decodedKey, opts), ['']);
-    } else {
-      entries.set(decodedKey, decodedValues);
-    }
+    // An empty object's entry has no values
+    const isEmptyObject =
+      decodedValues.length === 1 && decodedValues[0] === opts.escape;
+    entries.set(decodedKey, isEmptyObject ? [] : decodedValues);
   }
 
   return unflatten(entries, initialState, opts);
