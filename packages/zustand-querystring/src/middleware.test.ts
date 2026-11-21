@@ -545,6 +545,17 @@ describe("server store (url option): a parameter the format can't read", () => {
       [{ sel: {} }, ['sel.007=x'], { sel: { '007': 'x' } }],
       [{}, ['f.1=red'], { f: [, 'red'] }],
       [{ tags: [] }, ['tags.0=a', 'tags.x=b'], { tags: ['a'] }],
+      [
+        { a: {} },
+        ['a.0.title=book', 'a.1.title=pen'],
+        { a: [{ title: 'book' }, { title: 'pen' }] },
+      ],
+      [{}, ['f.0=a', 'f._x=b'], { f: { 0: 'a', _x: 'b' } }],
+      [
+        { sel: {} },
+        ['sel.00=a', 'sel.01=b'],
+        { sel: { '00': 'a', '01': 'b' } },
+      ],
     ])(
       '%o reads %o as a container of the right kind',
       (initial, entries, expected) => {
