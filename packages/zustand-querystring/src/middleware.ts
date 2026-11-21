@@ -1,7 +1,7 @@
 import { isEqual, mergeWith } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
-import { pushOwn, setOwn } from './own.js';
+import { getOwn, setOwn } from './own.js';
 
 type Write<T, U> = Omit<T, keyof U> & U;
 
@@ -185,7 +185,9 @@ const parseSearchString = (search: string): QueryStringParams => {
       if (eqIndex === -1) return;
       const key = param.slice(0, eqIndex);
       const value = param.slice(eqIndex + 1);
-      pushOwn(result, key, value);
+      const values = getOwn(result, key);
+      if (values) values.push(value);
+      else setOwn(result, key, [value]);
     });
 
   return result;
