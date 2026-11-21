@@ -2119,6 +2119,18 @@ describe('navigation', () => {
     expect(url()).toBe('/b?status=:undefined');
   });
 
+  it('ignores a carried undefined, without syncUndefined', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ status: 'active' });
+
+    window.history.pushState({}, '', '/b?status=:undefined');
+    await settle();
+
+    expect(useStore.getState().status).toBe('active');
+    expect(url()).toBe('/b?status=active');
+  });
+
   it('sets a selected key the state lacks', async () => {
     const useStore = createNavStore({
       select: () => ({ count: true, search: true }),

@@ -468,6 +468,19 @@ describe('compact', () => {
 });
 
 describe('url option', () => {
+  it('an undefined in the URL sets the key only with syncUndefined', () => {
+    const create = (syncUndefined: boolean) =>
+      createStore<{ tag?: string }>()(
+        querystring(() => ({ tag: 'all' }), {
+          url: '/?tag=:undefined',
+          syncUndefined,
+        }),
+      );
+
+    expect(create(false).getState()).toStrictEqual({ tag: 'all' });
+    expect(create(true).getState()).toStrictEqual({ tag: undefined });
+  });
+
   it('a URL key merges into a class instance, keeping its methods and other fields', () => {
     class Panel {
       selected = 0;

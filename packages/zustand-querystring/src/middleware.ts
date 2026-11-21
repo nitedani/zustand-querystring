@@ -197,32 +197,6 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
-// URL state replaces the values it carries, undefined and arrays too; a plain object merges key by key, into a class instance too.
-const mergeUrlState = (
-  state: object,
-  urlState: object,
-  keepFunctions = false,
-) => {
-  const merged = Object.assign(
-    Object.create(Object.getPrototypeOf(state)),
-    state,
-  );
-  for (const [key, value] of Object.entries(urlState)) {
-    if (
-      keepFunctions &&
-      Object.prototype.hasOwnProperty.call(merged, key) &&
-      typeof merged[key] === 'function'
-    )
-      continue;
-    const current = merged[key];
-    merged[key] =
-      isPlainObject(value) && isObjectLike(current) && !Array.isArray(current)
-        ? mergeUrlState(current, value, keepFunctions)
-        : value;
-  }
-  return merged;
-};
-
 const parseSearchString = (search: string): QueryStringParams => {
   const result: QueryStringParams = {};
 
@@ -321,6 +295,33 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   /** Apply map.from if configured, otherwise pass through */
   const applyMapFrom = (urlState: object, pathname: string): object => {
     return map ? map.from(urlState, pathname) : urlState;
+  };
+
+  // URL state replaces the values it carries, arrays too, and undefined with syncUndefined; a plain object merges key by key, into a class instance too.
+  const mergeUrlState = (
+    state: object,
+    urlState: object,
+    keepFunctions = false,
+  ) => {
+    const merged = Object.assign(
+      Object.create(Object.getPrototypeOf(state)),
+      state,
+    );
+    for (const [key, value] of Object.entries(urlState)) {
+      if (value === undefined && !defaultedOptions.syncUndefined) continue;
+      if (
+        keepFunctions &&
+        Object.prototype.hasOwnProperty.call(merged, key) &&
+        typeof merged[key] === 'function'
+      )
+        continue;
+      const current = merged[key];
+      merged[key] =
+        isPlainObject(value) && isObjectLike(current) && !Array.isArray(current)
+          ? mergeUrlState(current, value, keepFunctions)
+          : value;
+    }
+    return merged;
   };
 
   const initialize = (url: URL, state, keepFunctions = false) => {
