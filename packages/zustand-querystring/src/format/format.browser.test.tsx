@@ -2387,6 +2387,63 @@ describe('navigation', () => {
     expect(url()).toBe('/b?id=:2');
   });
 
+  it('sets a class instance map.from returns inside an object', async () => {
+    class Item {
+      #id: number;
+      constructor(id: number) {
+        this.#id = id;
+      }
+      read() {
+        return this.#id;
+      }
+    }
+    const useStore = create<{ panel: { item: Item; label: string } }>()(
+      querystring(() => ({ panel: { item: new Item(1), label: 'details' } }), {
+        map: {
+          to: state => ({ id: state.panel.item.read() }),
+          from: urlState => ({
+            panel: { item: new Item(urlState.id as number) },
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { panel: { item: new Item(2), label: 'details' } }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().panel.item.read()).toBe(2);
+    expect(useStore.getState().panel.label).toBe('details');
+  });
+
+  it('keeps an unchanged date, when another param changes', async () => {
+    const useStore = create<{ since: Date }>()(
+      querystring(() => ({ since: new Date('2025-01-01T00:00:00.000Z') }), {
+        format: plain,
+      }),
+    );
+    const since = new Date('2025-02-01T00:00:00.000Z');
+    useStore.setState({ since });
+    let calls = 0;
+    const unsubscribe = useStore.subscribe(() => calls++);
+
+    window.history.pushState(
+      {},
+      '',
+      window.location.pathname + window.location.search + '&utm_source=x',
+    );
+    await settle();
+    unsubscribe();
+
+    expect(calls).toBe(0);
+    expect(useStore.getState().since).toBe(since);
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),

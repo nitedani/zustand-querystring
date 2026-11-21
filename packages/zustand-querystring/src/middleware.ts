@@ -1,8 +1,14 @@
 import {
+  isDate,
   isEmpty,
   isEqual,
+  isEqualWith,
+  isMap,
   isObjectLike,
   isPlainObject,
+  isRegExp,
+  isSet,
+  isTypedArray,
   mergeWith,
   pickBy,
 } from 'lodash-es';
@@ -188,6 +194,27 @@ const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
   seen.add(value);
   return Object.values(value as object).some(v => holdsFunction(v, seen));
 };
+
+// An instance of a user class, which isEqual compares by its visible fields only, missing private ones.
+const isInstance = (value: unknown) => {
+  if (!isObjectLike(value) || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return (
+    proto !== Object.prototype &&
+    proto !== null &&
+    !isDate(value) &&
+    !isRegExp(value) &&
+    !isMap(value) &&
+    !isSet(value) &&
+    !isTypedArray(value)
+  );
+};
+
+// Deep equality where an instance, at any depth, equals only itself.
+const isSameState = (a: unknown, b: unknown) =>
+  isEqualWith(a, b, (x, y) =>
+    isInstance(x) || isInstance(y) ? x === y : undefined,
+  );
 
 // The params of a search in order, as raw text; a param without a value has none.
 const splitSearch = (search: string) =>
@@ -501,14 +528,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
-      // An instance, like one map.from returns, is changed unless it is the same one: isEqual may not see its fields.
       const changed = pickBy(next, (value, key) =>
         key in current
-          ? isObjectLike(value) &&
-            !isPlainObject(value) &&
-            !Array.isArray(value)
-            ? value !== current[key]
-            : !isEqual(value, current[key])
+          ? !isSameState(value, current[key])
           : !standalone ||
             Boolean(defaultedOptions.prefix || defaultedOptions.select),
       );
