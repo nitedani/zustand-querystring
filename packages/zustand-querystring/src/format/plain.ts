@@ -443,12 +443,7 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
-  initialState: object,
 ): void {
-  const underArray = (i: number) =>
-    Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
-  if (path.some((key, i) => isLargeIndex(key) && underArray(i))) return;
-
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
@@ -591,6 +586,9 @@ function unflatten(
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
+    const underArray = (i: number) =>
+      Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
+    if (path.some((seg, i) => isLargeIndex(seg) && underArray(i))) continue;
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
@@ -634,13 +632,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], initialState);
+      setAtPath(result, path, []);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts), initialState);
+      setAtPath(result, path, parseValue(values[0], hint, opts));
       continue;
     }
 
@@ -650,7 +648,6 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
-      initialState,
     );
   }
 
