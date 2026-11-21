@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStore } from 'zustand/vanilla';
-import { compact, querystring } from './middleware';
+import { compact, querystring, type ParseContext } from './middleware';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -497,6 +497,32 @@ describe('url option', () => {
     );
 
     expect(store.getState().filter.label()).toBe('all:4');
+  });
+
+  it('with select, a format parses with the selected initial state', () => {
+    // Writes the values in order and reads them back by the keys' order.
+    const format = {
+      stringify: (state: object) => JSON.stringify(Object.values(state)),
+      parse: (value: string, ctx?: ParseContext) => {
+        const keys = Object.keys(ctx!.initialState);
+        return Object.fromEntries(
+          JSON.parse(decodeURIComponent(value)).map((v: unknown, i: number) => [
+            keys[i],
+            v,
+          ]),
+        );
+      },
+    };
+    const store = createStore(
+      querystring(() => ({ sort: 'recent', count: 0 }), {
+        url: '/review?state=%5B3%5D',
+        key: 'state',
+        select: () => ({ count: true }),
+        format,
+      }),
+    );
+
+    expect(store.getState()).toEqual({ sort: 'recent', count: 3 });
   });
 
   it('an empty object in the URL leaves a class instance as it is', () => {

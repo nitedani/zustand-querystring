@@ -371,12 +371,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   let initialState: ReturnType<typeof fn>;
 
   // The initial state in URL shape: the parse hints and the diff baseline.
-  const urlDefaults = (pathname: string): object => {
-    if (defaultedOptions.map) {
-      return urlStateOf(initialState, pathname);
-    }
-    return initialState as object;
-  };
+  const urlDefaults = (pathname: string): object =>
+    urlStateOf(initialState, pathname);
 
   // The params this store writes for a state in URL shape.
   const ownedKeys = (urlState: object) =>
