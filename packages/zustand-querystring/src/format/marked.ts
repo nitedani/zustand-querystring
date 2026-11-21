@@ -579,8 +579,12 @@ function createParser(opts: ResolvedOptions) {
       );
     }
 
+    const isPrimitive = startsWith(tokens.typePrimitive);
     const value = parseValue();
-    if (value === unreadable) throw new Error('Unexpected primitive');
+    // A root primitive is the whole value: :90, off% is no number
+    if (value === unreadable || (isPrimitive && pos < source.length)) {
+      throw new Error('Unexpected primitive');
+    }
     return value as T;
   };
 }
