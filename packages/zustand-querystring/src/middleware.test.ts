@@ -598,6 +598,36 @@ describe("server store (url option): a parameter the format can't read", () => {
       expect(rest).toStrictEqual({ count: 5 });
       expect(constructor).toStrictEqual({ prototype: { polluted: 'yes' } });
     });
+
+    it.each([
+      [{}, ['hasOwnProperty.call=1'], { hasOwnProperty: { call: 1 } }],
+      [{ tags: [] }, ['tags.constructor.prototype.x=1'], { tags: [] }],
+      [{ tags: [] }, ['tags.___proto____.x=1'], { tags: [] }],
+    ])(
+      '%o reads %o without changing a prototype',
+      (initial, entries, expected) => {
+        try {
+          const store = createStore(
+            querystring(() => ({ count: 0, ...initial }), {
+              url: urlOf(entries),
+              key,
+              prefix: 's_',
+              format: plain,
+            }),
+          );
+          expect(({} as { x?: unknown }).x).toBeUndefined();
+          expect(([] as { x?: unknown }).x).toBeUndefined();
+          expect(Object.prototype.hasOwnProperty.call).toBe(
+            Function.prototype.call,
+          );
+          expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+        } finally {
+          delete (Object.prototype as { x?: unknown }).x;
+          delete (Array.prototype as { x?: unknown }).x;
+          delete (Object.prototype.hasOwnProperty as { call?: unknown }).call;
+        }
+      },
+    );
   });
 
   it.each([
