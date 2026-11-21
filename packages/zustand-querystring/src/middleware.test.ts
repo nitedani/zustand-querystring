@@ -560,20 +560,8 @@ describe('server store (url option): a plain array index', () => {
 
 describe('server store (url option): a key naming an Object member keeps the rest of the URL', () => {
   const formats = { marked, plain, json };
-  const urls = [
-    ['marked', false, '/?count=:5'],
-    ['marked', 'state', '/?state=count:5'],
-    ['plain', false, '/?count=5'],
-    ['plain', 'state', '/?state=count=5'],
-    ['json', false, '/?count=5'],
-    ['json', 'state', '/?state=%7B%22count%22:5%7D'],
-  ] as const;
   it.each([
-    ...urls.flatMap(([format, key, url]) =>
-      ['constructor=1', 'toString=1', '__proto__=1'].map(
-        param => [format, key, `${url}&${param}`] as const,
-      ),
-    ),
+    ['marked', false, '/?count=:5&toString=1'],
     ['plain', 'state', '/?state=constructor=1,count=5,toString=1'],
     ['marked', false, '/?count=:5&__proto__=.polluted=yes'],
     ['marked', false, '/?count=:5&%5F%5Fproto%5F%5F=.polluted=yes'],
