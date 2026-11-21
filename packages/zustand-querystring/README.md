@@ -168,7 +168,9 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
-3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Keys the URL carries are set, other keys keep their value.
+3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
+
+A navigation is read while something subscribes to the store, like a component that uses it. Back and Forward read the entry's URL the same way, so a key that URL leaves out keeps its current value.
 
 Only values **different from initial state** are written to URL:
 
@@ -189,20 +191,18 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns the URL the store would write after `setState(state)` on that page. The keys in `state` are written even at their initial value, so a link can clear a filter:
+`useStore.href(pathname, state)` returns a URL for `pathname` with the store's state and `state` applied. To clear a filter, pass its initial value. Call it in a selector, so the link updates when the state changes:
 
 ```tsx
 // Initial: { status: 'all', search: '' }
 // Current: { status: 'active', search: 'acme' }
-<a href={useStore.href('/customers', { status: 'all' })}>All customers</a>
-// href: /customers?search=acme&status=all
-```
-
-`href` reads the state when it is called. To update the link when the state changes, call it in a selector:
-
-```tsx
 const href = useStore(() => useStore.href('/customers', { status: 'all' }));
+// href: /customers?search=acme&status=all
+
+<Link href={href}>All customers</Link>;
 ```
+
+Navigate to it on the client, with your router's `Link` or `router.push(href)`. A full page load creates the store again from the URL.
 
 ---
 
