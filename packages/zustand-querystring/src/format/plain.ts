@@ -457,7 +457,7 @@ function setAtPath(
 
   const lastKey = path[path.length - 1];
 
-  if (/^\d+$/.test(lastKey)) {
+  if (Array.isArray(current) && /^\d+$/.test(lastKey)) {
     (current as unknown as unknown[])[parseInt(lastKey, 10)] = value;
   } else {
     setOwn(current, lastKey, value);
