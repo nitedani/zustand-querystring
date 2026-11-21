@@ -498,6 +498,18 @@ describe('url option', () => {
 
     expect(store.getState().filter.label()).toBe('all:4');
   });
+
+  it('an empty object in the URL leaves a class instance as it is', () => {
+    class Filter {
+      rating = 2;
+    }
+    const filter = new Filter();
+    const store = createStore<{ filter: Filter }>()(
+      querystring(() => ({ filter }), { url: '/results?filter=.' }),
+    );
+
+    expect(store.getState().filter).toBe(filter);
+  });
 });
 
 describe('href', () => {

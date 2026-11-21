@@ -312,7 +312,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.from(urlState, pathname) : urlState;
   };
 
-  // URL state replaces the values it carries, arrays and an empty object too, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
+  // URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
   const mergeUrlState = (
     state: object,
     urlState: object,
@@ -326,7 +326,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         navigation &&
         Object.prototype.hasOwnProperty.call(merged, key) &&
         (typeof current === 'function' ||
-          (!isPlainObject(value) &&
+          ((!isPlainObject(value) || isEmpty(value)) &&
             isPlainObject(current) &&
             Object.values(current).some(v => typeof v === 'function')))
       )
@@ -337,9 +337,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         !Array.isArray(current)
       ) {
         if (navigation && !isPlainObject(current)) continue;
-        merged[key] = isEmpty(value)
-          ? value
-          : mergeUrlState(current, value, navigation);
+        merged[key] =
+          isEmpty(value) && isPlainObject(current)
+            ? value
+            : mergeUrlState(current, value, navigation);
       } else {
         merged[key] = value;
       }
@@ -474,7 +475,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      // A navigation never replaces a function, like an action, nor an object holding one with a value that isn't a plain object.
+      // A navigation never replaces a function, like an action, nor an object holding one with anything but a non-empty plain object.
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>

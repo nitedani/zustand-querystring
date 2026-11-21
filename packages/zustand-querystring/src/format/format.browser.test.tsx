@@ -2258,6 +2258,11 @@ describe('navigation', () => {
 
     window.history.pushState({}, '', '/results?menu=.value=open');
     await settle();
+    expect(useStore.getState().menu.value).toBe('open');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+
+    window.history.pushState({}, '', '/results?menu=.');
+    await settle();
     unsubscribe();
     expect(useStore.getState().menu.value).toBe('open');
     expect(useStore.getState().menu.toggle()).toBe('toggled');
