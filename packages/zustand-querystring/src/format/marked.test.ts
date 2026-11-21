@@ -471,6 +471,10 @@ describe('marked format', () => {
         negInfinity: -Infinity,
         scientific: 1.23e-10,
         large: 9007199254740991,
+        negative: -42,
+        decimal: -0.25,
+        exponent: 1e21,
+        nan: NaN,
       };
       const encoded = stringify(obj, standalone);
       const parsed = parse(encoded, standalone) as typeof obj;
@@ -479,6 +483,10 @@ describe('marked format', () => {
       expect(parsed.negInfinity).toBe(-Infinity);
       expect(parsed.scientific).toBe(1.23e-10);
       expect(parsed.large).toBe(9007199254740991);
+      expect(parsed.negative).toBe(-42);
+      expect(parsed.decimal).toBe(-0.25);
+      expect(parsed.exponent).toBe(1e21);
+      expect(parsed.nan).toBe(NaN);
     });
 
     testBothModes('should preserve null values in objects', standalone => {
@@ -1430,9 +1438,8 @@ describe('marked format', () => {
       const state = { a: 1, b: 2 };
       const encoded1 = format1.stringify(state);
 
-      // Parsing with different config should not produce same result
-      const parsed2 = format2.parse(encoded1);
-      expect(parsed2).not.toEqual(state);
+      // Parsing with different config reads 1,b:2 as one number and fails
+      expect(() => format2.parse(encoded1)).toThrow();
     });
 
     it('should preserve original default tokens in values when using custom config', () => {

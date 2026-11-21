@@ -490,6 +490,7 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['/?count=:5&filters=.status', { filters: { status: 'all' } }],
     ['/?count=:5&page=.png', { page: 1 }],
     ['/?count=:5&on=.png', { on: true }],
+    ['/?count=:5&page=:90abc', { page: 1 }],
   ])('marked: %s keeps the default of a non-string field', (url, initial) => {
     const store = createStore(
       querystring(() => ({ count: 0, ...initial }), {
@@ -529,6 +530,7 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['marked', '/?count=:5&q=caf%C3%A9%20100%', false, 'café 100%', marked],
     ['marked', '/?count=:5&q=./sale/50%off', false, './sale/50%off', marked],
     ['marked', '/?count=:5&q=%41%E2%25', false, 'A%E2%', marked],
+    ['marked', '/?count=:5&q=:90%', false, ':90%', marked],
     ['plain', '/?count=5&q=%41%E2%25', false, 'A%E2%', plain],
     ['plain', '/?count=5&q=%C0%AF%41%', false, '%C0%AFA%', plain],
     ['json', '/?count=5&q=%22100%%22', false, '100%', json],

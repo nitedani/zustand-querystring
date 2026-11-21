@@ -403,6 +403,10 @@ function createSerializer(opts: ResolvedOptions) {
 // PARSING
 // =============================================================================
 
+// A whole number token, like the serializer's 5, -0.25, 1e+21, Infinity and NaN
+const numberPattern =
+  /^[+-]?(?:Infinity|NaN|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
+
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
@@ -463,6 +467,9 @@ function createParser(opts: ResolvedOptions) {
       if (value === 'undefined') return undefined;
       if (value === 'true') return true;
       if (value === 'false') return false;
+      if (!numberPattern.test(value)) {
+        throw new Error(`Unexpected primitive "${value}"`);
+      }
       return parseFloat(value);
     }
 
