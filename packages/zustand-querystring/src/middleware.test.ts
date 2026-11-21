@@ -482,6 +482,13 @@ describe("server store (url option): a parameter the format can't read", () => {
       marked,
     ],
     ['marked', '/?count=:5&ext=.png', {}, { ext: '.png' }, marked],
+    [
+      'marked',
+      '/?count=:5&toString=./sale',
+      {},
+      { toString: './sale' },
+      marked,
+    ],
     ['marked', '/?count=:5&ext=.png', { ext: null }, { ext: '.png' }, marked],
   ] as const)(
     '%s: %s still restores count (initial %o)',
