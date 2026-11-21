@@ -1882,7 +1882,7 @@ describe('navigation', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('a link to another page sets the keys it carries and keeps the others', async () => {
+  it('a cross-path address change sets the keys it carries and keeps the others', async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
     useStore.setState({ count: 5, other: 3 });
@@ -1894,7 +1894,7 @@ describe('navigation', () => {
     expect(url()).toBe('/b?count=:7&other=:3');
   });
 
-  it('setState then router.push writes the state to the new page', async () => {
+  it('setState then a pathname change writes the state to the new page', async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
 
@@ -1906,7 +1906,7 @@ describe('navigation', () => {
     expect(url()).toBe('/b?count=:9');
   });
 
-  it('a link that changes only the query sets the key', async () => {
+  it('a query-only address change sets the key', async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
 
