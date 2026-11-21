@@ -2099,9 +2099,11 @@ describe('navigation', () => {
         throw new Error('failed');
       }),
     ).toThrow('failed');
+    window.history.pushState({}, '', '/b?count=:3');
     await settle();
 
-    expect(url()).toBe('/b?count=:2');
+    expect(useStore.getState().count).toBe(2);
+    expect(url()).toBe('/b?count=:3');
   });
 
   it("a store unsubscribed by the navigation its timer reads doesn't write", async () => {
