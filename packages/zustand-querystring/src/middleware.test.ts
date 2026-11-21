@@ -631,4 +631,19 @@ describe('server store: setDefaults', () => {
     const store = createStore(querystring(() => ({ count: 0 }), options));
     expect(() => store.setDefaults({ count: 5 })).not.toThrow();
   });
+
+  it.each([
+    ['with url', { url: '/review' }],
+    ['without url', {}],
+  ] as const)('%s: setDefaults works inside the initializer', (_, options) => {
+    const store = createStore<{ view: string }>()(
+      querystring((_set, _get, api) => {
+        api.setDefaults({ view: 'list' });
+        return { view: 'grid' };
+      }, options),
+    );
+
+    expect(store.getState().view).toBe('grid');
+    expect(store.href('/review')).toBe('/review?view=grid');
+  });
 });

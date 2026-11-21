@@ -424,19 +424,24 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       : {};
   };
 
+  const withDefaults = (state, partial) =>
+    mergeWith({}, state, partial, (_objValue, srcValue) => {
+      if (Array.isArray(srcValue)) {
+        return srcValue;
+      }
+      return undefined;
+    });
+
   // @ts-ignore - typed via StoreMutators augmentation
   api.setDefaults = (partial: Partial<typeof initialState>) => {
-    initialState = mergeWith(
-      {},
-      initialState,
-      partial,
-      (_objValue, srcValue) => {
-        if (Array.isArray(srcValue)) {
-          return srcValue;
-        }
-        return undefined;
-      },
-    );
+    initialState = withDefaults(initialState, partial);
+  };
+
+  // A setDefaults call inside the initializer applies to the state it returns.
+  const createState = (setState: typeof set) => {
+    const state = fn(setState, get, api);
+    initialState = initialState ? withDefaults(state, initialState) : state;
+    return state;
   };
 
   // @ts-ignore - typed via StoreMutators augmentation
@@ -467,7 +472,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         apply(...(args as Parameters<typeof set>));
         setQuery();
       };
-    initialState = fn(withUrl(set), get, api);
+    const state = createState(withUrl(set));
 
     // Track previously managed URL keys so we can remove orphaned params
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
@@ -574,7 +579,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
     }
     api.setState = withUrl(api.setState);
-    const initialized = initialize(new URL(window.location.href), initialState);
+    const initialized = initialize(new URL(window.location.href), state);
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     previouslyManagedKeys = ownedKeys(
@@ -583,17 +588,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
-    initialState = fn(set, get, api);
     const initialized = initialize(
       new URL(defaultedOptions.url, 'http://localhost'),
-      initialState,
+      createState(set),
     );
     api.getInitialState = () => initialized;
     return initialized;
   }
 
-  initialState = fn(set, get, api);
-  return initialState;
+  return createState(set);
 };
 
 export const querystring = queryStringImpl as unknown as QueryString;
