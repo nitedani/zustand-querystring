@@ -168,11 +168,11 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
-3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
+3. **On navigation** (a link, `router.push`, Back/Forward): URL → State, then State → URL. Store keys missing from the URL keep their values, a key the state lacks is set only with `key`, `prefix` or `select`, and other params, like `utm_source`, stay in the URL.
 
 A navigation is read while something subscribes to the store, like a component that uses it. Back and Forward read the entry's URL the same way, so a key that URL leaves out keeps its current value.
 
-Only values **different from initial state** are written to URL:
+When the store writes the current URL, only values **different from initial state** are written:
 
 ```ts
 // Initial: { search: '', page: 1, sort: 'date' }
@@ -191,7 +191,7 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the store's state and `state` applied. To clear a filter, pass its initial value. Call it in a selector, so the link updates when the state changes:
+`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. To clear a filter, pass its initial value. Call it in a selector, so the link updates when the state changes:
 
 ```tsx
 // Initial: { status: 'all', search: '' }

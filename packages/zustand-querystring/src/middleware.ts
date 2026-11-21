@@ -431,11 +431,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
-      // Only changed keys, so the others keep their references; a key the state lacks is new with select, and ignored without it.
+      // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
       const changed = pickBy(next, (value, key) =>
         key in current
           ? !isEqual(value, current[key])
-          : Boolean(defaultedOptions.select),
+          : !standalone ||
+            Boolean(defaultedOptions.prefix || defaultedOptions.select),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };

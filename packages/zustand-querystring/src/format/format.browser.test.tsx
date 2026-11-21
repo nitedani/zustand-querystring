@@ -2114,6 +2114,24 @@ describe('navigation', () => {
     expect(url()).toBe('/b?search=acme');
   });
 
+  it("sets a key the state lacks from the store's own namespace or prefix", async () => {
+    for (const [options, expected] of [
+      [{ key: 'state', prefix: 'f_' }, '/b?f_state=search=acme'],
+      [{ prefix: 'f_' }, '/b?f_search=acme'],
+    ] as const) {
+      window.history.replaceState({}, '', '/');
+      const useStore = createNavStore(options);
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', useStore.href('/b', { search: 'acme' }));
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().search).toBe('acme');
+      expect(url()).toBe(expected);
+    }
+  });
+
   it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {
     const useStore = createNavStore({
       syncUndefined: true,
