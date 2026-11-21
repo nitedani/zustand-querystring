@@ -489,7 +489,7 @@ describe('marked format', () => {
       expect(parsed.nan).toBe(NaN);
     });
 
-    it('should skip an object entry whose number is unreadable', () => {
+    it('should skip an entry or element whose number is unreadable', () => {
       expect(parse('count:5abc,q=x')).toEqual({ q: 'x' });
       expect(parse('count:5,f.a:90%,b=x~,q=x')).toEqual({
         count: 5,
@@ -498,7 +498,11 @@ describe('marked format', () => {
       });
       expect(parse('.page:90%,status=open', true)).toEqual({ status: 'open' });
       expect(() => parse('count:5,q')).toThrow();
-      expect(() => parse('count:5,f@:1,:2x~,q=x')).toThrow();
+      expect(parse('count:5,f@:1,:2x~,q=x')).toEqual({
+        count: 5,
+        f: [1],
+        q: 'x',
+      });
     });
 
     testBothModes('should preserve null values in objects', standalone => {

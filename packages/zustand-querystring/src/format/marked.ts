@@ -407,6 +407,9 @@ function createSerializer(opts: ResolvedOptions) {
 const numberPattern =
   /^[+-]?(?:Infinity|NaN|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
 
+// What parsePrimitive returns for a token that is no primitive (:5abc)
+const unreadable = Symbol('unreadable');
+
 function createParser(opts: ResolvedOptions) {
   const keyStop = buildKeyStopPattern(opts);
   const valueStop = buildValueStopPattern(opts);
@@ -461,15 +464,18 @@ function createParser(opts: ResolvedOptions) {
       return value;
     }
 
-    function parsePrimitive(): number | boolean | null | undefined {
+    function parsePrimitive():
+      | number
+      | boolean
+      | null
+      | undefined
+      | typeof unreadable {
       const { value } = readUntil(valueStop);
       if (value === 'null') return null;
       if (value === 'undefined') return undefined;
       if (value === 'true') return true;
       if (value === 'false') return false;
-      if (!numberPattern.test(value)) {
-        throw new Error(`Unexpected primitive "${value}"`);
-      }
+      if (!numberPattern.test(value)) return unreadable;
       return parseFloat(value);
     }
 
@@ -493,7 +499,9 @@ function createParser(opts: ResolvedOptions) {
           startsWith(tokens.typeObject) ||
           startsWith(tokens.typeString)
         ) {
-          result.push(parseValue());
+          const value = parseValue();
+          // An unreadable number skips only its own element
+          if (value !== unreadable) result.push(value);
         } else {
           const start = pos;
           result.push(parseString(markedStartPattern));
@@ -526,18 +534,15 @@ function createParser(opts: ResolvedOptions) {
       const result: Record<string, unknown> = {};
       while (pos < source.length && !startsWith(tokens.terminator)) {
         const { value: key } = readUntil(keyStop, keyStartPattern);
-        const isPrimitive = startsWith(tokens.typePrimitive);
-        try {
+        const value = parseValue();
+        if (value !== unreadable) {
           // Defined, not assigned: assigning a __proto__ key would set the prototype
           Object.defineProperty(result, key, {
-            value: parseValue(),
+            value,
             enumerable: true,
             writable: true,
             configurable: true,
           });
-        } catch (error) {
-          // An unreadable number (count:5abc) skips only its own entry
-          if (!isPrimitive) throw error;
         }
         if (
           pos < source.length &&
@@ -574,7 +579,9 @@ function createParser(opts: ResolvedOptions) {
       );
     }
 
-    return parseValue() as T;
+    const value = parseValue();
+    if (value === unreadable) throw new Error('Unexpected primitive');
+    return value as T;
   };
 }
 

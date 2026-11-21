@@ -569,14 +569,17 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState()).toEqual({ count: 5, q });
   });
 
-  it('marked: /?state=count:5abc,q=x still reads q', () => {
+  it.each([
+    ['/?state=count:5abc,q=x', { count: 0, q: 'x' }],
+    ['/?state=count:5,ids@:1,:2x,:3', { count: 5, q: '', ids: [1, 3] }],
+  ])('marked: %s skips only the unreadable number', (url, expected) => {
     const store = createStore(
       querystring(() => ({ count: 0, q: '' }), {
-        url: '/?state=count:5abc,q=x',
+        url,
         key: 'state',
         format: marked,
       }),
     );
-    expect(store.getState()).toStrictEqual({ count: 0, q: 'x' });
+    expect(store.getState()).toStrictEqual(expected);
   });
 });
