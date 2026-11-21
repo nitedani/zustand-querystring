@@ -162,8 +162,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return isObject(value) && Object.getPrototypeOf(value) === Object.prototype;
+function isEmptyObject(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.keys(value).length === 0
+  );
 }
 
 // =============================================================================
@@ -468,7 +472,10 @@ function flatten(
           const item = value[i];
           const indexedKey = fullKey + opts.nestingSep + i;
 
-          if (isObject(item)) {
+          if (isEmptyObject(item)) {
+            // Empty object: the indexed key with no values
+            result[indexedKey] = [];
+          } else if (isObject(item)) {
             Object.assign(result, flatten(item, indexedKey, opts));
           } else {
             const serialized = serializeValue(item, opts);
@@ -491,7 +498,7 @@ function flatten(
     }
 
     // Empty object: the key with no values
-    if (isPlainObject(value) && Object.keys(value).length === 0) {
+    if (isEmptyObject(value)) {
       result[fullKey] = [];
       continue;
     }

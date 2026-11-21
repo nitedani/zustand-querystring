@@ -282,6 +282,28 @@ describe('plain format', () => {
       expect(plain.parse(serialized, { initialState: {} })).toEqual(obj);
     });
 
+    it('should round-trip an empty object in an array', () => {
+      for (const [state, namespaced, standalone] of [
+        [
+          { rows: [{}, { name: 'b' }] },
+          'rows.0._=,rows.1.name=b',
+          { 'rows.0': ['_'], 'rows.1.name': ['b'] },
+        ],
+        [{ rows: [{}] }, 'rows.0._=', { 'rows.0': ['_'] }],
+      ] as const) {
+        const value = plain.stringify(state);
+        expect(value).toBe(namespaced);
+        const params = plain.stringifyStandalone(state);
+        expect(params).toEqual(standalone);
+        for (const initialState of [{}, { rows: [{ name: 'a' }] }]) {
+          expect(plain.parse(value, { initialState })).toEqual(state);
+          expect(plain.parseStandalone(params, { initialState })).toEqual(
+            state,
+          );
+        }
+      }
+    });
+
     it('should keep an empty object apart from an entry with an empty or escape-char label', () => {
       for (const fmt of [plain, createFormat({ nestingSeparator: '::' })]) {
         const sep = fmt === plain ? '.' : '::';
