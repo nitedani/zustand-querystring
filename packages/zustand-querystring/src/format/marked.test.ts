@@ -471,6 +471,10 @@ describe('marked format', () => {
         negInfinity: -Infinity,
         scientific: 1.23e-10,
         large: 9007199254740991,
+        negative: -42,
+        decimal: -0.25,
+        exponent: 1e21,
+        nan: NaN,
       };
       const encoded = stringify(obj, standalone);
       const parsed = parse(encoded, standalone) as typeof obj;
@@ -479,6 +483,26 @@ describe('marked format', () => {
       expect(parsed.negInfinity).toBe(-Infinity);
       expect(parsed.scientific).toBe(1.23e-10);
       expect(parsed.large).toBe(9007199254740991);
+      expect(parsed.negative).toBe(-42);
+      expect(parsed.decimal).toBe(-0.25);
+      expect(parsed.exponent).toBe(1e21);
+      expect(parsed.nan).toBe(NaN);
+    });
+
+    it('should skip an entry or element whose number is unreadable', () => {
+      expect(parse('count:5abc,q=x')).toEqual({ q: 'x' });
+      expect(parse('count:5,f.a:90%,b=x~,q=x')).toEqual({
+        count: 5,
+        f: { b: 'x' },
+        q: 'x',
+      });
+      expect(parse('.page:90%,status=open', true)).toEqual({ status: 'open' });
+      expect(() => parse('count:5,q')).toThrow();
+      expect(parse('count:5,f@:1,:2x~,q=x')).toEqual({
+        count: 5,
+        f: [1],
+        q: 'x',
+      });
     });
 
     testBothModes('should preserve null values in objects', standalone => {

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { compact } from './middleware';
+import { createStore } from 'zustand/vanilla';
+import { compact, createMap, querystring } from './middleware';
+import { marked } from './format/marked';
+import { plain } from './format/plain';
+import { json } from './format/json';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -449,5 +453,279 @@ describe('compact', () => {
 
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
+  });
+});
+
+describe("server store (url option): a parameter the format can't read", () => {
+  it.each([
+    [
+      'marked',
+      '/?count=:5&utm_content=50%off',
+      {},
+      { utm_content: '50%off' },
+      marked,
+    ],
+    [
+      'plain',
+      '/?count=5&utm_content=50%off',
+      {},
+      { utm_content: '50%off' },
+      plain,
+    ],
+    ['json', '/?count=5&utm_content=50%off', {}, {}, json],
+    ['marked', '/?count=:5&50%off=1', {}, { '50%off': '1' }, marked],
+    [
+      'marked',
+      '/?count=:5&next=./sale/50%off',
+      {},
+      { next: './sale/50%off' },
+      marked,
+    ],
+    ['marked', '/?count=:5&ext=.png', {}, { ext: '.png' }, marked],
+    ['marked', '/?count=:5&ext=.png', { ext: null }, { ext: '.png' }, marked],
+  ] as const)(
+    '%s: %s still restores count (initial %o)',
+    (_, url, initial, expected, format) => {
+      const store = createStore(
+        querystring(() => ({ count: 0, ...initial }), {
+          url,
+          key: false,
+          format,
+        }),
+      );
+      expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+    },
+  );
+
+  it.each([
+    ['/?count=5&a=1&a.b=2', 1],
+    ['/?count=5&a=red&a=blue&a.0=9', ['red', 'blue']],
+    ['/?count=5&a.0=9&a=red&a=blue', ['red', 'blue']],
+    ['/?count=5&a=undefined&a.b=2', undefined],
+    ['/?count=5&a=red&a=blue&a.length=oops', ['red', 'blue']],
+    ['/?count=5&a.length=oops&a=red&a=blue', ['red', 'blue']],
+  ])('plain: %s keeps a as the shorter path set it', (url, a) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), { url, key: false, format: plain }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, a });
+  });
+
+  it('plain: /?count=5&x_=1&x__=2 reads the later spelling of x_', () => {
+    const store = createStore(
+      querystring(() => ({ count: 0, x_: '' }), {
+        url: '/?count=5&x_=1&x__=2',
+        key: false,
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, x_: '2' });
+  });
+
+  it.each([
+    ['/?s_count=5&s_a.comment=promo', ['keep']],
+    ['/?s_count=5&s_a.0.tags.length=oops', [{ tags: ['keep'] }]],
+  ])('plain: %s leaves the default of a dropped path', (url, a) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, a }), {
+        url,
+        key: false,
+        prefix: 's_',
+        format: plain,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, a });
+  });
+
+  describe.each([false, 'state'] as const)('plain (key: %s)', key => {
+    const urlOf = (entries: string[]) =>
+      key
+        ? `/?s_state=${['count=5', ...entries].join(',')}`
+        : `/?${['count=5', ...entries].map(e => `s_${e}`).join('&')}`;
+
+    it.each([
+      [{ a: {} }, ['a.0.title=book'], { a: [{ title: 'book' }] }],
+      [{}, ['f.0=red', 'f.color=blue'], { f: { 0: 'red', color: 'blue' } }],
+      [
+        { filters: {} },
+        ['filters.0=red', 'filters.all=blue'],
+        { filters: { 0: 'red', all: 'blue' } },
+      ],
+      [{ selected: {} }, ['selected.42=true'], { selected: { 42: true } }],
+      [{ sel: {} }, ['sel.007=x'], { sel: { '007': 'x' } }],
+      [{}, ['f.1=red'], { f: [, 'red'] }],
+      [{ tags: [] }, ['tags.0=a', 'tags.x=b'], { tags: ['a'] }],
+      [
+        { a: {} },
+        ['a.0.title=book', 'a.1.title=pen'],
+        { a: [{ title: 'book' }, { title: 'pen' }] },
+      ],
+      [{}, ['f.0=a', 'f._x=b'], { f: { 0: 'a', _x: 'b' } }],
+      [
+        { sel: {} },
+        ['sel.00=a', 'sel.01=b'],
+        { sel: { '00': 'a', '01': 'b' } },
+      ],
+      [{}, ['a.01.x=1'], { a: [, { x: 1 }] }],
+      [{}, ['a.toString.x=1'], { a: { toString: { x: 1 } } }],
+    ])(
+      '%o reads %o as a container of the right kind',
+      (initial, entries, expected) => {
+        const store = createStore(
+          querystring(() => ({ count: 0, ...initial }), {
+            url: urlOf(entries),
+            key,
+            prefix: 's_',
+            format: plain,
+          }),
+        );
+        expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+      },
+    );
+
+    it('reads constructor.prototype.polluted=yes as data, not into Object.prototype', () => {
+      const store = createStore(
+        querystring(() => ({ count: 0 }), {
+          url: urlOf(['constructor.prototype.polluted=yes']),
+          key,
+          prefix: 's_',
+          format: plain,
+        }),
+      );
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      // toStrictEqual compares constructors, so the own constructor key is checked apart
+      const { constructor, ...rest } = store.getState();
+      expect(rest).toStrictEqual({ count: 5 });
+      expect(constructor).toStrictEqual({ prototype: { polluted: 'yes' } });
+    });
+
+    it.each([
+      [{}, ['hasOwnProperty.call=1'], { hasOwnProperty: { call: 1 } }],
+      [{ tags: [] }, ['tags.constructor.prototype.x=1'], { tags: [] }],
+      [{ tags: [] }, ['tags.___proto____.x=1'], { tags: [] }],
+    ])(
+      '%o reads %o without changing a prototype',
+      (initial, entries, expected) => {
+        try {
+          const store = createStore(
+            querystring(() => ({ count: 0, ...initial }), {
+              url: urlOf(entries),
+              key,
+              prefix: 's_',
+              format: plain,
+            }),
+          );
+          expect(({} as { x?: unknown }).x).toBeUndefined();
+          expect(([] as { x?: unknown }).x).toBeUndefined();
+          expect(Object.prototype.hasOwnProperty.call).toBe(
+            Function.prototype.call,
+          );
+          expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+        } finally {
+          delete (Object.prototype as { x?: unknown }).x;
+          delete (Array.prototype as { x?: unknown }).x;
+          delete (Object.prototype.hasOwnProperty as { call?: unknown }).call;
+        }
+      },
+    );
+  });
+
+  it.each([
+    ['/?count=:5&filters=.status', { filters: { status: 'all' } }],
+    ['/?count=:5&page=.png', { page: 1 }],
+    ['/?count=:5&on=.png', { on: true }],
+    ['/?count=:5&page=:90abc', { page: 1 }],
+    ['/?count=:5&page=:90,%20off%', { page: 1 }],
+  ])('marked: %s keeps the default of a non-string field', (url, initial) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, ...initial }), {
+        url,
+        key: false,
+        format: marked,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, ...initial });
+  });
+
+  it('marked: a typed map never sees the text of a number field', () => {
+    const map = createMap({
+      to: ({ page, count }: { page: number; count: number }) => ({
+        page,
+        count,
+      }),
+      from: ({ page, count }) => ({
+        page: page === undefined ? undefined : Number(page.toFixed(0)),
+        count,
+      }),
+    });
+    const store = createStore(
+      querystring(() => ({ count: 0, page: 1 }), {
+        url: '/?count=:5&page=.png',
+        key: false,
+        format: marked,
+        map,
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 5, page: 1 });
+  });
+
+  it.each([
+    ['marked', '/?count=:5&q=50%%20off', false, '50% off', marked],
+    ['plain', '/?count=5&q=50%%20off', false, '50% off', plain],
+    ['marked', '/?count=:5&q=caf%C3%A9%20100%', false, 'café 100%', marked],
+    ['marked', '/?count=:5&q=./sale/50%off', false, './sale/50%off', marked],
+    ['marked', '/?count=:5&q=%41%E2%25', false, 'A%E2%', marked],
+    ['marked', '/?count=:5&q=:90%', false, ':90%', marked],
+    ['marked', '/?count=:5&q=:90,%20off%', false, ':90, off%', marked],
+    ['plain', '/?count=5&q=%41%E2%25', false, 'A%E2%', plain],
+    ['plain', '/?count=5&q=%C0%AF%41%', false, '%C0%AFA%', plain],
+    ['json', '/?count=5&q=%22100%%22', false, '100%', json],
+    [
+      'json',
+      '/?state=%7B%22count%22:5,%22q%22:%22bad%E2%22%7D',
+      'state',
+      'bad%E2',
+      json,
+    ],
+    [
+      'json',
+      '/?state=%7B%22count%22:5,%22q%22:%22100%%22%7D',
+      'state',
+      '100%',
+      json,
+    ],
+    [
+      'marked',
+      '/?state=count:5,q=John%20Doe%20100%',
+      'state',
+      'John Doe 100%',
+      marked,
+    ],
+    [
+      'plain',
+      '/?state=count=5,q=John%20Doe%20100%',
+      'state',
+      'John Doe 100%',
+      plain,
+    ],
+  ] as const)('%s: %s decodes the valid escapes', (_, url, key, q, format) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, q: '' }), { url, key, format }),
+    );
+    expect(store.getState()).toEqual({ count: 5, q });
+  });
+
+  it.each([
+    ['/?state=count:5abc,q=x', { count: 0, q: 'x' }],
+    ['/?state=count:5,ids@:1,:2x,:3', { count: 5, q: '', ids: [1, 3] }],
+  ])('marked: %s skips only the unreadable number', (url, expected) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, q: '' }), {
+        url,
+        key: 'state',
+        format: marked,
+      }),
+    );
+    expect(store.getState()).toStrictEqual(expected);
   });
 });

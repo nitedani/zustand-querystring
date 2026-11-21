@@ -1141,3 +1141,34 @@ describe('plain format - non-finite number parsing', () => {
     expect(parsed.val).toBe('1e999');
   });
 });
+
+describe('plain format - a __proto__ key', () => {
+  // The writer's spelling of __proto__: an _ before an _ or at the end is escaped
+  const initialState = { filters: {} };
+  it.each([
+    [
+      'namespaced',
+      () =>
+        plain.parse('___proto____.x=1,filters.___proto____.x=1', {
+          initialState,
+        }),
+    ],
+    [
+      'standalone',
+      () =>
+        plain.parseStandalone(
+          { '___proto____.x': ['1'], 'filters.___proto____.x': ['1'] },
+          { initialState },
+        ),
+    ],
+  ])('%s: reads it as an own key, not as the prototype', (_, parse) => {
+    const result = parse() as { filters: object };
+    expect(({} as { x?: unknown }).x).toBeUndefined();
+    for (const value of [result, result.filters]) {
+      expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+      expect(
+        Object.getOwnPropertyDescriptor(value, '__proto__')?.value,
+      ).toStrictEqual({ x: 1 });
+    }
+  });
+});
