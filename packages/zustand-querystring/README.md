@@ -287,7 +287,7 @@ const myFormat: QueryStringFormat = {
       try {
         result[key] = JSON.parse(decodeURIComponent(values[0]));
       } catch {
-        // A param this format didn't write, like utm_content=50%off: skip it.
+        // Skip values that cannot be decoded or parsed as JSON, such as utm_content=50%off.
       }
     }
     return result;

@@ -834,9 +834,13 @@ function parseStandalone(
   const entries = new Map<string, string[]>();
 
   for (const [key, values] of Object.entries(params)) {
+    const decodedKey = decodeComponent(key);
+    const decodedValues = values.map(v => decodeComponent(v));
+    // Two raw keys can decode to one (q%20% and q%20%25): keep both values in URL order
+    const earlier = entries.get(decodedKey);
     entries.set(
-      decodeComponent(key),
-      values.map(v => decodeComponent(v)),
+      decodedKey,
+      earlier ? earlier.concat(decodedValues) : decodedValues,
     );
   }
 
