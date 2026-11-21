@@ -491,6 +491,12 @@ describe('server store (url option): a plain array index', () => {
     [{ tags: ['a'] }, '/?count=5&tags.10000=z', { tags: ['a'] }],
     [{}, '/?count=5&k0.10000=x', { k0: { 10000: 'x' } }],
     [
+      { items: [] },
+      '/?count=5&items.2.a=1',
+      { items: [undefined, undefined, { a: 1 }] },
+    ],
+    [{}, '/?count=5&items.2.a=1', { items: [undefined, undefined, { a: 1 }] }],
+    [
       { selected: {} },
       '/?count=5&selected.1234567890123456789=true',
       { selected: { '1234567890123456789': true } },

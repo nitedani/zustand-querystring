@@ -429,6 +429,9 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
+/** Array slots a URL may skip past its entries, like qs's arrayLimit: empty objects write no entry. */
+const SLOTS_PAST_ENTRIES = 20;
+
 /**
  * Set a value at a path in an object, creating intermediate structures.
  */
@@ -577,7 +580,7 @@ function unflatten(
       : a.localeCompare(b);
   });
 
-  // An index into an array the URL builds is at most the URL's entries under it
+  // An index into an array the URL builds is at most SLOTS_PAST_ENTRIES past the URL's entries under it
   const entriesUnder = new Map<string, number>();
   for (const key of keys) {
     const path = parseKeyPath(key, opts);
@@ -593,7 +596,8 @@ function unflatten(
     const beyondEntries = (i: number) =>
       /^\d+$/.test(path[i]) &&
       Number(path[i]) >
-        (entriesUnder.get(JSON.stringify(path.slice(0, i))) ?? 0);
+        (entriesUnder.get(JSON.stringify(path.slice(0, i))) ?? 0) +
+          SLOTS_PAST_ENTRIES;
     const underArray = (i: number) =>
       Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
     if (path.some((_, i) => beyondEntries(i) && underArray(i))) continue;
