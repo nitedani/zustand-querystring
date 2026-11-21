@@ -542,7 +542,7 @@ describe('server store (url option): a plain array index', () => {
     [{}, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
     [{ byId: {} }, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
     [
-      { byId: {} },
+      {},
       '/?count=5&byId.1.n=1&byId.4294967294.n=5',
       { byId: { 1: { n: 1 }, 4294967294: { n: 5 } } },
     ],
