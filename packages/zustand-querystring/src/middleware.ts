@@ -390,11 +390,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       pathname,
     );
     // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
-    const forced = Object.keys(
-      map && !isEmpty(partial)
-        ? stateForUrl
-        : getSelectedState(partial, pathname),
-    );
+    const passed = getSelectedState(partial, pathname);
+    const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
     const { output } = compact(
       stateForUrl,
       getMappedInitial(pathname),

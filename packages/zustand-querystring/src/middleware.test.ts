@@ -521,6 +521,24 @@ describe('href', () => {
     );
   });
 
+  it('with map, forces the mapped keys only when select keeps a passed key', () => {
+    const store = createStore<{ count: number; hidden: number }>()(
+      querystring(() => ({ count: 0, hidden: 3 }), {
+        url: '/results',
+        select: pathname => ({ count: true, hidden: pathname === '/admin' }),
+        map: {
+          to: state => ({ n: state.count }),
+          from: urlState => ({ count: urlState.n as number }),
+        },
+      }),
+    );
+
+    expect(store.href('/results', { hidden: 7 })).toBe('/results');
+    expect(decodeURIComponent(store.href('/results', { count: 0 }))).toBe(
+      '/results?n=:0',
+    );
+  });
+
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
