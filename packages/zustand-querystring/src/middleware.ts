@@ -147,7 +147,8 @@ export const compact = (
         typeof initialValue === 'object'
       ) {
         const result = compact(newValue, initialValue, syncNull, syncUndefined);
-        if (result.output && Object.keys(result.output).length > 0) {
+        // An empty object over a non-empty default is kept, so a cleared filter stays cleared.
+        if (!isEmpty(result.output) || isEmpty(newValue)) {
           output[key] = result.output;
         }
       } else {

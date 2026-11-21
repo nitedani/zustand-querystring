@@ -2671,6 +2671,25 @@ describe('href', () => {
     expect(useStore.getState().filters.reset()).toBe(1);
   });
 
+  it('keeps a cleared object filter in the URL, so a reload keeps it cleared', async () => {
+    const initial = () => ({
+      filters: { query: 'default', localSort: 'newest' } as {
+        query?: string;
+        localSort?: string;
+      },
+    });
+    const useStore = create<ReturnType<typeof initial>>()(querystring(initial));
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/report', { filters: {} }));
+    await settle();
+    unsubscribe();
+    expect(useStore.getState().filters).toEqual({});
+
+    const reloaded = create<ReturnType<typeof initial>>()(querystring(initial));
+    expect(reloaded.getState().filters).toEqual({});
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),

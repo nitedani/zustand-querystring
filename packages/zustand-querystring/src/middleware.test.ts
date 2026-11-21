@@ -454,6 +454,17 @@ describe('compact', () => {
     expect(result.output).toEqual({ user: user2 });
   });
 
+  it('keeps an empty object over a non-empty initial one', () => {
+    const initialState = {
+      filters: { query: 'default' },
+      other: { a: 1, b: 2 },
+    };
+    // other's fields compact away, which leaves out other itself.
+    const newState = { filters: {}, other: { a: 1 } };
+    const result = compact(newState, initialState);
+    expect(result.output).toStrictEqual({ filters: {} });
+  });
+
   it('keeps a forced key at its initial value', () => {
     const initialState = { a: 1, b: 1 };
     const newState = { a: 1, b: 2 };
