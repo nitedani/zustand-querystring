@@ -377,15 +377,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   if (typeof window !== 'undefined') {
-    initialState = fn(
+    // A change reads a navigation first, so it applies after it, then writes the URL.
+    const withUrl =
+      (apply: typeof set): typeof set =>
       (...args) => {
         readUrl();
-        set(...(args as Parameters<typeof set>));
+        apply(...(args as Parameters<typeof set>));
         setQuery();
-      },
-      get,
-      api,
-    );
+      };
+    initialState = fn(withUrl(set), get, api);
 
     // Track previously managed URL keys so we can remove orphaned params
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
@@ -408,12 +408,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
     // The URL this store last wrote or read; any other URL is a navigation.
     let lastUrl = '';
-    let writeTimer: ReturnType<typeof setTimeout> | undefined;
+    // When the write after a navigation is due; the frame loop pays it.
+    let writeDue: number | undefined;
     const readUrl = () => {
       if (location.pathname + location.search === lastUrl) return;
       lastUrl = location.pathname + location.search;
-      clearTimeout(writeTimer);
-      writeTimer = setTimeout(setQuery, 100);
+      writeDue = Date.now() + 100;
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
       // Only changed keys, so the others keep their references; without select, only the store's own keys.
@@ -427,6 +427,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
 
     const setQuery = () => {
+      // Cleared first, so a write that throws isn't retried every frame.
+      writeDue = undefined;
       readUrl();
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
@@ -520,8 +522,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       api.__ZUSTAND_QUERYSTRING_INIT__ = true;
       let frame = 0;
       const cb = () => {
+        frame = requestAnimationFrame(cb);
         readUrl();
-        if (subscribers > 0) frame = requestAnimationFrame(cb);
+        if (writeDue !== undefined && Date.now() >= writeDue) setQuery();
       };
       // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
       let subscribers = 0;
@@ -535,19 +538,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return () => {
           if (subscribed && --subscribers === 0) {
             cancelAnimationFrame(frame);
-            clearTimeout(writeTimer);
           }
           subscribed = false;
           unsubscribe();
         };
       };
     }
-    const originalSetState = api.setState;
-    api.setState = (...args) => {
-      readUrl();
-      originalSetState(...(args as Parameters<typeof set>));
-      setQuery();
-    };
+    api.setState = withUrl(api.setState);
     const initialized = initialize(new URL(window.location.href), initialState);
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.

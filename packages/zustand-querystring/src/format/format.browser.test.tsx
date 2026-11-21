@@ -187,7 +187,7 @@ const unicodeState = {
 };
 
 // Clean up URL before each test.
-// The 150ms delay lets pending setTimeout(setQuery, 100) from previous stores drain
+// The 150ms delay lets the writes previous stores owe 100ms after a navigation drain
 // so they don't corrupt the next test's URL.
 beforeEach(async () => {
   await new Promise(r => setTimeout(r, 150));
@@ -1910,6 +1910,23 @@ describe('navigation', () => {
 
     expect(useStore.getState().count).toBe(0);
     expect(url()).toBe('/b?tab=yes');
+  });
+
+  it('the write a navigation owes lands when a new subscriber replaces the last one', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    // The store reads /b in this frame and writes 100ms later.
+    await new Promise(requestAnimationFrame);
+    unsubscribe();
+    const unsubscribeNext = useStore.subscribe(() => {});
+    await settle();
+    unsubscribeNext();
+
+    expect(url()).toBe('/b?count=:5');
   });
 
   it('a subscriber that unsubscribes in its callback stops the store following the URL', async () => {
