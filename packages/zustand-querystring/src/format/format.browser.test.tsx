@@ -1774,3 +1774,212 @@ describe('map option', () => {
     });
   });
 });
+
+// =============================================================================
+// NAVIGATION - a URL the store didn't write is read like at creation
+// =============================================================================
+
+describe('navigation', () => {
+  interface NavState {
+    count: number;
+    other: number;
+    filters: { tags: string[]; sort: string };
+    setCount: (count: number) => void;
+  }
+
+  function createNavStore(format = marked) {
+    return create<NavState>()(
+      querystring(
+        set => ({
+          count: 0,
+          other: 0,
+          filters: { tags: [], sort: 'name' },
+          setCount: count => set({ count }),
+        }),
+        { format },
+      ),
+    );
+  }
+
+  // A store follows the URL while something is subscribed to it.
+  function subscribe(useStore: ReturnType<typeof createNavStore>) {
+    function Count() {
+      useStore(state => state.count);
+      return null;
+    }
+    return render(<Count />);
+  }
+
+  const url = () =>
+    window.location.pathname + decodeURIComponent(window.location.search);
+  // The store writes 100ms after it reads a navigation.
+  const settle = () => new Promise(r => setTimeout(r, 200));
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('a link to another page sets the keys it carries and keeps the others', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 5, other: 3 });
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await settle();
+
+    expect(useStore.getState()).toMatchObject({ count: 7, other: 3 });
+    expect(url()).toBe('/b?count=:7&other=:3');
+  });
+
+  it('setState then router.push writes the state to the new page', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    useStore.setState({ count: 9 });
+    window.history.pushState({}, '', '/b');
+    await settle();
+
+    expect(useStore.getState().count).toBe(9);
+    expect(url()).toBe('/b?count=:9');
+  });
+
+  it('a link that changes only the query sets the key', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/?count=:7');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(url()).toBe('/?count=:7');
+  });
+
+  it('Back and Forward set the keys of the entry', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    window.history.pushState({}, '', '/x?count=:2');
+    await settle();
+    window.history.pushState({}, '', '/y?count=:4');
+    await settle();
+
+    window.history.back();
+    await settle();
+    expect(window.location.pathname).toBe('/x');
+    expect(useStore.getState().count).toBe(2);
+
+    window.history.forward();
+    await settle();
+    expect(window.location.pathname).toBe('/y');
+    expect(useStore.getState().count).toBe(4);
+  });
+
+  it('an action or setState right after a navigation applies after it', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/b?count=:7&other=:2');
+    useStore.getState().setCount(9);
+    expect(useStore.getState()).toMatchObject({ count: 9, other: 2 });
+
+    window.history.pushState({}, '', '/c?count=:8');
+    useStore.setState({ count: 10 });
+    expect(useStore.getState().count).toBe(10);
+
+    await settle();
+    expect(url()).toBe('/c?count=:10&other=:2');
+  });
+
+  it('the write after a navigation reads a newer navigation first', async () => {
+    const useStore = createNavStore();
+    const { unmount } = await subscribe(useStore);
+    await settle();
+
+    window.history.pushState({}, '', '/b');
+    // The store reads /b in this frame and writes 100ms later, unsubscribed or not.
+    await new Promise(requestAnimationFrame);
+    await unmount();
+    window.history.pushState({}, '', '/c?count=:7');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(url()).toBe('/c?count=:7');
+  });
+
+  it("doesn't read its own writes", async () => {
+    let parses = 0;
+    const useStore = createNavStore({
+      ...marked,
+      parseStandalone: (params, ctx) => {
+        parses++;
+        return marked.parseStandalone(params, ctx);
+      },
+    });
+    await subscribe(useStore);
+    await settle();
+    const parsesBefore = parses;
+
+    useStore.setState({ count: 5 });
+    await settle();
+
+    expect(url()).toBe('/?count=:5');
+    expect(parses).toBe(parsesBefore);
+  });
+
+  it("ignores params that aren't keys of the store", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/?page=3');
+    await settle();
+    expect('page' in useStore.getState()).toBe(false);
+
+    window.history.pushState({}, '', '/');
+    await settle();
+    expect(url()).toBe('/');
+  });
+
+  it("keeps the references of keys a navigation doesn't change", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    const { filters } = useStore.getState();
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(useStore.getState().filters).toBe(filters);
+  });
+
+  it('reads the URL again when it is subscribed again', async () => {
+    const useStore = createNavStore();
+    const { unmount } = await subscribe(useStore);
+    await settle();
+    await unmount();
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await subscribe(useStore);
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+  });
+
+  it("a store that was replaced doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const { unmount } = await subscribe(replaced);
+    replaced.setState({ count: 5 });
+    await settle();
+    await unmount();
+
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 0 });
+    await settle();
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/');
+
+    window.history.pushState({}, '', '/b');
+    await settle();
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
+  });
+});

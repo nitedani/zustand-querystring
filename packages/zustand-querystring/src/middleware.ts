@@ -1,4 +1,4 @@
-import { isEqual, mergeWith } from 'lodash-es';
+import { isEmpty, isEqual, mergeWith, pickBy } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
 
@@ -308,6 +308,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   if (typeof window !== 'undefined') {
     let initialState = fn(
       (...args) => {
+        readUrl();
         set(...(args as Parameters<typeof set>));
         setQuery();
       },
@@ -342,7 +343,24 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
     };
 
+    // The URL this store last wrote or read; any other URL is a navigation.
+    let lastUrl = '';
+    const readUrl = () => {
+      if (location.pathname + location.search === lastUrl) return;
+      lastUrl = location.pathname + location.search;
+      const current = get() as Record<string, unknown>;
+      const next = initialize(new URL(location.href), current);
+      // Only the store's own keys, and only changed ones, so the others keep their references.
+      const changed = pickBy(
+        next,
+        (value, key) => key in current && !isEqual(value, current[key]),
+      );
+      if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
+      setTimeout(setQuery, 100);
+    };
+
     const setQuery = () => {
+      readUrl();
       const url = new URL(window.location.href);
       const selectedState = getSelectedState(get(), url.pathname);
       // When map is used, transform to URL shape before compacting
@@ -438,33 +456,39 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
       }
+      lastUrl = location.pathname + location.search;
     };
 
     // @ts-ignore
     if (!api.__ZUSTAND_QUERYSTRING_INIT__) {
       // @ts-ignore
       api.__ZUSTAND_QUERYSTRING_INIT__ = true;
-      let previousPathname = '';
+      let frame = 0;
       const cb = () => {
-        if (location.pathname !== previousPathname) {
-          previousPathname = location.pathname;
-          setTimeout(setQuery, 100);
-        }
-        requestAnimationFrame(cb);
+        readUrl();
+        frame = requestAnimationFrame(cb);
       };
-      // React may create a store twice and keep one; only the kept one is subscribed.
-      let started = false;
+      // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
+      let subscribers = 0;
       const originalSubscribe = api.subscribe;
       api.subscribe = (...args) => {
-        if (!started) {
-          started = true;
-          requestAnimationFrame(cb);
+        if (subscribers++ === 0) {
+          frame = requestAnimationFrame(cb);
         }
-        return originalSubscribe(...args);
+        const unsubscribe = originalSubscribe(...args);
+        let subscribed = true;
+        return () => {
+          if (subscribed && --subscribers === 0) {
+            cancelAnimationFrame(frame);
+          }
+          subscribed = false;
+          unsubscribe();
+        };
       };
     }
     const originalSetState = api.setState;
     api.setState = (...args) => {
+      readUrl();
       originalSetState(...(args as Parameters<typeof set>));
       setQuery();
     };
