@@ -433,23 +433,35 @@ function getHintAtPath(state: object, path: string[]): unknown {
 const SPARE_ARRAY_SLOTS = 10000;
 
 /**
- * Slots each segment of a path would add to the array it indexes, 0 where it indexes none.
+ * Which numeric segments of a path are object keys rather than array indices, and the array
+ * slots the indices add; undefined when a path past the slots left sits under an array default.
  */
-function slotsAdded(obj: Record<string, unknown>, path: string[]): number[] {
-  const added = path.map(() => 0);
-  let container: unknown = obj;
+function keySegments(
+  result: Record<string, unknown>,
+  path: string[],
+  initialState: object,
+  slotsLeft: number,
+): { asKey: boolean[]; slots: number } | undefined {
+  const asKey = path.map(() => false);
+  let slots = 0;
+  let container: unknown = result;
   for (let i = 1; i < path.length; i++) {
     container =
       container instanceof Object
         ? getOwn(container as Record<string, unknown>, path[i - 1])
         : undefined;
     if (!/^\d+$/.test(path[i])) continue;
-    if (container === undefined || Array.isArray(container)) {
-      const length = Array.isArray(container) ? container.length : 0;
-      added[i] = Math.max(0, Number(path[i]) + 1 - length);
-    }
+    const hint = getHintAtPath(initialState, path.slice(0, i));
+    const length = Array.isArray(container) ? container.length : 0;
+    const added =
+      container === undefined || Array.isArray(container)
+        ? Math.max(0, Number(path[i]) + 1 - length)
+        : 0;
+    asKey[i] = isObject(hint) || slots + added > slotsLeft;
+    if (asKey[i] && Array.isArray(hint)) return undefined;
+    if (!asKey[i]) slots += added;
   }
-  return added;
+  return { asKey, slots };
 }
 
 /**
@@ -606,20 +618,10 @@ function unflatten(
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
-    const hintAbove = (i: number) =>
-      getHintAtPath(initialState, path.slice(0, i));
-    const added = slotsAdded(result, path);
-    // A numeric segment is a key under an object default, or past the slot budget
-    const asKey: boolean[] = [];
-    let left = slotsLeft;
-    for (let i = 0; i < path.length; i++) {
-      asKey.push(
-        (/^\d+$/.test(path[i]) && isObject(hintAbove(i))) || added[i] > left,
-      );
-      if (!asKey[i]) left -= added[i];
-    }
-    if (path.some((_, i) => asKey[i] && Array.isArray(hintAbove(i)))) continue;
-    slotsLeft = left;
+    const segments = keySegments(result, path, initialState, slotsLeft);
+    if (!segments) continue;
+    const { asKey, slots } = segments;
+    slotsLeft -= slots;
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
