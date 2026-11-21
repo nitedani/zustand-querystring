@@ -392,29 +392,30 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     navigation = false,
     // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
     merges = new Map<object, object>(),
+    // Listed once per object: listing the keys of a large object walks all of them.
+    keys = Object.keys(urlState),
   ) => {
     const merged: Record<string, any> = isPlainObject(state)
       ? { ...state }
       : state;
     merges.set(urlState, merged);
-    for (const [key, value] of Object.entries(urlState)) {
+    // Keys, not entries: Object.entries is slow on an object with many keys.
+    for (const key of keys) {
+      const value = urlState[key];
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       const current = getOwn(merged, key);
       const selected = selection === true ? true : getOwn(selection, key);
+      const valueKeys = isPlainObject(value) ? Object.keys(value) : undefined;
+      const isEmptyObject = valueKeys?.length === 0;
       // An empty object over an object whose fields select syncs only some of clears just those.
-      if (
-        isPlainObject(value) &&
-        isEmpty(value) &&
-        isPlainObject(current) &&
-        isPlainObject(selected)
-      ) {
+      if (isEmptyObject && isPlainObject(current) && isPlainObject(selected)) {
         setOwn(merged, key, clearSelected(current, selected));
         continue;
       }
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         typeof current === 'function' ||
-        ((!isPlainObject(value) || isEmpty(value)) && holdsFunction(current))
+        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
       )
         continue;
       if (!isPlainObject(value)) {
@@ -429,7 +430,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const into =
         isObjectLike(current) &&
         !Array.isArray(current) &&
-        !(isEmpty(value) && isPlainObject(current))
+        !(isEmptyObject && isPlainObject(current))
           ? current
           : {};
       if (navigation && !isPlainObject(into)) continue;
@@ -442,6 +443,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           isPlainObject(selected) ? selected : true,
           navigation,
           merges,
+          valueKeys,
         ),
       );
     }
