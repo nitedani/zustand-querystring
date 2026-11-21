@@ -456,12 +456,14 @@ describe('compact', () => {
   });
 });
 
-describe('server store (url option): a stray % in the URL', () => {
+describe("server store (url option): a parameter the format can't read", () => {
   it.each([
     ['marked', '/?count=:5&utm_content=50%off', marked],
     ['plain', '/?count=5&utm_content=50%off', plain],
     ['json', '/?count=5&utm_content=50%off', json],
     ['marked', '/?count=:5&50%off=1', marked],
+    ['marked', '/?count=:5&next=./sale/50%off', marked],
+    ['marked', '/?count=:5&ext=.png', marked],
   ] as const)('%s: %s still restores count', (_, url, format) => {
     const store = createStore(
       querystring(() => ({ count: 0 }), { url, key: false, format }),
@@ -473,6 +475,7 @@ describe('server store (url option): a stray % in the URL', () => {
     ['marked', '/?count=:5&q=50%%20off', false, '50% off', marked],
     ['plain', '/?count=5&q=50%%20off', false, '50% off', plain],
     ['marked', '/?count=:5&q=caf%C3%A9%20100%', false, 'café 100%', marked],
+    ['marked', '/?count=:5&q=./sale/50%off', false, './sale/50%off', marked],
     [
       'marked',
       '/?state=count:5,q=John%20Doe%20100%',

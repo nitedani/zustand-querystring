@@ -648,7 +648,13 @@ export function parse<T = unknown>(
   }
 
   const parseSource = createParser(opts);
-  return parseSource<T>(source);
+  if (!standalone) return parseSource<T>(source);
+  try {
+    return parseSource<T>(source);
+  } catch {
+    // Text that only starts like marked data (next=./sale) reads as written
+    return str as T;
+  }
 }
 
 // =============================================================================
