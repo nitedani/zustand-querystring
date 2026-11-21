@@ -422,6 +422,19 @@ function getHintAtPath(state: object, path: string[]): unknown {
 const containers = new WeakSet<object>();
 
 /**
+ * Whether a container is an array, from its default and every child key the URL gives it.
+ */
+function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
+  if (Array.isArray(hint)) return true;
+  if (!childKeys.every(k => /^\d+$/.test(k))) return false;
+  // 0..n-1 is an array even under an object default; other numbers are keys there
+  const isDense = childKeys.every(
+    k => /^(0|[1-9]\d*)$/.test(k) && Number(k) < childKeys.length,
+  );
+  return isDense || typeof hint !== 'object' || hint === null;
+}
+
+/**
  * Set a value at a path in an object, creating intermediate structures.
  */
 function setAtPath(
@@ -429,6 +442,7 @@ function setAtPath(
   path: string[],
   value: unknown,
   initialState: object,
+  childKeys: Map<string, string[]>,
 ): void {
   let current = obj;
   // The first container this path makes joins obj only once the value is set
@@ -441,13 +455,13 @@ function setAtPath(
     let next = current[key];
 
     if (!(key in current)) {
-      // The default's kind wins: filters.0 under filters: {} is a key
-      const hint = getHintAtPath(initialState, path.slice(0, i + 1));
-      const isArray =
-        typeof hint === 'object' && hint !== null
-          ? Array.isArray(hint)
-          : nextIsIndex;
-      next = isArray ? [] : {};
+      const containerPath = path.slice(0, i + 1);
+      next = isArrayContainer(
+        getHintAtPath(initialState, containerPath),
+        childKeys.get(JSON.stringify(containerPath)) ?? [],
+      )
+        ? []
+        : {};
       containers.add(next as object);
       if (detached) current[key] = next;
       else detached = [current, key, next as object];
@@ -584,6 +598,18 @@ function unflatten(
       : a.localeCompare(b);
   });
 
+  // Every container path's child keys, which decide whether it is an array
+  const childKeys = new Map<string, string[]>();
+  for (const key of keys) {
+    const path = parseKeyPath(key, opts);
+    for (let i = 1; i < path.length; i++) {
+      const parent = JSON.stringify(path.slice(0, i));
+      const children = childKeys.get(parent) ?? [];
+      if (children.indexOf(path[i]) === -1) children.push(path[i]);
+      childKeys.set(parent, children);
+    }
+  }
+
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
@@ -630,13 +656,19 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], initialState);
+      setAtPath(result, path, [], initialState, childKeys);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts), initialState);
+      setAtPath(
+        result,
+        path,
+        parseValue(values[0], hint, opts),
+        initialState,
+        childKeys,
+      );
       continue;
     }
 
@@ -647,6 +679,7 @@ function unflatten(
       path,
       values.map(v => parseValue(v, elementHint, opts)),
       initialState,
+      childKeys,
     );
   }
 

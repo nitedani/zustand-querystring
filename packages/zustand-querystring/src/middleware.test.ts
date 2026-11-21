@@ -504,7 +504,7 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['/?count=5&a=undefined&a.b=2', undefined],
     ['/?count=5&a=red&a=blue&a.length=oops', ['red', 'blue']],
     ['/?count=5&a.length=oops&a=red&a=blue', ['red', 'blue']],
-    ['/?count=5&a.0=red&a.length=oops', ['red']],
+    ['/?count=5&a.0=red&a.length=oops', { 0: 'red', length: 'oops' }],
   ])('plain: %s keeps a as the shorter path set it', (url, a) => {
     const store = createStore(
       querystring(() => ({ count: 0 }), { url, key: false, format: plain }),
@@ -527,26 +527,39 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState()).toStrictEqual({ count: 5, a });
   });
 
-  it.each([
-    ['/?s_count=5&s_filters.0=red&s_filters.all=blue', false],
-    ['/?s_state=count=5,filters.0=red,filters.all=blue', 'state'],
-  ] as const)(
-    'plain: %s keeps numeric keys under an object default',
-    (url, key) => {
-      const store = createStore(
-        querystring(() => ({ count: 0, filters: {} }), {
-          url,
-          key,
-          prefix: 's_',
-          format: plain,
-        }),
-      );
-      expect(store.getState()).toStrictEqual({
-        count: 5,
-        filters: { 0: 'red', all: 'blue' },
-      });
-    },
-  );
+  describe.each([false, 'state'] as const)('plain (key: %s)', key => {
+    const urlOf = (entries: string[]) =>
+      key
+        ? `/?s_state=${['count=5', ...entries].join(',')}`
+        : `/?${['count=5', ...entries].map(e => `s_${e}`).join('&')}`;
+
+    it.each([
+      [{ a: {} }, ['a.0.title=book'], { a: [{ title: 'book' }] }],
+      [{}, ['f.0=red', 'f.color=blue'], { f: { 0: 'red', color: 'blue' } }],
+      [
+        { filters: {} },
+        ['filters.0=red', 'filters.all=blue'],
+        { filters: { 0: 'red', all: 'blue' } },
+      ],
+      [{ selected: {} }, ['selected.42=true'], { selected: { 42: true } }],
+      [{ sel: {} }, ['sel.007=x'], { sel: { '007': 'x' } }],
+      [{}, ['f.1=red'], { f: [, 'red'] }],
+      [{ tags: [] }, ['tags.0=a', 'tags.x=b'], { tags: ['a'] }],
+    ])(
+      '%o reads %o as a container of the right kind',
+      (initial, entries, expected) => {
+        const store = createStore(
+          querystring(() => ({ count: 0, ...initial }), {
+            url: urlOf(entries),
+            key,
+            prefix: 's_',
+            format: plain,
+          }),
+        );
+        expect(store.getState()).toStrictEqual({ count: 5, ...expected });
+      },
+    );
+  });
 
   it.each([
     ['/?count=:5&filters=.status', { filters: { status: 'all' } }],
