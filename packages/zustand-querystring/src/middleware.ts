@@ -408,6 +408,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // @ts-ignore - typed via StoreMutators augmentation
+  api.setDefaults = (partial: Partial<typeof initialState>) => {
+    initialState = mergeWith(
+      {},
+      initialState,
+      partial,
+      (_objValue, srcValue) => {
+        if (Array.isArray(srcValue)) {
+          return srcValue;
+        }
+        return undefined;
+      },
+    );
+  };
+
+  // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
     const stateForUrl = urlStateOf({ ...get(), ...partial }, pathname);
     // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
@@ -440,21 +455,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Track previously managed URL keys so we can remove orphaned params
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
     let previouslyManagedKeys = new Set<string>();
-
-    // @ts-ignore - typed via StoreMutators augmentation
-    api.setDefaults = (partial: Partial<typeof initialState>) => {
-      initialState = mergeWith(
-        {},
-        initialState,
-        partial,
-        (_objValue, srcValue) => {
-          if (Array.isArray(srcValue)) {
-            return srcValue;
-          }
-          return undefined;
-        },
-      );
-    };
 
     // The URL this store last wrote or read; any other URL is a navigation.
     let lastUrl = location.pathname + location.search;

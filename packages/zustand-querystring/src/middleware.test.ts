@@ -561,3 +561,13 @@ describe('href', () => {
     );
   });
 });
+
+describe('server store: setDefaults', () => {
+  it.each([
+    ['with url', { url: '/?count=:3' }],
+    ['without url', {}],
+  ] as const)('%s: setDefaults can be called', (_, options) => {
+    const store = createStore(querystring(() => ({ count: 0 }), options));
+    expect(() => store.setDefaults({ count: 5 })).not.toThrow();
+  });
+});
