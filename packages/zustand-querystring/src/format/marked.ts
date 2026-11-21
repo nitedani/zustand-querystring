@@ -648,13 +648,7 @@ export function parse<T = unknown>(
   }
 
   const parseSource = createParser(opts);
-  if (!standalone) return parseSource<T>(source);
-  try {
-    return parseSource<T>(source);
-  } catch {
-    // Text that only starts like marked data (next=./sale) reads as written
-    return str as T;
-  }
+  return parseSource<T>(source);
 }
 
 // =============================================================================
@@ -687,11 +681,21 @@ export function createFormat(
       return result;
     },
 
-    parseStandalone(params: QueryStringParams, _ctx: ParseContext): object {
+    parseStandalone(params: QueryStringParams, ctx: ParseContext): object {
+      const initialState = ctx.initialState as Record<string, unknown>;
       const result: Record<string, unknown> = {};
-      for (const [key, values] of Object.entries(params)) {
+      for (const [rawKey, values] of Object.entries(params)) {
         if (values.length > 0) {
-          result[decodeComponent(key)] = parse(values[0], true, options);
+          const key = decodeComponent(rawKey);
+          try {
+            result[key] = parse(values[0], true, options);
+          } catch {
+            // Text like next=./sale reads as written; an object field keeps its value
+            const initial = initialState[key];
+            if (typeof initial !== 'object' || initial === null) {
+              result[key] = decodeComponent(values[0]);
+            }
+          }
         }
       }
       return result;

@@ -472,6 +472,17 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState().count).toBe(5);
   });
 
+  it('marked: /?count=:5&filters=.status keeps the default filters', () => {
+    const store = createStore(
+      querystring(() => ({ count: 0, filters: { status: 'all' } }), {
+        url: '/?count=:5&filters=.status',
+        key: false,
+        format: marked,
+      }),
+    );
+    expect(store.getState()).toEqual({ count: 5, filters: { status: 'all' } });
+  });
+
   it.each([
     ['marked', '/?count=:5&q=50%%20off', false, '50% off', marked],
     ['plain', '/?count=5&q=50%%20off', false, '50% off', plain],
