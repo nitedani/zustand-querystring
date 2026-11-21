@@ -1784,6 +1784,7 @@ interface NavState {
   count: number;
   other: number;
   status: string;
+  search?: string;
   filters: { tags: string[]; sort: string };
   setCount: (count: number) => void;
 }
@@ -1948,6 +1949,34 @@ describe('navigation', () => {
 
     expect(useStore.getState().status).toBe(undefined);
     expect(url()).toBe('/b?status=:undefined');
+  });
+
+  it('sets a selected key the state lacks', async () => {
+    const useStore = createNavStore({
+      select: () => ({ count: true, search: true }),
+    });
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', useStore.href('/b', { search: 'acme' }));
+    await settle();
+
+    expect(useStore.getState().search).toBe('acme');
+    expect(url()).toBe('/b?search=acme');
+  });
+
+  it("reads the URL with the initial state's types, like at creation", async () => {
+    const useStore = create<{ id: string | number }>()(
+      querystring(() => ({ id: 'none' }), { format: plain }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ id: 12 });
+
+    window.history.pushState({}, '', '/b?id=007');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().id).toBe('007');
+    expect(url()).toBe('/b?id=007');
   });
 
   it("doesn't read its own writes", async () => {

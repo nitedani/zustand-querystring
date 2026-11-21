@@ -287,7 +287,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.from(urlState, pathname) : urlState;
   };
 
-  const initialize = (url: URL, initialState) => {
+  const initialize = (url: URL, state) => {
     try {
       // When map is used, getStateFromUrl returns the URL-shape state.
       // We need the mapped initial state for type inference in parsing.
@@ -297,21 +297,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
       const stateFromUrl = getStateFromUrl(url, mappedInitial);
       if (!stateFromUrl) {
-        return initialState;
+        return state;
       }
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
       const selected = getSelectedState(storeState, url.pathname);
-      return mergeUrlState(initialState, selected);
+      return mergeUrlState(state, selected);
     } catch (error) {
       console.error('[initialize] error:', error);
-      return initialState;
+      return state;
     }
   };
 
   let initialState: ReturnType<typeof fn>;
 
-  // Pre-compute the mapped initial state for diffing when map is used
+  // The mapped initial state for diffing when map is used
   const getMappedInitial = (pathname: string) => {
     if (defaultedOptions.map) {
       return applyMapTo(getSelectedState(initialState, pathname), pathname);
@@ -416,10 +416,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeTimer = setTimeout(setQuery, 100);
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
-      // Only the store's own keys, and only changed ones, so the others keep their references.
+      // Only changed keys, so the others keep their references; without select, only the store's own keys.
       const changed = pickBy(
         next,
-        (value, key) => key in current && !isEqual(value, current[key]),
+        (value, key) =>
+          (defaultedOptions.select || key in current) &&
+          !isEqual(value, current[key]),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
