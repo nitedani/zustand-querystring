@@ -429,8 +429,28 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
-/** Array slots a URL may skip past its entries, like qs's arrayLimit: empty objects write no entry. */
-const SLOTS_PAST_ENTRIES = 20;
+/** Array slots one URL may build beyond its entry count: a sparse array that long hangs the page. */
+const SPARE_ARRAY_SLOTS = 10000;
+
+/**
+ * Slots each segment of a path would add to the array it indexes, 0 where it indexes none.
+ */
+function slotsAdded(obj: Record<string, unknown>, path: string[]): number[] {
+  const added = path.map(() => 0);
+  let container: unknown = obj;
+  for (let i = 1; i < path.length; i++) {
+    container =
+      container instanceof Object
+        ? getOwn(container as Record<string, unknown>, path[i - 1])
+        : undefined;
+    if (!/^\d+$/.test(path[i])) continue;
+    if (container === undefined || Array.isArray(container)) {
+      const length = Array.isArray(container) ? container.length : 0;
+      added[i] = Math.max(0, Number(path[i]) + 1 - length);
+    }
+  }
+  return added;
+}
 
 /**
  * Set a value at a path in an object, creating intermediate structures.
@@ -439,19 +459,19 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
-  beyondEntries: (i: number) => boolean,
+  pastBudget: boolean[],
 ): void {
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
     const nextKey = path[i + 1];
-    const nextIsIndex = /^\d+$/.test(nextKey) && !beyondEntries(i + 1);
+    const nextIsIndex = /^\d+$/.test(nextKey) && !pastBudget[i + 1];
     const next = getOwn(current, key);
 
     if (next === undefined) {
       setOwn(current, key, nextIsIndex ? [] : {});
-    } else if (Array.isArray(next) && beyondEntries(i + 1)) {
+    } else if (Array.isArray(next) && pastBudget[i + 1]) {
       setOwn(current, key, { ...next });
     }
 
@@ -580,27 +600,22 @@ function unflatten(
       : a.localeCompare(b);
   });
 
-  // An index into an array the URL builds is at most SLOTS_PAST_ENTRIES past the URL's entries under it
-  const entriesUnder = new Map<string, number>();
-  for (const key of keys) {
-    const path = parseKeyPath(key, opts);
-    for (let i = 1; i < path.length; i++) {
-      const prefix = JSON.stringify(path.slice(0, i));
-      entriesUnder.set(prefix, (entriesUnder.get(prefix) ?? 0) + 1);
-    }
-  }
+  // All arrays one URL builds share this many slots
+  let slotsLeft = SPARE_ARRAY_SLOTS + keys.length;
 
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
-    const beyondEntries = (i: number) =>
-      /^\d+$/.test(path[i]) &&
-      Number(path[i]) >
-        (entriesUnder.get(JSON.stringify(path.slice(0, i))) ?? 0) +
-          SLOTS_PAST_ENTRIES;
+    const pastBudget: boolean[] = [];
+    let left = slotsLeft;
+    for (const added of slotsAdded(result, path)) {
+      pastBudget.push(added > left);
+      if (added <= left) left -= added;
+    }
     const underArray = (i: number) =>
       Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
-    if (path.some((_, i) => beyondEntries(i) && underArray(i))) continue;
+    if (path.some((_, i) => pastBudget[i] && underArray(i))) continue;
+    slotsLeft = left;
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
@@ -644,13 +659,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, [], beyondEntries);
+      setAtPath(result, path, [], pastBudget);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts), beyondEntries);
+      setAtPath(result, path, parseValue(values[0], hint, opts), pastBudget);
       continue;
     }
 
@@ -660,7 +675,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
-      beyondEntries,
+      pastBudget,
     );
   }
 

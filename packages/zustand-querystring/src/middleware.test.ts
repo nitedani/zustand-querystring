@@ -488,8 +488,31 @@ describe('server store (url option): a plain array index', () => {
     [{ tags: ['a'] }, '/?count=5&tags.30000000=z', { tags: ['a'] }],
     [{ tags: ['a'] }, '/?count=5&tags.1=b&tags.0=a', { tags: ['a', 'b'] }],
     [{ tags: ['a'] }, '/?count=5&tags.4294967294.x=z', { tags: ['a'] }],
-    [{ tags: ['a'] }, '/?count=5&tags.10000=z', { tags: ['a'] }],
-    [{}, '/?count=5&k0.10000=x', { k0: { 10000: 'x' } }],
+    [
+      { tags: ['a'] },
+      '/?count=5&a.9000=x&tags.9000=z',
+      { a: expect.any(Array), tags: ['a'] },
+    ],
+    [
+      {},
+      '/?count=5&a.9000=x&k0.9000=y',
+      { a: expect.any(Array), k0: { 9000: 'y' } },
+    ],
+    [
+      { items: [] },
+      `/?count=5&${Array.from({ length: 150 }, (_, i) => `items.${i}.n=${i}`).join('&')}`,
+      { items: Array.from({ length: 150 }, (_, i) => ({ n: i })) },
+    ],
+    [
+      { cols: [] },
+      '/?count=5&cols.22.width=120',
+      { cols: [...new Array(22), { width: 120 }] },
+    ],
+    [
+      {},
+      '/?count=5&cols.22.width=120',
+      { cols: [...new Array(22), { width: 120 }] },
+    ],
     [
       { items: [] },
       '/?count=5&items.2.a=1',
