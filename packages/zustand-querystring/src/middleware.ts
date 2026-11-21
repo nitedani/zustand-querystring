@@ -556,10 +556,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // managedKeys = current keys ∪ previously managed keys
       // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
       // the old URL params are still recognized as ours and get removed.
-      const managedKeys = new Set([
-        ...Array.from(currentKeys),
-        ...Array.from(previouslyManagedKeys),
-      ]);
+      const managedKeys = new Set([...currentKeys, ...previouslyManagedKeys]);
       previouslyManagedKeys = currentKeys;
       url.search = rewriteSearch(
         url.search,
