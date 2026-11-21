@@ -2326,6 +2326,38 @@ describe('navigation', () => {
     expect(panel.label()).toBe('Panel:0');
   });
 
+  it('sets the class instance map.from returns', async () => {
+    class Panel {
+      #id: number;
+      constructor(id: number) {
+        this.#id = id;
+      }
+      id() {
+        return this.#id;
+      }
+    }
+    const useStore = create<{ panel: Panel }>()(
+      querystring(() => ({ panel: new Panel(1) }), {
+        map: {
+          to: state => ({ id: state.panel.id() }),
+          from: urlState => ({ panel: new Panel(urlState.id as number) }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { panel: new Panel(2) }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().panel.id()).toBe(2);
+    expect(url()).toBe('/b?id=:2');
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),

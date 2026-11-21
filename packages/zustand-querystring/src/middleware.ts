@@ -496,9 +496,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // A navigation never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       const next = initialize(new URL(location.href), current, true);
       // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
+      // An instance, like one map.from returns, is changed unless it is the same one: isEqual may not see its fields.
       const changed = pickBy(next, (value, key) =>
         key in current
-          ? !isEqual(value, current[key])
+          ? isObjectLike(value) &&
+            !isPlainObject(value) &&
+            !Array.isArray(value)
+            ? value !== current[key]
+            : !isEqual(value, current[key])
           : !standalone ||
             Boolean(defaultedOptions.prefix || defaultedOptions.select),
       );
