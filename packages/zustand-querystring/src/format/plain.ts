@@ -788,7 +788,14 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeComponent(key);
-    entries[decodedKey] = values.map(v => decodeComponent(v));
+    const decodedValues = values.map(v => decodeComponent(v));
+    // Two raw keys can decode to one (q%20% and q%20%25): keep both values in URL order
+    entries[decodedKey] = Object.prototype.hasOwnProperty.call(
+      entries,
+      decodedKey,
+    )
+      ? entries[decodedKey].concat(decodedValues)
+      : decodedValues;
   }
 
   return unflatten(entries, initialState, opts);
