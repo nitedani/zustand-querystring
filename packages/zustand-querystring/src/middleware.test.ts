@@ -467,6 +467,29 @@ describe('compact', () => {
   });
 });
 
+describe('url option', () => {
+  it('a URL key merges into a class instance, keeping its methods and other fields', () => {
+    class Panel {
+      selected = 0;
+      description = 'local';
+      open() {
+        return this.selected + 42;
+      }
+    }
+    const store = createStore<{ panel: Panel }>()(
+      querystring(() => ({ panel: new Panel() }), {
+        url: '/b?panel=.selected:5',
+        select: () => ({ panel: { selected: true } }),
+      }),
+    );
+
+    const { panel } = store.getState();
+    expect(panel).toBeInstanceOf(Panel);
+    expect(panel.description).toBe('local');
+    expect(panel.open()).toBe(47);
+  });
+});
+
 describe('href', () => {
   it('works on the server, with the url option', () => {
     const store = createStore<{ count: number; other: number }>()(

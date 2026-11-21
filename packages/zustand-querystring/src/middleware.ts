@@ -1,4 +1,11 @@
-import { isEmpty, isEqual, isPlainObject, mergeWith, pickBy } from 'lodash-es';
+import {
+  isEmpty,
+  isEqual,
+  isObjectLike,
+  isPlainObject,
+  mergeWith,
+  pickBy,
+} from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
 
@@ -190,13 +197,16 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
-// URL state replaces the values it carries, undefined too; plain objects merge key by key.
+// URL state replaces the values it carries, undefined and arrays too; a plain object merges key by key, into a class instance too.
 const mergeUrlState = (
   state: object,
   urlState: object,
   keepFunctions = false,
 ) => {
-  const merged = { ...state };
+  const merged = Object.assign(
+    Object.create(Object.getPrototypeOf(state)),
+    state,
+  );
   for (const [key, value] of Object.entries(urlState)) {
     if (
       keepFunctions &&
@@ -204,9 +214,10 @@ const mergeUrlState = (
       typeof merged[key] === 'function'
     )
       continue;
+    const current = merged[key];
     merged[key] =
-      isPlainObject(value) && isPlainObject(merged[key])
-        ? mergeUrlState(merged[key], value, keepFunctions)
+      isPlainObject(value) && isObjectLike(current) && !Array.isArray(current)
+        ? mergeUrlState(current, value, keepFunctions)
         : value;
   }
   return merged;

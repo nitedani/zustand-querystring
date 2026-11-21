@@ -2188,6 +2188,35 @@ describe('navigation', () => {
     expect(typeof useStore.getState().filters.clear).toBe('function');
   });
 
+  it('a link merges into a class instance, keeping its methods and other fields', async () => {
+    class Panel {
+      selected = 0;
+      description = 'local';
+      open() {
+        return this.selected + 42;
+      }
+    }
+    const useStore = create<{ panel: Panel }>()(
+      querystring(() => ({ panel: new Panel() }), {
+        select: () => ({ panel: { selected: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    const href = useStore.href('/b', {
+      panel: Object.assign(new Panel(), { selected: 5 }),
+    });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    const { panel } = useStore.getState();
+    expect(decodeURIComponent(href)).toBe('/b?panel=.selected:5');
+    expect(panel).toBeInstanceOf(Panel);
+    expect(panel.description).toBe('local');
+    expect(panel.open()).toBe(47);
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),
