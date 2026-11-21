@@ -163,7 +163,7 @@ export const compact = (
 const translateSelectionToState = <T>(
   selection: DeepSelect<T>,
   state: T,
-  partial = false,
+  mode: 'full' | 'partial',
 ) => {
   if (typeof state !== 'object' || !state) {
     return {};
@@ -178,8 +178,8 @@ const translateSelectionToState = <T>(
         acc[key] = state[key];
       }
     } else {
-      const selected = translateSelectionToState(value, state[key], partial);
-      if (!partial || !isEmpty(selected) || isEqual(state[key], {})) {
+      const selected = translateSelectionToState(value, state[key], mode);
+      if (mode === 'full' || !isEmpty(selected) || isEqual(state[key], {})) {
         acc[key] = selected;
       }
     }
@@ -334,15 +334,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
   };
 
-  const getSelectedState = (state, pathname, partial = false) => {
+  const getSelectedState = (
+    state,
+    pathname,
+    mode: 'full' | 'partial' = 'full',
+  ) => {
     if (defaultedOptions.select) {
-      const selection = defaultedOptions.select(pathname);
-      const selectedState = translateSelectionToState(
-        selection,
+      return translateSelectionToState(
+        defaultedOptions.select(pathname),
         state,
-        partial,
+        mode,
       );
-      return selectedState;
     }
     return state ?? {};
   };
@@ -425,7 +427,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }
       // stateFromUrl is in URL shape — map.from converts it back to store shape
       const storeState = applyMapFrom(stateFromUrl, url.pathname);
-      const selected = getSelectedState(storeState, url.pathname, true);
+      const selected = getSelectedState(storeState, url.pathname, 'partial');
       return mergeUrlState(state, selected, navigation);
     } catch (error) {
       console.error('[initialize] error:', error);
@@ -476,7 +478,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   api.href = (pathname: string, partial: object = {}) => {
     const stateForUrl = urlStateOf({ ...get(), ...partial }, pathname);
     // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter.
-    const passed = getSelectedState(partial, pathname, true);
+    const passed = getSelectedState(partial, pathname, 'partial');
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
     const { output } = compact(
       stateForUrl,
