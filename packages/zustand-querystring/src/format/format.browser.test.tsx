@@ -1798,6 +1798,26 @@ describe('map option', () => {
     expect(window.location.search).toBe('?state=tags@a');
   });
 
+  it('should clear the params of a renamed object the URL was created with', () => {
+    window.history.replaceState({}, '', '/?f.a=x&f.b=y');
+    const useStore = create<{ filters: Record<string, string> }>()(
+      querystring(() => ({ filters: {} }), {
+        format: plain,
+        map: createMap({
+          to: (state: { filters: Record<string, string> }) => ({
+            f: state.filters,
+          }),
+          from: urlState => (urlState.f ? { filters: urlState.f } : {}),
+        }),
+      }),
+    );
+    expect(useStore.getState().filters).toEqual({ a: 'x', b: 'y' });
+
+    useStore.setState({ filters: {} });
+
+    expect(window.location.search).toBe('');
+  });
+
   it('should handle multiple pages independently', async () => {
     window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();

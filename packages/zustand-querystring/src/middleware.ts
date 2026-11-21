@@ -556,7 +556,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     previouslyManagedKeys = ownedKeys(
-      getSelectedState(initialized, location.pathname),
+      applyMapTo(
+        getSelectedState(initialized, location.pathname),
+        location.pathname,
+      ),
     );
     api.getInitialState = () => initialized;
     return initialized;
