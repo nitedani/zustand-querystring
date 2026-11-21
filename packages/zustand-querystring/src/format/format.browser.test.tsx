@@ -2368,6 +2368,25 @@ describe('href', () => {
     expect(url()).toBe('/b?other=:3');
   });
 
+  it('clears an object filter whose initial value is empty', async () => {
+    const useStore = create<{ filters: { query?: string } }>()(
+      querystring(() => ({ filters: {} })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filters: { query: 'x' } });
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/results', { filters: {} }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().filters).toEqual({});
+    expect(url()).toBe('/results');
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),

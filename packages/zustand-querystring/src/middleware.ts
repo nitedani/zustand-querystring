@@ -297,7 +297,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.from(urlState, pathname) : urlState;
   };
 
-  // URL state replaces the values it carries, arrays too, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
+  // URL state replaces the values it carries, arrays and an empty object too, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
   const mergeUrlState = (
     state: object,
     urlState: object,
@@ -319,7 +319,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         !Array.isArray(current)
       ) {
         if (navigation && !isPlainObject(current)) continue;
-        merged[key] = mergeUrlState(current, value, navigation);
+        merged[key] = isEmpty(value)
+          ? value
+          : mergeUrlState(current, value, navigation);
       } else {
         merged[key] = value;
       }
