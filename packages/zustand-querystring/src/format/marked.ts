@@ -22,6 +22,7 @@ import type {
   QueryStringParams,
   ParseContext,
 } from '../middleware.js';
+import { decodeComponent } from './decode.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -591,7 +592,7 @@ export function parse<T = unknown>(
 ): T {
   const opts = resolveOptions(options);
   const datePattern = buildDatePattern(opts);
-  const str = decodeURIComponent(input);
+  const str = decodeComponent(input);
 
   if (str.length === 0) {
     return (standalone ? '' : {}) as T;
@@ -684,7 +685,7 @@ export function createFormat(
       const result: Record<string, unknown> = {};
       for (const [key, values] of Object.entries(params)) {
         if (values.length > 0) {
-          result[decodeURIComponent(key)] = parse(values[0], true, options);
+          result[decodeComponent(key)] = parse(values[0], true, options);
         }
       }
       return result;

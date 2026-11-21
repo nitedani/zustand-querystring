@@ -20,6 +20,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { decodeComponent } from './decode.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -141,17 +142,6 @@ function encodePreservingMarkers(str: string, opts: ResolvedOptions): string {
     }
   }
   return result;
-}
-
-/**
- * Decode a URL-encoded string.
- */
-function decodeString(str: string): string {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
 }
 
 // =============================================================================
@@ -652,7 +642,7 @@ function unflatten(
 function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
   if (!input) return {};
 
-  const decoded = decodeString(input);
+  const decoded = decodeComponent(input);
   const entries: FlatEntries = {};
   const parts = splitEscaped(decoded, opts.entrySep, opts.escape);
 
@@ -756,8 +746,8 @@ function parseStandalone(
   const entries: FlatEntries = {};
 
   for (const [key, values] of Object.entries(params)) {
-    const decodedKey = decodeString(key);
-    entries[decodedKey] = values.map(v => decodeString(v));
+    const decodedKey = decodeComponent(key);
+    entries[decodedKey] = values.map(v => decodeComponent(v));
   }
 
   return unflatten(entries, initialState, opts);

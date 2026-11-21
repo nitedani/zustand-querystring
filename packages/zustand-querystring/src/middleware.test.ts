@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { compact } from './middleware';
+import { createStore } from 'zustand/vanilla';
+import { compact, querystring } from './middleware';
+import { marked } from './format/marked';
+import { plain } from './format/plain';
+import { json } from './format/json';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -449,5 +453,44 @@ describe('compact', () => {
 
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
+  });
+});
+
+describe('server store (url option): a stray % in the URL', () => {
+  it.each([
+    ['marked', '/?count=:5&utm_content=50%off', marked],
+    ['plain', '/?count=5&utm_content=50%off', plain],
+    ['json', '/?count=5&utm_content=50%off', json],
+    ['marked', '/?count=:5&50%off=1', marked],
+  ] as const)('%s: %s still restores count', (_, url, format) => {
+    const store = createStore(
+      querystring(() => ({ count: 0 }), { url, key: false, format }),
+    );
+    expect(store.getState().count).toBe(5);
+  });
+
+  it.each([
+    ['marked', '/?count=:5&q=50%%20off', false, '50% off', marked],
+    ['plain', '/?count=5&q=50%%20off', false, '50% off', plain],
+    ['marked', '/?count=:5&q=caf%C3%A9%20100%', false, 'café 100%', marked],
+    [
+      'marked',
+      '/?state=count:5,q=John%20Doe%20100%',
+      'state',
+      'John Doe 100%',
+      marked,
+    ],
+    [
+      'plain',
+      '/?state=count=5,q=John%20Doe%20100%',
+      'state',
+      'John Doe 100%',
+      plain,
+    ],
+  ] as const)('%s: %s decodes the valid escapes', (_, url, key, q, format) => {
+    const store = createStore(
+      querystring(() => ({ count: 0, q: '' }), { url, key, format }),
+    );
+    expect(store.getState()).toEqual({ count: 5, q });
   });
 });

@@ -911,6 +911,19 @@ describe('Edge Cases and Regression Tests', () => {
     });
   });
 
+  describe('a malformed percent escape in another parameter', () => {
+    it.each([
+      ['marked', '?count=:5&utm_content=50%off', marked],
+      ['plain', '?count=5&utm_content=50%off', plain],
+    ] as const)('%s: %s still restores count', (_, search, format) => {
+      window.history.replaceState({}, '', search);
+      const useStore = create<{ count: number }>()(
+        querystring(() => ({ count: 0 }), { key: false, format }),
+      );
+      expect(useStore.getState().count).toBe(5);
+    });
+  });
+
   describe('string with comma (regression test)', () => {
     it('marked: should preserve comma in string through round-trip', async () => {
       interface Store {
