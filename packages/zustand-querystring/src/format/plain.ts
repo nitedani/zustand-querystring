@@ -429,13 +429,6 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
-/** A larger index never makes an array slot: a sparse array that long hangs the page. */
-const MAX_INDEX = 10000;
-
-function isLargeIndex(key: string): boolean {
-  return /^\d+$/.test(key) && Number(key) > MAX_INDEX;
-}
-
 /**
  * Set a value at a path in an object, creating intermediate structures.
  */
@@ -443,18 +436,19 @@ function setAtPath(
   obj: Record<string, unknown>,
   path: string[],
   value: unknown,
+  beyondEntries: (i: number) => boolean,
 ): void {
   let current = obj;
 
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
     const nextKey = path[i + 1];
-    const nextIsIndex = /^\d+$/.test(nextKey) && !isLargeIndex(nextKey);
+    const nextIsIndex = /^\d+$/.test(nextKey) && !beyondEntries(i + 1);
     const next = getOwn(current, key);
 
     if (next === undefined) {
       setOwn(current, key, nextIsIndex ? [] : {});
-    } else if (Array.isArray(next) && isLargeIndex(nextKey)) {
+    } else if (Array.isArray(next) && beyondEntries(i + 1)) {
       setOwn(current, key, { ...next });
     }
 
@@ -583,12 +577,26 @@ function unflatten(
       : a.localeCompare(b);
   });
 
+  // An index into an array the URL builds is at most the URL's entries under it
+  const entriesUnder = new Map<string, number>();
+  for (const key of keys) {
+    const path = parseKeyPath(key, opts);
+    for (let i = 1; i < path.length; i++) {
+      const prefix = JSON.stringify(path.slice(0, i));
+      entriesUnder.set(prefix, (entriesUnder.get(prefix) ?? 0) + 1);
+    }
+  }
+
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
+    const beyondEntries = (i: number) =>
+      /^\d+$/.test(path[i]) &&
+      Number(path[i]) >
+        (entriesUnder.get(JSON.stringify(path.slice(0, i))) ?? 0);
     const underArray = (i: number) =>
       Array.isArray(getHintAtPath(initialState, path.slice(0, i)));
-    if (path.some((seg, i) => isLargeIndex(seg) && underArray(i))) continue;
+    if (path.some((_, i) => beyondEntries(i) && underArray(i))) continue;
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
@@ -632,13 +640,13 @@ function unflatten(
 
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
-      setAtPath(result, path, []);
+      setAtPath(result, path, [], beyondEntries);
       continue;
     }
 
     // Single scalar value
     if (values.length === 1 && !isArrayHint) {
-      setAtPath(result, path, parseValue(values[0], hint, opts));
+      setAtPath(result, path, parseValue(values[0], hint, opts), beyondEntries);
       continue;
     }
 
@@ -648,6 +656,7 @@ function unflatten(
       result,
       path,
       values.map(v => parseValue(v, elementHint, opts)),
+      beyondEntries,
     );
   }
 

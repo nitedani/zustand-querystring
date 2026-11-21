@@ -488,6 +488,8 @@ describe('server store (url option): a plain array index', () => {
     [{ tags: ['a'] }, '/?count=5&tags.30000000=z', { tags: ['a'] }],
     [{ tags: ['a'] }, '/?count=5&tags.1=b&tags.0=a', { tags: ['a', 'b'] }],
     [{ tags: ['a'] }, '/?count=5&tags.4294967294.x=z', { tags: ['a'] }],
+    [{ tags: ['a'] }, '/?count=5&tags.10000=z', { tags: ['a'] }],
+    [{}, '/?count=5&k0.10000=x', { k0: { 10000: 'x' } }],
     [{}, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
     [{ byId: {} }, '/?count=5&byId.20000.n=5', { byId: { 20000: { n: 5 } } }],
     [
