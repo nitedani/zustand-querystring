@@ -2466,6 +2466,28 @@ describe('href', () => {
     expect(url()).toBe('/results');
   });
 
+  it('clears an object filter with the plain format, in standalone and namespaced mode', async () => {
+    for (const options of [{}, { key: 'state' }]) {
+      window.history.replaceState({}, '', '/');
+      const useStore = create<{ filters: { region?: string } }>()(
+        querystring(() => ({ filters: {} }), { ...options, format: plain }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+      useStore.setState({ filters: { region: 'EU' } });
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/results', { filters: {} }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().filters).toEqual({});
+      expect(url()).toBe('/results');
+    }
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),

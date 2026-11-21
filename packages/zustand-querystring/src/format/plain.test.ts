@@ -262,6 +262,14 @@ describe('plain format', () => {
       expect(parsed).toEqual(obj);
     });
 
+    it('should round-trip empty objects', () => {
+      const obj = { filters: {}, user: { tags: {} } };
+      const serialized = plain.stringify(obj);
+      expect(serialized).toBe('filters=,user.tags=');
+      const parsed = plain.parse(serialized, { initialState: obj });
+      expect(parsed).toEqual(obj);
+    });
+
     it('should round-trip dates', () => {
       const obj = { created: new Date('2024-01-15T12:00:00.000Z') };
       const serialized = plain.stringify(obj);
@@ -631,6 +639,14 @@ describe('plain format', () => {
       const serialized = plain.stringifyStandalone(obj);
       const parsed = plain.parseStandalone(serialized, { initialState: obj });
       expect(parsed).toEqual(obj);
+    });
+
+    it('should handle standalone mode with empty objects', () => {
+      const initialState = { filters: { region: 'EU' } };
+      const serialized = plain.stringifyStandalone({ filters: {} });
+      expect(serialized).toEqual({ filters: [''] });
+      const parsed = plain.parseStandalone(serialized, { initialState });
+      expect(parsed).toEqual({ filters: {} });
     });
 
     it('should handle path through primitive hint', () => {

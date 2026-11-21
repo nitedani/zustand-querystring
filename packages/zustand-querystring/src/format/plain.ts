@@ -171,6 +171,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return isObject(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+
 // =============================================================================
 // PARSING PRIMITIVES
 // =============================================================================
@@ -539,6 +543,12 @@ function flatten(
       continue;
     }
 
+    // Empty object: just the key with empty value, like an empty array
+    if (isPlainObject(value) && Object.keys(value).length === 0) {
+      result[fullKey] = [''];
+      continue;
+    }
+
     // Nested objects
     /* v8 ignore next 3 -- @preserve: defensive - handles non-serializable types like Symbol, Set, Map */
     if (isObject(value)) {
@@ -619,6 +629,12 @@ function unflatten(
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
       setAtPath(result, path, []);
+      continue;
+    }
+
+    // Empty object: single empty string + plain object hint → {}
+    if (values.length === 1 && values[0] === '' && isPlainObject(hint)) {
+      setAtPath(result, path, {});
       continue;
     }
 
