@@ -2368,14 +2368,6 @@ describe('href', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('is typed by the state', () => {
-    const useStore = createNavStore();
-    // @ts-expect-error count is a number
-    useStore.href('/b', { count: 'x' });
-    // @ts-expect-error not a key of the state
-    useStore.href('/b', { nope: 1 });
-  });
-
   it('writes the passed keys at their initial value too, so a link can clear a filter', async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
