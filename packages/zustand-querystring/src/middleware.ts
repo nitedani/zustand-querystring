@@ -332,15 +332,29 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return merged;
   };
 
+  let initialState: ReturnType<typeof fn>;
+
+  // The initial state in URL shape: the parse hints and the diff baseline.
+  const urlDefaults = (pathname: string): object => {
+    if (defaultedOptions.map) {
+      return applyMapTo(getSelectedState(initialState, pathname), pathname);
+    }
+    return initialState as object;
+  };
+
+  // The params this store writes for a state in URL shape.
+  const ownedKeys = (urlState: object) =>
+    new Set(
+      standalone
+        ? Object.keys(format.stringifyStandalone(urlState)).map(
+            key => defaultedOptions.prefix + key,
+          )
+        : [defaultedOptions.prefix + (defaultedOptions.key as string)],
+    );
+
   const initialize = (url: URL, state, navigation = false) => {
     try {
-      // When map is used, getStateFromUrl returns the URL-shape state.
-      // We need the mapped initial state for type inference in parsing.
-      const mappedInitial = applyMapTo(
-        getSelectedState(initialState, url.pathname),
-        url.pathname,
-      );
-      const stateFromUrl = getStateFromUrl(url, mappedInitial);
+      const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
       if (!stateFromUrl) {
         return state;
       }
@@ -352,16 +366,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       console.error('[initialize] error:', error);
       return state;
     }
-  };
-
-  let initialState: ReturnType<typeof fn>;
-
-  // The mapped initial state for diffing when map is used
-  const getMappedInitial = (pathname: string) => {
-    if (defaultedOptions.map) {
-      return applyMapTo(getSelectedState(initialState, pathname), pathname);
-    }
-    return initialState;
   };
 
   const toParams = (compacted: object): QueryStringParams => {
@@ -394,7 +398,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
     const { output } = compact(
       stateForUrl,
-      getMappedInitial(pathname),
+      urlDefaults(pathname),
       defaultedOptions.syncNull,
       defaultedOptions.syncUndefined,
       forced,
@@ -480,39 +484,23 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const selectedState = getSelectedState(get(), url.pathname);
       // When map is used, transform to URL shape before compacting
       const stateForUrl = applyMapTo(selectedState, url.pathname);
-      const mappedInitial = getMappedInitial(url.pathname);
       const { output: newCompacted } = compact(
         stateForUrl,
-        mappedInitial,
+        urlDefaults(url.pathname),
         defaultedOptions.syncNull,
         defaultedOptions.syncUndefined,
       );
       const previous = url.search;
 
-      // Get the managed keys based on mode
-      let managedKeys: Set<string>;
-
-      if (standalone) {
-        // Stringify the full selected state to get all managed keys
-        const allParams = format.stringifyStandalone(stateForUrl as object);
-        const currentKeys = new Set(
-          Object.keys(allParams).map(k => defaultedOptions.prefix + k),
-        );
-
-        // managedKeys = current keys ∪ previously managed keys
-        // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
-        // the old URL params are still recognized as ours and get removed.
-        managedKeys = new Set([
-          ...Array.from(currentKeys),
-          ...Array.from(previouslyManagedKeys),
-        ]);
-        previouslyManagedKeys = currentKeys;
-      } else {
-        // Namespaced mode: single key (with prefix)
-        const fullKey =
-          defaultedOptions.prefix + (defaultedOptions.key as string);
-        managedKeys = new Set([fullKey]);
-      }
+      const currentKeys = ownedKeys(stateForUrl);
+      // managedKeys = current keys ∪ previously managed keys
+      // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
+      // the old URL params are still recognized as ours and get removed.
+      const managedKeys = new Set([
+        ...Array.from(currentKeys),
+        ...Array.from(previouslyManagedKeys),
+      ]);
+      previouslyManagedKeys = currentKeys;
       const stateParams = toParams(newCompacted);
 
       // Build a map of key -> array of values to write
@@ -593,16 +581,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const initialized = initialize(new URL(window.location.href), initialState);
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
-    if (standalone) {
-      const initSelected = getSelectedState(
-        initialized,
-        new URL(window.location.href).pathname,
-      );
-      const initParams = format.stringifyStandalone(initSelected as object);
-      previouslyManagedKeys = new Set(
-        Object.keys(initParams).map(k => defaultedOptions.prefix + k),
-      );
-    }
+    previouslyManagedKeys = ownedKeys(
+      getSelectedState(initialized, location.pathname),
+    );
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
