@@ -937,6 +937,24 @@ describe('Edge Cases and Regression Tests', () => {
       expect(useStore.getState()).toEqual({ count: 5, a: 1 });
     });
 
+    it('plain: ?count=5&gr%c3%b6%c3%9fe=L keeps L across reloads until it changes', () => {
+      window.history.replaceState({}, '', '?count=5&gr%c3%b6%c3%9fe=L');
+      const createUseStore = () =>
+        create<{ count: number; größe: string }>()(
+          querystring(() => ({ count: 0, größe: '' }), {
+            key: false,
+            format: plain,
+          }),
+        );
+      const first = createUseStore();
+      expect(first.getState()).toEqual({ count: 5, größe: 'L' });
+      first.setState({ count: 6 });
+      const second = createUseStore();
+      expect(second.getState()).toEqual({ count: 6, größe: 'L' });
+      second.setState({ größe: 'XL' });
+      expect(createUseStore().getState()).toEqual({ count: 6, größe: 'XL' });
+    });
+
     it.each([
       ['json', '?count=5&q=%22100%%22', false],
       ['json', '?state=%7B%22count%22:5,%22q%22:%22100%%22%7D', 'state'],
