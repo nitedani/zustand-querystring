@@ -471,15 +471,19 @@ describe("server store (url option): a parameter the format can't read", () => {
     expect(store.getState().count).toBe(5);
   });
 
-  it('plain: /?count=5&a=1&a.b=2 keeps a=1', () => {
+  it.each([
+    ['/?count=5&a=1&a.b=2', 1],
+    ['/?count=5&a=red&a=blue&a.0=9', ['red', 'blue']],
+    ['/?count=5&a.0=9&a=red&a=blue', ['red', 'blue']],
+    ['/?count=5&a=undefined&a.b=2', undefined],
+    ['/?count=5&a=red&a=blue&a.length=oops', ['red', 'blue']],
+    ['/?count=5&a.length=oops&a=red&a=blue', ['red', 'blue']],
+    ['/?count=5&a.0=red&a.length=oops', ['red']],
+  ])('plain: %s keeps a as the shorter path set it', (url, a) => {
     const store = createStore(
-      querystring(() => ({ count: 0 }), {
-        url: '/?count=5&a=1&a.b=2',
-        key: false,
-        format: plain,
-      }),
+      querystring(() => ({ count: 0 }), { url, key: false, format: plain }),
     );
-    expect(store.getState()).toEqual({ count: 5, a: 1 });
+    expect(store.getState()).toStrictEqual({ count: 5, a });
   });
 
   it('marked: /?count=:5&filters=.status keeps the default filters', () => {

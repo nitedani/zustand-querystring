@@ -418,6 +418,9 @@ function getHintAtPath(state: object, path: string[]): unknown {
   return current;
 }
 
+// The objects and arrays setAtPath made; any other value is a leaf it never writes into
+const containers = new WeakSet<object>();
+
 /**
  * Set a value at a path in an object, creating intermediate structures.
  */
@@ -433,11 +436,15 @@ function setAtPath(
     const nextKey = path[i + 1];
     const nextIsIndex = /^\d+$/.test(nextKey);
 
-    if (current[key] === undefined) {
+    if (!(key in current)) {
       current[key] = nextIsIndex ? [] : {};
+      containers.add(current[key] as object);
     }
     // A value already at a shorter path (a=1 beside a.b=2) wins
-    if (typeof current[key] !== 'object' || current[key] === null) return;
+    if (!containers.has(current[key] as object)) return;
+
+    // a.length addresses no array element
+    if (Array.isArray(current[key]) && !nextIsIndex) return;
 
     current = current[key] as Record<string, unknown>;
   }
