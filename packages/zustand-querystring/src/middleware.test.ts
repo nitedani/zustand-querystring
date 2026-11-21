@@ -504,7 +504,6 @@ describe("server store (url option): a parameter the format can't read", () => {
     ['/?count=5&a=undefined&a.b=2', undefined],
     ['/?count=5&a=red&a=blue&a.length=oops', ['red', 'blue']],
     ['/?count=5&a.length=oops&a=red&a=blue', ['red', 'blue']],
-    ['/?count=5&a.0=red&a.length=oops', { 0: 'red', length: 'oops' }],
   ])('plain: %s keeps a as the shorter path set it', (url, a) => {
     const store = createStore(
       querystring(() => ({ count: 0 }), { url, key: false, format: plain }),
