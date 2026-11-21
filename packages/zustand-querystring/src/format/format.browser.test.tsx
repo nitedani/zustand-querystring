@@ -911,6 +911,27 @@ describe('Edge Cases and Regression Tests', () => {
     });
   });
 
+  describe('keys naming prototype members', () => {
+    it.each([
+      [false, '?___proto____.polluted=yes'],
+      [false, '?constructor.prototype.polluted=yes'],
+      ['state', '?state=___proto____.polluted=yes'],
+    ] as const)(
+      'plain, key %s: %s leaves Object.prototype alone',
+      (key, search) => {
+        window.history.replaceState({}, '', search);
+        try {
+          create<{ count: number }>()(
+            querystring(() => ({ count: 0 }), { key, format: plain }),
+          );
+          expect(({} as { polluted?: string }).polluted).toBeUndefined();
+        } finally {
+          delete (Object.prototype as { polluted?: string }).polluted;
+        }
+      },
+    );
+  });
+
   describe('string with comma (regression test)', () => {
     it('marked: should preserve comma in string through round-trip', async () => {
       interface Store {

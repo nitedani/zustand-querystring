@@ -174,6 +174,18 @@ describe('plain format', () => {
         plain.parse('path=a___,b__', { initialState: { path: '' } }),
       ).toEqual({ path: 'a_,b_' });
     });
+
+    it('should keep a __proto__ key as data', () => {
+      for (const obj of [
+        JSON.parse('{"__proto__":{"isAdmin":true}}'),
+        JSON.parse('{"__proto__":"x"}'),
+      ]) {
+        const result = plain.parse(plain.stringify(obj));
+        expect(Object.hasOwn(result, '__proto__')).toBe(true);
+        expect(result).toEqual(obj);
+        expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      }
+    });
   });
 
   describe('stringifyStandalone', () => {

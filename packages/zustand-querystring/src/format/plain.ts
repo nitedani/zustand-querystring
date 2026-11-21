@@ -20,6 +20,7 @@ import type {
   QueryStringFormat,
   QueryStringParams,
 } from '../middleware.js';
+import { getOwn, setOwn } from '../own.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -443,8 +444,8 @@ function setAtPath(
     const nextKey = path[i + 1];
     const nextIsIndex = /^\d+$/.test(nextKey);
 
-    if (current[key] === undefined) {
-      current[key] = nextIsIndex ? [] : {};
+    if (getOwn(current, key) === undefined) {
+      setOwn(current, key, nextIsIndex ? [] : {});
     }
 
     current = current[key] as Record<string, unknown>;
@@ -455,7 +456,7 @@ function setAtPath(
   if (/^\d+$/.test(lastKey)) {
     (current as unknown as unknown[])[parseInt(lastKey, 10)] = value;
   } else {
-    current[lastKey] = value;
+    setOwn(current, lastKey, value);
   }
 }
 

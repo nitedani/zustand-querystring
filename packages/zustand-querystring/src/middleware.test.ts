@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { compact } from './middleware';
+import { createStore } from 'zustand/vanilla';
+import { compact, querystring } from './middleware';
+import { plain } from './format/plain';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -449,5 +451,31 @@ describe('compact', () => {
 
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
+  });
+});
+
+describe('server store (url option): keys naming prototype members', () => {
+  it.each([
+    [false, '/?___proto____.polluted=yes'],
+    [false, '/?constructor.prototype.polluted=yes'],
+    ['state', '/?state=___proto____.polluted=yes'],
+    [false, '/?tags.0=a&tags.constructor.prototype.polluted=yes'],
+    [false, '/?tags.0=a&tags.___proto____.polluted=yes'],
+    [false, '/?hasOwnProperty.call=1'],
+  ] as const)('plain, key %s: %s leaves the prototypes alone', (key, url) => {
+    try {
+      createStore(
+        querystring(() => ({ count: 0 }), { url, key, format: plain }),
+      );
+      expect(({} as { polluted?: string }).polluted).toBeUndefined();
+      expect(([] as { polluted?: string }).polluted).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call).toBe(
+        Function.prototype.call,
+      );
+    } finally {
+      delete (Object.prototype as { polluted?: string }).polluted;
+      delete (Array.prototype as { polluted?: string }).polluted;
+      delete (Object.prototype.hasOwnProperty as { call?: unknown }).call;
+    }
   });
 });
