@@ -197,26 +197,69 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
   }, {} as T);
 };
 
-const parseSearchString = (search: string): QueryStringParams => {
-  const result: QueryStringParams = {};
-
+// The params of a search in order, as raw text; a param without a value has none.
+const splitSearch = (search: string) =>
   search
     .slice(search.startsWith('?') ? 1 : 0)
     .split('&')
     .filter(Boolean)
-    .forEach(param => {
+    .map(param => {
       const eqIndex = param.indexOf('=');
-      if (eqIndex === -1) return;
-      const key = param.slice(0, eqIndex);
-      const value = param.slice(eqIndex + 1);
-
-      if (!result[key]) {
-        result[key] = [];
-      }
-      result[key].push(value);
+      return eqIndex === -1
+        ? { param, key: param }
+        : {
+            param,
+            key: param.slice(0, eqIndex),
+            value: param.slice(eqIndex + 1),
+          };
     });
 
+const parseSearchString = (search: string): QueryStringParams => {
+  const result: QueryStringParams = {};
+
+  splitSearch(search).forEach(({ key, value }) => {
+    if (value === undefined) return;
+    if (!result[key]) {
+      result[key] = [];
+    }
+    result[key].push(value);
+  });
+
   return result;
+};
+
+// Writes the params into a search: an owned param takes its next value in place, or is removed; others stay as they are.
+const rewriteSearch = (
+  search: string,
+  owned: Set<string>,
+  params: QueryStringParams,
+) => {
+  const valuesToWrite = new Map(
+    Object.entries(params).map(([key, values]) => [key, [...values]]),
+  );
+  const result: string[] = [];
+
+  splitSearch(search).forEach(({ param, key }) => {
+    if (!owned.has(key)) {
+      // Not ours - keep as-is
+      result.push(param);
+      return;
+    }
+
+    // Our key - if we have values to write, take one from the front
+    const values = valuesToWrite.get(key);
+    if (values && values.length > 0) {
+      result.push(`${key}=${values.shift()}`);
+    }
+    // If no more values, skip (removed)
+  });
+
+  // Add remaining values at the end in stringify order (new additions)
+  valuesToWrite.forEach((values, key) => {
+    values.forEach(value => result.push(`${key}=${value}`));
+  });
+
+  return result.length ? '?' + result.join('&') : '';
 };
 
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
@@ -403,13 +446,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       defaultedOptions.syncUndefined,
       forced,
     );
-    const pairs: string[] = [];
-    for (const [key, values] of Object.entries(toParams(output))) {
-      values.forEach(value => pairs.push(`${key}=${value}`));
-    }
     // Encoded like the store's own write, so a # in a value stays in the query.
     const query = new URL('http://localhost');
-    query.search = '?' + pairs.join('&');
+    query.search = rewriteSearch('', new Set(), toParams(output));
     return pathname + query.search;
   };
 
@@ -501,48 +540,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ...Array.from(previouslyManagedKeys),
       ]);
       previouslyManagedKeys = currentKeys;
-      const stateParams = toParams(newCompacted);
-
-      // Build a map of key -> array of values to write
-      const valuesToWrite = new Map<string, string[]>();
-      const keyOrder: string[] = []; // Track key order
-      for (const [key, values] of Object.entries(stateParams)) {
-        valuesToWrite.set(key, [...values]);
-        keyOrder.push(key);
-      }
-
-      const params = url.search.slice(1).split('&').filter(Boolean);
-      const result: string[] = [];
-
-      // Process existing params
-      params.forEach(param => {
-        const eqIndex = param.indexOf('=');
-        const key = eqIndex === -1 ? param : param.slice(0, eqIndex);
-
-        if (!managedKeys.has(key)) {
-          // Not ours - keep as-is
-          result.push(param);
-          return;
-        }
-
-        // Our key - if we have values to write, take one from the front
-        const values = valuesToWrite.get(key);
-        if (values && values.length > 0) {
-          const value = values.shift()!;
-          result.push(`${key}=${value}`);
-        }
-        // If no more values, skip (removed)
-      });
-
-      // Add remaining values at the end in stringify order (new additions)
-      for (const key of keyOrder) {
-        const values = valuesToWrite.get(key);
-        if (values) {
-          values.forEach(v => result.push(`${key}=${v}`));
-        }
-      }
-
-      url.search = result.length ? '?' + result.join('&') : '';
+      url.search = rewriteSearch(
+        url.search,
+        managedKeys,
+        toParams(newCompacted),
+      );
 
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
