@@ -1892,20 +1892,23 @@ describe('navigation', () => {
     expect(url()).toBe('/c?count=:10&other=:2');
   });
 
-  it('the write after a navigation reads a newer navigation first', async () => {
-    const useStore = createNavStore();
-    const { unmount } = await subscribe(useStore);
+  it("a store unsubscribed before its write doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const { unmount } = await subscribe(replaced);
     await settle();
+    replaced.setState({ count: 5 });
 
-    window.history.pushState({}, '', '/b');
-    // The store reads /b in this frame and writes 100ms later, unsubscribed or not.
+    window.history.pushState({}, '', '/b?count=:5&tab=yes');
+    // The store reads /b in this frame and would write 100ms later.
     await new Promise(requestAnimationFrame);
     await unmount();
-    window.history.pushState({}, '', '/c?count=:7');
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 0 });
     await settle();
 
-    expect(useStore.getState().count).toBe(7);
-    expect(url()).toBe('/c?count=:7');
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b?tab=yes');
   });
 
   it("doesn't read its own writes", async () => {

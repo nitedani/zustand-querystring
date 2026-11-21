@@ -407,9 +407,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
     // The URL this store last wrote or read; any other URL is a navigation.
     let lastUrl = '';
+    let writeTimer: ReturnType<typeof setTimeout> | undefined;
     const readUrl = () => {
       if (location.pathname + location.search === lastUrl) return;
       lastUrl = location.pathname + location.search;
+      clearTimeout(writeTimer);
+      writeTimer = setTimeout(setQuery, 100);
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current);
       // Only the store's own keys, and only changed ones, so the others keep their references.
@@ -418,7 +421,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         (value, key) => key in current && !isEqual(value, current[key]),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
-      setTimeout(setQuery, 100);
     };
 
     const setQuery = () => {
@@ -530,6 +532,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return () => {
           if (subscribed && --subscribers === 0) {
             cancelAnimationFrame(frame);
+            clearTimeout(writeTimer);
           }
           subscribed = false;
           unsubscribe();
