@@ -555,6 +555,8 @@ describe("server store (url option): a parameter the format can't read", () => {
         ['sel.00=a', 'sel.01=b'],
         { sel: { '00': 'a', '01': 'b' } },
       ],
+      [{}, ['a.01.x=1'], { a: [, { x: 1 }] }],
+      [{}, ['a.toString.x=1'], { a: { toString: { x: 1 } } }],
     ])(
       '%o reads %o as a container of the right kind',
       (initial, entries, expected) => {
@@ -569,6 +571,22 @@ describe("server store (url option): a parameter the format can't read", () => {
         expect(store.getState()).toStrictEqual({ count: 5, ...expected });
       },
     );
+
+    it('reads constructor.prototype.polluted=yes as data, not into Object.prototype', () => {
+      const store = createStore(
+        querystring(() => ({ count: 0 }), {
+          url: urlOf(['constructor.prototype.polluted=yes']),
+          key,
+          prefix: 's_',
+          format: plain,
+        }),
+      );
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      // toStrictEqual compares constructors, so the own constructor key is checked apart
+      const { constructor, ...rest } = store.getState();
+      expect(rest).toStrictEqual({ count: 5 });
+      expect(constructor).toStrictEqual({ prototype: { polluted: 'yes' } });
+    });
   });
 
   it.each([
