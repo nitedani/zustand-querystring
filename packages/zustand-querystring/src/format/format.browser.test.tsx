@@ -2208,6 +2208,27 @@ describe('navigation', () => {
     expect(parses).toBe(parsesBefore);
   });
 
+  it('reads the URL it was created on once, and writes it once subscribed', async () => {
+    window.history.replaceState({}, '', '/?count=:2&other=:0');
+    let parses = 0;
+    const useStore = createNavStore({
+      format: {
+        ...marked,
+        parseStandalone: (params, ctx) => {
+          parses++;
+          return marked.parseStandalone(params, ctx);
+        },
+      },
+    });
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().count).toBe(2);
+    expect(parses).toBe(1);
+    expect(url()).toBe('/?count=:2');
+  });
+
   it("ignores params that aren't keys of the store", async () => {
     const useStore = createNavStore();
     await subscribe(useStore);

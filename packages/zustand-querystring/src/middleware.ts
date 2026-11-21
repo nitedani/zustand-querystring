@@ -419,9 +419,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
 
     // The URL this store last wrote or read; any other URL is a navigation.
-    let lastUrl = '';
-    // A navigation owes a URL write; a timer pays it 100ms later while the store has a subscriber.
-    let writeOwed = false;
+    let lastUrl = location.pathname + location.search;
+    // A read owes a URL write, creation's too; a timer pays it 100ms later while the store has a subscriber.
+    let writeOwed = true;
     let writeTimer: ReturnType<typeof setTimeout> | undefined;
     // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
     let subscribers = 0;
