@@ -433,6 +433,19 @@ function getHintAtPath(state: object, path: string[]): unknown {
 const SPARE_ARRAY_SLOTS = 10000;
 
 /**
+ * Whether a container is an array, from its default and every child key the URL gives it.
+ */
+function isArrayContainer(hint: unknown, childKeys: string[]): boolean {
+  if (Array.isArray(hint)) return true;
+  if (!childKeys.every(k => /^\d+$/.test(k))) return false;
+  // 0..n-1 is an array even under an object default; other numbers are keys there
+  const isDense = childKeys.every(
+    k => /^(0|[1-9]\d*)$/.test(k) && Number(k) < childKeys.length,
+  );
+  return isDense || typeof hint !== 'object' || hint === null;
+}
+
+/**
  * Which numeric segments of a path are object keys rather than array indices, and the array
  * slots the indices add; undefined when a path past the slots left sits under an array default.
  */
@@ -440,6 +453,7 @@ function keySegments(
   result: Record<string, unknown>,
   path: string[],
   initialState: object,
+  childKeys: Map<string, string[]>,
   slotsLeft: number,
 ): { asKey: boolean[]; slots: number } | undefined {
   const asKey = path.map(() => false);
@@ -457,7 +471,8 @@ function keySegments(
       container === undefined || Array.isArray(container)
         ? Math.max(0, Number(path[i]) + 1 - length)
         : 0;
-    asKey[i] = isObject(hint) || slots + added > slotsLeft;
+    const children = childKeys.get(JSON.stringify(path.slice(0, i))) ?? [];
+    asKey[i] = !isArrayContainer(hint, children) || slots + added > slotsLeft;
     if (asKey[i] && Array.isArray(hint)) return undefined;
     if (!asKey[i]) slots += added;
   }
@@ -612,13 +627,31 @@ function unflatten(
       : a.localeCompare(b);
   });
 
+  // Every container path's child keys, which decide whether it is an array
+  const childKeys = new Map<string, string[]>();
+  for (const key of keys) {
+    const path = parseKeyPath(key, opts);
+    for (let i = 1; i < path.length; i++) {
+      const parent = JSON.stringify(path.slice(0, i));
+      const children = childKeys.get(parent) ?? [];
+      if (children.indexOf(path[i]) === -1) children.push(path[i]);
+      childKeys.set(parent, children);
+    }
+  }
+
   // All arrays one URL builds share this many slots
   let slotsLeft = SPARE_ARRAY_SLOTS + keys.length;
 
   for (const key of keys) {
     let rawValues = entries[key];
     const path = parseKeyPath(key, opts);
-    const segments = keySegments(result, path, initialState, slotsLeft);
+    const segments = keySegments(
+      result,
+      path,
+      initialState,
+      childKeys,
+      slotsLeft,
+    );
     if (!segments) continue;
     const { asKey, slots } = segments;
     slotsLeft -= slots;
