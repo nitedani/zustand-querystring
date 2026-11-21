@@ -2,14 +2,15 @@ import type {
   ParseContext,
   QueryStringFormat,
   QueryStringParams,
-} from '../middleware.js';
+} from './types.js';
 
 function encodeValue(input: unknown): string {
-  return encodeURI(JSON.stringify(input));
+  // encodeURI leaves &, # and + as they are, which would split or end the query.
+  return encodeURI(JSON.stringify(input)).replace(/[&#+]/g, encodeURIComponent);
 }
 
 function decodeValue(str: string): unknown {
-  return JSON.parse(decodeURI(str));
+  return JSON.parse(decodeURIComponent(str));
 }
 
 export const json: QueryStringFormat = {
@@ -34,7 +35,9 @@ export const json: QueryStringFormat = {
     for (const [key, values] of Object.entries(params)) {
       try {
         // Always use first value (json format doesn't use repeated keys)
-        result[key] = decodeValue(values[0]);
+        // JSON has no undefined; it is written as the text undefined.
+        result[key] =
+          values[0] === 'undefined' ? undefined : decodeValue(values[0]);
       } catch {
         // skip invalid values
       }

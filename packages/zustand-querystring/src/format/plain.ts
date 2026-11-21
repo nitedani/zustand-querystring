@@ -19,7 +19,7 @@ import type {
   ParseContext,
   QueryStringFormat,
   QueryStringParams,
-} from '../middleware.js';
+} from './types.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -169,6 +169,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
     !Array.isArray(value) &&
     !isDate(value)
   );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return isObject(value) && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 // =============================================================================
@@ -459,6 +463,15 @@ function setAtPath(
   }
 }
 
+function emptyObjectKey(key: string, opts: ResolvedOptions): string {
+  return key + opts.nestingSep + opts.escape;
+}
+
+function isEmptyObjectKey(key: string, opts: ResolvedOptions): boolean {
+  const segments = splitEscaped(key, opts.nestingSep, opts.escape);
+  return segments.length > 1 && segments[segments.length - 1] === opts.escape;
+}
+
 // =============================================================================
 // FLATTENING (object → flat entries)
 // =============================================================================
@@ -539,6 +552,12 @@ function flatten(
       continue;
     }
 
+    // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
+    if (isPlainObject(value) && Object.keys(value).length === 0) {
+      result[emptyObjectKey(fullKey, opts)] = [''];
+      continue;
+    }
+
     // Nested objects
     /* v8 ignore next 3 -- @preserve: defensive - handles non-serializable types like Symbol, Set, Map */
     if (isObject(value)) {
@@ -577,6 +596,16 @@ function unflatten(
     const path = parseKeyPath(key, opts);
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
+
+    // Empty object: a path whose last escaped segment is a lone escape char, with an empty value → {}
+    if (
+      isEmptyObjectKey(key, opts) &&
+      rawValues.length === 1 &&
+      rawValues[0] === ''
+    ) {
+      setAtPath(result, path.slice(0, -1), {});
+      continue;
+    }
 
     // Characters that may be escaped in values
     const valueSpecials: string[] = [opts.entrySep];
@@ -660,7 +689,11 @@ function parseNamespaced(input: string, opts: ResolvedOptions): FlatEntries {
   let currentParts: string[] = [];
 
   for (const part of parts) {
-    const eqIndex = findUnescaped(part, '=', opts.escape);
+    let eqIndex = findUnescaped(part, '=', opts.escape);
+    // An empty object's key ends in a lone escape char, which reads the '=' after it as escaped.
+    if (eqIndex === -1 && part.endsWith(opts.nestingSep + opts.escape + '=')) {
+      eqIndex = part.length - 1;
+    }
 
     if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
@@ -730,7 +763,13 @@ function stringifyStandalone(
   const entries = flatten(state, '', opts);
   const result: QueryStringParams = {};
 
-  for (const [key, values] of Object.entries(entries)) {
+  for (const [flatKey, flatValues] of Object.entries(entries)) {
+    // An empty object stands alone as its key with a lone escape char, which no escaped value is.
+    const emptyObject = isEmptyObjectKey(flatKey, opts);
+    const key = emptyObject
+      ? flatKey.slice(0, -emptyObjectKey('', opts).length)
+      : flatKey;
+    const values = emptyObject ? [opts.escape] : flatValues;
     const encodedKey = encodePreservingMarkers(key, opts);
     const encodedValues = values.map(v => encodePreservingMarkers(v, opts));
 
@@ -757,7 +796,12 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeString(key);
-    entries[decodedKey] = values.map(v => decodeString(v));
+    const decodedValues = values.map(v => decodeString(v));
+    if (decodedValues.length === 1 && decodedValues[0] === opts.escape) {
+      entries[emptyObjectKey(decodedKey, opts)] = [''];
+    } else {
+      entries[decodedKey] = decodedValues;
+    }
   }
 
   return unflatten(entries, initialState, opts);

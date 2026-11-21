@@ -17,7 +17,9 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
+import type { QueryStringOptions } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
+import { json } from './json.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
 import type { MarkedFormatOptions } from './marked.js';
 import type { PlainFormatOptions } from './plain.js';
@@ -186,7 +188,7 @@ const unicodeState = {
 };
 
 // Clean up URL before each test.
-// The 150ms delay lets pending setTimeout(setQuery, 100) from previous stores drain
+// The 150ms delay lets the writes previous stores owe 100ms after a navigation drain
 // so they don't corrupt the next test's URL.
 beforeEach(async () => {
   await new Promise(r => setTimeout(r, 150));
@@ -909,6 +911,27 @@ describe('Edge Cases and Regression Tests', () => {
       expect(window.location.search).toBe(
         `?closed&state=${marked.stringify({ sort: 'date' })}`,
       );
+    });
+
+    it('should ignore a parameter without a value on read, and keep it on write', () => {
+      window.history.replaceState({}, '', '/?closed&count=:5');
+      const useStore = createNavStore();
+      expect(useStore.getState()).not.toHaveProperty('closed');
+
+      useStore.setState({ count: 6 });
+
+      expect(window.location.search).toBe('?closed&count=:6');
+    });
+  });
+
+  describe('parameters of other code', () => {
+    it('should keep the place of a parameter the store rewrites', () => {
+      window.history.replaceState({}, '', '/?a=1&count=:5&b=2');
+      const useStore = createNavStore();
+
+      useStore.setState({ count: 6 });
+
+      expect(window.location.search).toBe('?a=1&count=:6&b=2');
     });
   });
 
@@ -1758,6 +1781,43 @@ describe('map option', () => {
     expect(window.location.search).toBe(prevSearch);
   });
 
+  it('a link sets the entry of an id that names an Object method', async () => {
+    window.history.replaceState({}, '', '/view/page-1');
+    const useStore = createMappedStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    const href = useStore.href('/view/toString', {
+      itemsById: { toString: { tags: ['a'] } },
+    });
+
+    window.history.pushState({}, '', href);
+    await new Promise(r => setTimeout(r, 200));
+    unsubscribe();
+
+    expect(useStore.getState().itemsById.toString).toEqual({ tags: ['a'] });
+    expect(href).toBe('/view/toString?state=tags@a');
+    expect(window.location.search).toBe('?state=tags@a');
+  });
+
+  it('should clear the params of a renamed object the URL was created with', () => {
+    window.history.replaceState({}, '', '/?f.a=x&f.b=y');
+    const useStore = create<{ filters: Record<string, string> }>()(
+      querystring(() => ({ filters: {} }), {
+        format: plain,
+        map: createMap({
+          to: (state: { filters: Record<string, string> }) => ({
+            f: state.filters,
+          }),
+          from: urlState => (urlState.f ? { filters: urlState.f } : {}),
+        }),
+      }),
+    );
+    expect(useStore.getState().filters).toEqual({ a: 'x', b: 'y' });
+
+    useStore.setState({ filters: {} });
+
+    expect(window.location.search).toBe('');
+  });
+
   it('should handle multiple pages independently', async () => {
     window.history.replaceState({}, '', '/view/page-1');
     const useStore = createMappedStore();
@@ -1772,5 +1832,972 @@ describe('map option', () => {
     expect(storeState.itemsById['page-1']).toEqual({
       tags: ['react', 'zustand'],
     });
+  });
+});
+
+// =============================================================================
+// NAVIGATION - a URL the store didn't write is read like at creation
+// =============================================================================
+
+interface NavState {
+  count: number;
+  other: number;
+  status: string;
+  search?: string;
+  filters: { tags: string[]; sort: string };
+  setCount: (count: number) => void;
+}
+
+function createNavStore(options: QueryStringOptions<NavState> = {}) {
+  return create<NavState>()(
+    querystring(
+      set => ({
+        count: 0,
+        other: 0,
+        status: 'all',
+        filters: { tags: [], sort: 'name' },
+        setCount: count => set({ count }),
+      }),
+      options,
+    ),
+  );
+}
+
+// A store follows the URL while something is subscribed to it.
+function subscribe(useStore: ReturnType<typeof createNavStore>) {
+  function Count() {
+    useStore(state => state.count);
+    return null;
+  }
+  return render(<Count />);
+}
+
+const url = () =>
+  window.location.pathname + decodeURIComponent(window.location.search);
+// The store writes 100ms after it reads a navigation.
+const settle = () => new Promise(r => setTimeout(r, 200));
+
+describe('navigation', () => {
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('a cross-path address change sets the keys it carries and keeps the others', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 5, other: 3 });
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await settle();
+
+    expect(useStore.getState()).toMatchObject({ count: 7, other: 3 });
+    expect(url()).toBe('/b?count=:7&other=:3');
+  });
+
+  it('setState then a pathname change writes the state to the new page', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    useStore.setState({ count: 9 });
+    window.history.pushState({}, '', '/b');
+    await settle();
+
+    expect(useStore.getState().count).toBe(9);
+    expect(url()).toBe('/b?count=:9');
+  });
+
+  it('a query-only address change sets the key', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/?count=:7');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(url()).toBe('/?count=:7');
+  });
+
+  it('Back and Forward set the keys of the entry', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    window.history.pushState({}, '', '/x?count=:2');
+    await settle();
+    window.history.pushState({}, '', '/y?count=:4');
+    await settle();
+
+    window.history.back();
+    await settle();
+    expect(window.location.pathname).toBe('/x');
+    expect(useStore.getState().count).toBe(2);
+
+    window.history.forward();
+    await settle();
+    expect(window.location.pathname).toBe('/y');
+    expect(useStore.getState().count).toBe(4);
+  });
+
+  it('an action or setState right after a navigation applies after it', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/b?count=:7&other=:2');
+    useStore.getState().setCount(9);
+    expect(useStore.getState()).toMatchObject({ count: 9, other: 2 });
+
+    window.history.pushState({}, '', '/c?count=:8');
+    useStore.setState({ count: 10 });
+    expect(useStore.getState().count).toBe(10);
+
+    await settle();
+    expect(url()).toBe('/c?count=:10&other=:2');
+  });
+
+  it("a store unsubscribed before its write doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const { unmount } = await subscribe(replaced);
+    await settle();
+    replaced.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b?count=:5&tab=yes');
+    // The store reads /b in this frame and would write 100ms later.
+    await new Promise(requestAnimationFrame);
+    await unmount();
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 0 });
+    await settle();
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b?tab=yes');
+  });
+
+  it('the write a navigation owes lands when a new subscriber replaces the last one', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    // The store reads /b in this frame and writes 100ms later.
+    await new Promise(requestAnimationFrame);
+    unsubscribe();
+    const unsubscribeNext = useStore.subscribe(() => {});
+    await settle();
+    unsubscribeNext();
+
+    expect(url()).toBe('/b?count=:5');
+  });
+
+  it('pays the write a navigation owes while the page gets no frames', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    await new Promise(requestAnimationFrame);
+    // A hidden page gets no animation frames.
+    const { requestAnimationFrame: raf } = window;
+    window.requestAnimationFrame = () => 0;
+    try {
+      await settle();
+    } finally {
+      window.requestAnimationFrame = raf;
+      unsubscribe();
+    }
+
+    expect(url()).toBe('/b?count=:5');
+  });
+
+  it('pays the write a navigation owes when the clock is set back', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    useStore.setState({ count: 5 });
+
+    window.history.pushState({}, '', '/b');
+    await new Promise(requestAnimationFrame);
+    const { now } = Date;
+    Date.now = () => now() - 60_000;
+    try {
+      await settle();
+    } finally {
+      Date.now = now;
+      unsubscribe();
+    }
+
+    expect(url()).toBe('/b?count=:5');
+  });
+
+  it('a subscriber that unsubscribes in its callback stops the store following the URL', async () => {
+    const useStore = createNavStore();
+    const unsubscribe = useStore.subscribe(state => {
+      if (state.count === 2) unsubscribe();
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    await new Promise(requestAnimationFrame);
+    window.history.pushState({}, '', '/c?count=:4');
+    await settle();
+
+    expect(useStore.getState().count).toBe(2);
+  });
+
+  it("a store a slow callback unsubscribes doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    let useStore = replaced;
+    let unsubscribeNext = () => {};
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 2) return;
+      unsubscribe();
+      useStore = createNavStore();
+      unsubscribeNext = useStore.subscribe(() => {});
+      useStore.setState({ count: 0 });
+      // An unmount and render slower than the 100ms the write waits.
+      const end = performance.now() + 150;
+      while (performance.now() < end);
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    await settle();
+    await settle();
+    unsubscribeNext();
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
+  });
+
+  it("a store a callback unsubscribes and routes away from doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 5) return;
+      unsubscribe();
+      window.history.pushState({}, '', '/b');
+    });
+    await settle();
+
+    replaced.getState().setCount(5);
+    const useStore = createNavStore();
+    const unsubscribeNext = useStore.subscribe(() => {});
+    useStore.setState({ count: 0 });
+    await settle();
+    unsubscribeNext();
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
+  });
+
+  it("a store without a subscriber doesn't write the navigation a failed update read", async () => {
+    const useStore = createNavStore();
+    useStore.setState({ other: 5 });
+
+    window.history.pushState({}, '', '/b?count=:2');
+    expect(() =>
+      useStore.setState(() => {
+        throw new Error('failed');
+      }),
+    ).toThrow('failed');
+    window.history.pushState({}, '', '/b?count=:3');
+    await settle();
+
+    expect(useStore.getState().count).toBe(2);
+    expect(url()).toBe('/b?count=:3');
+  });
+
+  it("a store unsubscribed by the navigation its timer reads doesn't write", async () => {
+    const replaced = createNavStore();
+    let useStore = replaced;
+    let unsubscribeNext = () => {};
+    const unsubscribe = replaced.subscribe(state => {
+      if (state.count !== 4) return;
+      unsubscribe();
+      useStore = createNavStore();
+      unsubscribeNext = useStore.subscribe(() => {});
+      useStore.setState({ count: 0 });
+    });
+    await settle();
+
+    window.history.pushState({}, '', '/b?count=:2');
+    // The store reads /b in this frame and would write 100ms later.
+    await new Promise(requestAnimationFrame);
+    const { requestAnimationFrame: raf } = window;
+    window.requestAnimationFrame = () => 0;
+    try {
+      // The store's last frame runs, so its timer reads /c.
+      await new Promise(raf);
+      window.history.pushState({}, '', '/c?count=:4');
+      await settle();
+    } finally {
+      window.requestAnimationFrame = raf;
+      unsubscribeNext();
+    }
+
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/c');
+  });
+
+  it("a nested key the URL carries keeps the object's other keys", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/b?filters=.tags@a');
+    await settle();
+
+    expect(useStore.getState().filters).toEqual({ tags: ['a'], sort: 'name' });
+  });
+
+  it("a param of a field select leaves out doesn't change the object", async () => {
+    const useStore = create<{ filters: { shown: string; hidden: string } }>()(
+      querystring(() => ({ filters: { shown: 'open', hidden: 'internal' } }), {
+        format: json,
+        select: () => ({ filters: { shown: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/b?filters={"hidden":"external"}');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().filters).toEqual({
+      shown: 'open',
+      hidden: 'internal',
+    });
+  });
+
+  it('a carried undefined clears the key, with syncUndefined', async () => {
+    window.history.replaceState({}, '', '/?status=:undefined');
+    const useStore = createNavStore({ syncUndefined: true });
+    await subscribe(useStore);
+    expect(useStore.getState().status).toBe(undefined);
+
+    useStore.setState({ status: 'active' });
+    window.history.pushState({}, '', '/b?status=:undefined');
+    await settle();
+
+    expect(useStore.getState().status).toBe(undefined);
+    expect(url()).toBe('/b?status=:undefined');
+  });
+
+  it('ignores a carried undefined, without syncUndefined', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ status: 'active' });
+
+    window.history.pushState({}, '', '/b?status=:undefined');
+    await settle();
+
+    expect(useStore.getState().status).toBe('active');
+    expect(url()).toBe('/b?status=active');
+  });
+
+  it('sets a selected key the state lacks', async () => {
+    const useStore = createNavStore({
+      select: () => ({ count: true, search: true }),
+    });
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', useStore.href('/b', { search: 'acme' }));
+    await settle();
+
+    expect(useStore.getState().search).toBe('acme');
+    expect(url()).toBe('/b?search=acme');
+  });
+
+  it("sets a key the state lacks from the store's own namespace or prefix", async () => {
+    for (const [options, expected] of [
+      [{ key: 'state' }, '/b?state=search=acme'],
+      [{ prefix: 'f_' }, '/b?f_search=acme'],
+    ] as const) {
+      window.history.replaceState({}, '', '/');
+      const useStore = createNavStore(options);
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', useStore.href('/b', { search: 'acme' }));
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().search).toBe('acme');
+      expect(url()).toBe(expected);
+    }
+  });
+
+  it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {
+    const useStore = createNavStore({
+      syncUndefined: true,
+      select: () => ({ count: true, search: true }),
+    });
+    await subscribe(useStore);
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { search: undefined }),
+    );
+    await settle();
+
+    expect('search' in useStore.getState()).toBe(true);
+    expect(useStore.getState().search).toBe(undefined);
+  });
+
+  it('keeps the actions a param has the name of, nested too', async () => {
+    const useStore = create<{
+      search: (query: string) => void;
+      filters: { tags: string[]; clear: () => void };
+    }>()(
+      querystring(() => ({
+        search: () => {},
+        filters: { tags: [], clear: () => {} },
+      })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/results?search=acme&filters=.clear=x');
+    await settle();
+    unsubscribe();
+
+    expect(typeof useStore.getState().search).toBe('function');
+    expect(typeof useStore.getState().filters.clear).toBe('function');
+  });
+
+  it('keeps an object holding an action, and merges into it', async () => {
+    const useStore = create<{
+      menu: { value: string; toggle: () => string };
+    }>()(
+      querystring(() => ({
+        menu: { value: 'closed', toggle: () => 'toggled' },
+      })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/results?menu=expanded');
+    await settle();
+    expect(useStore.getState().menu.value).toBe('closed');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+
+    window.history.pushState({}, '', '/results?menu=.value=open');
+    await settle();
+    expect(useStore.getState().menu.value).toBe('open');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+
+    window.history.pushState({}, '', '/results?menu=.');
+    await settle();
+    unsubscribe();
+    expect(useStore.getState().menu.value).toBe('open');
+    expect(useStore.getState().menu.toggle()).toBe('toggled');
+  });
+
+  it('keeps an object holding an action deeper inside', async () => {
+    const useStore = create<{ group: { nested?: { clear: () => number } } }>()(
+      querystring(() => ({ group: { nested: { clear: () => 1 } } }), {
+        format: json,
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/b', { group: {} }));
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().group.nested?.clear()).toBe(1);
+  });
+
+  it('reads a link when the state holds a circular object map.to leaves out', async () => {
+    type Graph = { id: number; parent?: Graph };
+    const graph: Graph = { id: 1 };
+    graph.parent = graph;
+    const useStore = create<{ graph: Graph; count: number }>()(
+      querystring(() => ({ graph, count: 0 }), {
+        map: {
+          to: state => ({ id: state.graph.id, count: state.count }),
+          from: urlState => ({
+            graph: { id: urlState.id as number },
+            count: urlState.count as number,
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { graph: { id: 2 }, count: 3 }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().graph.id).toBe(2);
+    expect(useStore.getState().count).toBe(3);
+  });
+
+  it('sets the rest of a link when map.from returns a circular object', async () => {
+    type Filters = { region: string; self?: Filters };
+    const preset: Filters = { region: 'EU' };
+    preset.self = preset;
+    const useStore = create<{ page: number; filters?: Filters }>()(
+      querystring(() => ({ page: 1 }), {
+        prefix: 'app_',
+        map: {
+          to: state => ({ page: state.page }),
+          from: urlState => ({
+            page: urlState.page as number,
+            filters: preset,
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/report?app_page=:2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().page).toBe(2);
+    expect(useStore.getState().filters?.region).toBe('EU');
+    expect(url()).toBe('/report?app_page=:2');
+  });
+
+  it('leaves a class instance as it is', async () => {
+    class Panel {
+      #title = 'Panel';
+      selected = 0;
+      label() {
+        return this.#title + ':' + this.selected;
+      }
+    }
+    const panel = new Panel();
+    const useStore = create<{ panel: Panel }>()(
+      querystring(() => ({ panel }), {
+        select: () => ({ panel: { selected: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/b?panel=.selected:5');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().panel).toBe(panel);
+    expect(panel.label()).toBe('Panel:0');
+  });
+
+  it('sets the class instance map.from returns', async () => {
+    class Panel {
+      #id: number;
+      constructor(id: number) {
+        this.#id = id;
+      }
+      id() {
+        return this.#id;
+      }
+    }
+    const useStore = create<{ panel: Panel }>()(
+      querystring(() => ({ panel: new Panel(1) }), {
+        map: {
+          to: state => ({ id: state.panel.id() }),
+          from: urlState => ({ panel: new Panel(urlState.id as number) }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { panel: new Panel(2) }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().panel.id()).toBe(2);
+    expect(url()).toBe('/b?id=:2');
+  });
+
+  it('sets a class instance map.from returns inside an object', async () => {
+    class Item {
+      #id: number;
+      constructor(id: number) {
+        this.#id = id;
+      }
+      read() {
+        return this.#id;
+      }
+    }
+    const useStore = create<{ panel: { item: Item; label: string } }>()(
+      querystring(() => ({ panel: { item: new Item(1), label: 'details' } }), {
+        map: {
+          to: state => ({ id: state.panel.item.read() }),
+          from: urlState => ({
+            panel: { item: new Item(urlState.id as number) },
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/b', { panel: { item: new Item(2), label: 'details' } }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().panel.item.read()).toBe(2);
+    expect(useStore.getState().panel.label).toBe('details');
+  });
+
+  it('keeps an unchanged date, when another param changes', async () => {
+    const useStore = create<{ since: Date }>()(
+      querystring(() => ({ since: new Date('2025-01-01T00:00:00.000Z') }), {
+        format: plain,
+      }),
+    );
+    const since = new Date('2025-02-01T00:00:00.000Z');
+    useStore.setState({ since });
+    let calls = 0;
+    const unsubscribe = useStore.subscribe(() => calls++);
+
+    window.history.pushState(
+      {},
+      '',
+      window.location.pathname + window.location.search + '&utm_source=x',
+    );
+    await settle();
+    unsubscribe();
+
+    expect(calls).toBe(0);
+    expect(useStore.getState().since).toBe(since);
+  });
+
+  it("reads the URL with the initial state's types, like at creation", async () => {
+    const useStore = create<{ id: string | number }>()(
+      querystring(() => ({ id: 'none' }), { format: plain }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ id: 12 });
+
+    window.history.pushState({}, '', '/b?id=007');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().id).toBe('007');
+    expect(url()).toBe('/b?id=007');
+  });
+
+  it("doesn't read its own writes", async () => {
+    let parses = 0;
+    const useStore = createNavStore({
+      format: {
+        ...marked,
+        parseStandalone: (params, ctx) => {
+          parses++;
+          return marked.parseStandalone(params, ctx);
+        },
+      },
+    });
+    await subscribe(useStore);
+    await settle();
+    const parsesBefore = parses;
+
+    useStore.setState({ count: 5 });
+    await settle();
+
+    expect(url()).toBe('/?count=:5');
+    expect(parses).toBe(parsesBefore);
+  });
+
+  it('reads the URL it was created on once, and writes it once subscribed', async () => {
+    window.history.replaceState({}, '', '/?count=:2&other=:0');
+    let parses = 0;
+    const useStore = createNavStore({
+      format: {
+        ...marked,
+        parseStandalone: (params, ctx) => {
+          parses++;
+          return marked.parseStandalone(params, ctx);
+        },
+      },
+    });
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().count).toBe(2);
+    expect(parses).toBe(1);
+    expect(url()).toBe('/?count=:2');
+  });
+
+  it("ignores params that aren't keys of the store", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+
+    window.history.pushState({}, '', '/?page=3');
+    await settle();
+    expect('page' in useStore.getState()).toBe(false);
+
+    window.history.pushState({}, '', '/');
+    await settle();
+    expect(url()).toBe('/');
+  });
+
+  it("keeps the references of keys a navigation doesn't change", async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    const { filters } = useStore.getState();
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+    expect(useStore.getState().filters).toBe(filters);
+  });
+
+  it('reads the URL again when it is subscribed again', async () => {
+    const useStore = createNavStore();
+    const { unmount } = await subscribe(useStore);
+    await settle();
+    await unmount();
+
+    window.history.pushState({}, '', '/b?count=:7');
+    await subscribe(useStore);
+    await settle();
+
+    expect(useStore.getState().count).toBe(7);
+  });
+
+  it("a store that was replaced doesn't undo the store that replaced it", async () => {
+    const replaced = createNavStore();
+    const { unmount } = await subscribe(replaced);
+    replaced.setState({ count: 5 });
+    await settle();
+    await unmount();
+
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ count: 0 });
+    await settle();
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/');
+
+    window.history.pushState({}, '', '/b');
+    await settle();
+    expect(useStore.getState().count).toBe(0);
+    expect(url()).toBe('/b');
+  });
+});
+
+describe('href', () => {
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('writes the passed keys at their initial value too, so a link can clear a filter', async () => {
+    const useStore = createNavStore();
+    await subscribe(useStore);
+    useStore.setState({ other: 3, status: 'active' });
+
+    const href = useStore.href('/b', { status: 'all' });
+    expect(decodeURIComponent(href)).toBe('/b?other=:3&status=all');
+
+    window.history.pushState({}, '', href);
+    await settle();
+    expect(useStore.getState().status).toBe('all');
+    expect(url()).toBe('/b?other=:3');
+  });
+
+  it('clears an object filter whose initial value is empty', async () => {
+    const useStore = create<{ filters: { query?: string } }>()(
+      querystring(() => ({ filters: {} })),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filters: { query: 'x' } });
+
+    window.history.pushState(
+      {},
+      '',
+      useStore.href('/results', { filters: {} }),
+    );
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().filters).toEqual({});
+    expect(url()).toBe('/results');
+  });
+
+  it('clears an object filter with the plain format, in standalone and namespaced mode', async () => {
+    for (const options of [{}, { key: 'state' }]) {
+      window.history.replaceState({}, '', '/');
+      const useStore = create<{ filters: { region?: string } }>()(
+        querystring(() => ({ filters: {} }), { ...options, format: plain }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+      useStore.setState({ filters: { region: 'EU' } });
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/results', { filters: {} }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().filters).toEqual({});
+      expect(url()).toBe('/results');
+    }
+  });
+
+  it('clears an object filter the initial state lacks, with the plain format', async () => {
+    for (const options of [{}, { key: 'state', prefix: 'a_' }]) {
+      window.history.replaceState({}, '', '/');
+      const useStore = create<{ filters?: { region?: string } }>()(
+        querystring(() => ({}), {
+          ...options,
+          format: plain,
+          select: () => ({ filters: true }),
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+      useStore.setState({ filters: { region: 'EU' } });
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/results', { filters: {} }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().filters).toEqual({});
+    }
+  });
+
+  it('clears only the fields select syncs in an object', async () => {
+    const useStore = create<{
+      filters: { query?: string; localSort: string; reset: () => number };
+    }>()(
+      querystring(
+        () => ({
+          filters: { query: 'default', localSort: 'newest', reset: () => 1 },
+        }),
+        { select: () => ({ filters: { query: true } }) },
+      ),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState(state => ({
+      filters: { ...state.filters, query: 'open', localSort: 'oldest' },
+    }));
+
+    window.history.pushState({}, '', useStore.href('/report', { filters: {} }));
+    await settle();
+    unsubscribe();
+
+    expect('query' in useStore.getState().filters).toBe(false);
+    expect(useStore.getState().filters.localSort).toBe('oldest');
+    expect(useStore.getState().filters.reset()).toBe(1);
+  });
+
+  it('keeps a cleared object filter in the URL, so a reload keeps it cleared', async () => {
+    const initial = () => ({
+      filters: { query: 'default', localSort: 'newest' } as {
+        query?: string;
+        localSort?: string;
+      },
+    });
+    const useStore = create<ReturnType<typeof initial>>()(querystring(initial));
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/report', { filters: {} }));
+    await settle();
+    unsubscribe();
+    expect(useStore.getState().filters).toEqual({});
+
+    const reloaded = create<ReturnType<typeof initial>>()(querystring(initial));
+    expect(reloaded.getState().filters).toEqual({});
+  });
+
+  it('a link passing only fields select leaves out keeps the synced ones', async () => {
+    const useStore = create<{
+      filters: { shown?: string; localSort: string };
+    }>()(
+      querystring(() => ({ filters: { shown: 'open', localSort: 'oldest' } }), {
+        select: () => ({ filters: { shown: true } }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    const href = useStore.href('/report', { filters: { localSort: 'newest' } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/report');
+    expect(useStore.getState().filters.shown).toBe('open');
+    expect(url()).toBe('/report');
+  });
+
+  it('leaves out a key that select excludes on that page', () => {
+    const useStore = createNavStore({
+      select: pathname => ({ count: pathname === '/b', other: true }),
+    });
+
+    expect(useStore.href('/home', { count: 7 })).toBe('/home');
+    expect(decodeURIComponent(useStore.href('/b', { count: 7 }))).toBe(
+      '/b?count=:7',
+    );
+  });
+
+  it('keeps a # and a & in a json value, through a link, a write and a reload', async () => {
+    for (const options of [{ format: json }, { key: 'state', format: json }]) {
+      for (const status of ['C#', 'R&D']) {
+        window.history.replaceState({}, '', '/');
+        const linked = createNavStore(options);
+        const unsubscribe = linked.subscribe(() => {});
+        window.history.pushState({}, '', linked.href('/b', { status }));
+        await settle();
+        unsubscribe();
+        expect(linked.getState().status).toBe(status);
+
+        window.history.replaceState({}, '', '/');
+        createNavStore(options).setState({ status });
+        expect(createNavStore(options).getState().status).toBe(status);
+      }
+    }
+  });
+
+  it('encodes the # a custom format leaves in a value, like the store writes it', async () => {
+    // Escapes only the & that would end the param.
+    const format = {
+      stringify: (state: object) => JSON.stringify(state).replace(/&/g, '%26'),
+      parse: (value: string) => JSON.parse(decodeURIComponent(value)),
+    };
+    const useStore = createNavStore({ key: 'state', format });
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', useStore.href('/b', { status: 'R&D #1' }));
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState().status).toBe('R&D #1');
+  });
+
+  it('works in standalone and namespaced mode, with a prefix', () => {
+    const standalone = createNavStore({ prefix: 'a_' });
+    expect(decodeURIComponent(standalone.href('/b', { count: 2 }))).toBe(
+      '/b?a_count=:2',
+    );
+
+    const namespaced = createNavStore({ key: 'state' });
+    expect(namespaced.href('/b')).toBe('/b');
+    expect(namespaced.href('/b', { count: 2 })).toBe('/b?state=count:2');
+
+    const prefixed = createNavStore({ key: 'state', prefix: 'a_' });
+    expect(prefixed.href('/b', { count: 2 })).toBe('/b?a_state=count:2');
+
+    const questioned = createNavStore({ key: '?state' });
+    expect(questioned.href('/b', { count: 2 })).toBe('/b??state=count:2');
   });
 });

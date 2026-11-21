@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { compact } from './middleware';
+import { createStore } from 'zustand/vanilla';
+import { json } from './format/json';
+import { plain, createFormat as createPlainFormat } from './format/plain';
+import { compact, querystring, type ParseContext } from './middleware';
 
 describe('compact', () => {
   it('should remove values equal to initial state', () => {
@@ -449,5 +452,384 @@ describe('compact', () => {
 
     // Class instances are atomic - different metadata means whole instance is included
     expect(result.output).toEqual({ user: user2 });
+  });
+
+  it('keeps an empty object over a non-empty initial one', () => {
+    const initialState = {
+      filters: { query: 'default' },
+      other: { a: 1, b: 2 },
+    };
+    // other's fields compact away, which leaves out other itself.
+    const newState = { filters: {}, other: { a: 1 } };
+    const result = compact(newState, initialState);
+    expect(result.output).toStrictEqual({ filters: {} });
+  });
+
+  it('keeps a forced key at its initial value', () => {
+    const initialState = { a: 1, b: 1 };
+    const newState = { a: 1, b: 2 };
+    const result = compact(newState, initialState, false, false, ['a']);
+    expect(result.output).toEqual({ a: 1, b: 2 });
+  });
+
+  it('compares nothing inside a forced key, and applies the flags there', () => {
+    const initialState = { inner: { v: 'x', w: 'x', n: 'x' } };
+    const newState = { inner: { v: 'x', w: undefined, n: null } };
+    const result = compact(newState, initialState, false, true, ['inner']);
+    expect(result.output).toStrictEqual({ inner: { v: 'x', w: undefined } });
+  });
+});
+
+describe('url option', () => {
+  it('an undefined in the URL sets the key only with syncUndefined', () => {
+    const create = (syncUndefined: boolean) =>
+      createStore<{ tag?: string }>()(
+        querystring(() => ({ tag: 'all' }), {
+          url: '/?tag=:undefined',
+          syncUndefined,
+        }),
+      );
+
+    expect(create(false).getState()).toStrictEqual({ tag: 'all' });
+    expect(create(true).getState()).toStrictEqual({ tag: undefined });
+  });
+
+  it('with the plain format, an empty value reads as an empty string, null or undefined, not an empty object', () => {
+    for (const mode of [{}, { key: 'state', prefix: 'a_' }]) {
+      for (const [format, value] of [
+        [plain, ''],
+        [createPlainFormat({ nullString: '' }), null],
+        [createPlainFormat({ undefinedString: '' }), undefined],
+      ] as const) {
+        const content = { filters: value };
+        const search =
+          'key' in mode
+            ? 'a_state=' + format.stringify(content)
+            : 'filters=' + format.stringifyStandalone(content).filters[0];
+        const store = createStore<{
+          filters: Record<string, string> | string | null | undefined;
+        }>()(
+          querystring(() => ({ filters: {} }), {
+            ...mode,
+            format,
+            syncNull: true,
+            syncUndefined: true,
+            url: '/review?' + search,
+          }),
+        );
+
+        expect(store.getState().filters).toBe(value);
+      }
+    }
+  });
+
+  it('an empty object clears only the fields select syncs in it', () => {
+    const store = createStore<{
+      filters: {
+        query?: string;
+        localSort: string;
+        paging: { page?: number; size: number };
+        actions: { next: () => number };
+      };
+    }>()(
+      querystring(
+        () => ({
+          filters: {
+            query: 'default',
+            localSort: 'newest',
+            paging: { page: 2, size: 20 },
+            actions: { next: () => 3 },
+          },
+        }),
+        {
+          url: '/report?filters=.',
+          select: () => ({
+            filters: { query: true, paging: { page: true }, actions: true },
+          }),
+        },
+      ),
+    );
+
+    const { filters } = store.getState();
+    expect('query' in filters).toBe(false);
+    expect(filters.localSort).toBe('newest');
+    expect(filters.paging).toStrictEqual({ size: 20 });
+    expect(filters.actions.next()).toBe(3);
+  });
+
+  it('gives each store its own copy of an object map.from returns', () => {
+    const presets = { eu: { region: 'EU' } };
+    const create = () =>
+      createStore<{ filters?: { region: string } }>()(
+        querystring(() => ({}), {
+          url: '/report?preset=eu',
+          map: {
+            to: state => ({ preset: state.filters ? 'eu' : '' }),
+            from: urlState => ({
+              filters: presets[urlState.preset as 'eu'],
+            }),
+          },
+        }),
+      );
+
+    const first = create();
+    expect(first.getState().filters).not.toBe(presets.eu);
+    first.getState().filters!.region = 'APAC';
+
+    expect(presets.eu.region).toBe('EU');
+    expect(create().getState().filters).toStrictEqual({ region: 'EU' });
+  });
+
+  it('copies a circular object map.from returns as the same cycle', () => {
+    type Filters = { region: string; self?: Filters };
+    const preset: Filters = { region: 'EU' };
+    preset.self = preset;
+    const store = createStore<{ page: number; filters?: Filters }>()(
+      querystring(() => ({ page: 1 }), {
+        url: '/report?page=:2',
+        map: {
+          to: state => ({ page: state.page }),
+          from: urlState => ({
+            page: urlState.page as number,
+            filters: preset,
+          }),
+        },
+      }),
+    );
+
+    const { page, filters } = store.getState();
+    expect(page).toBe(2);
+    expect(filters!.region).toBe('EU');
+    expect(filters).not.toBe(preset);
+    expect(filters!.self).toBe(filters);
+  });
+
+  it('a URL key never replaces an action, nor an object holding one', () => {
+    const store = createStore<{
+      search: () => number;
+      menu: { nested: { toggle: () => number } };
+    }>()(
+      querystring(
+        () => ({ search: () => 1, menu: { nested: { toggle: () => 2 } } }),
+        { url: '/results?search=acme&menu=.' },
+      ),
+    );
+
+    expect(store.getState().search()).toBe(1);
+    expect(store.getState().menu.nested.toggle()).toBe(2);
+  });
+
+  it('reads the URL when the state holds a circular object map.to leaves out', () => {
+    type Graph = { id: number; parent?: Graph };
+    const create = (url: string, from: (id: number) => Graph) => {
+      const graph: Graph = { id: 1 };
+      graph.parent = graph;
+      return createStore<{ graph: Graph; count: number }>()(
+        querystring(() => ({ graph, count: 0 }), {
+          url,
+          map: {
+            to: state => ({ id: state.graph.id, count: state.count }),
+            from: urlState => ({
+              graph: from(urlState.id as number),
+              count: urlState.count as number,
+            }),
+          },
+        }),
+      );
+    };
+
+    const merged = create('/review?id=:2&count=:3', id => ({ id }));
+    expect(merged.getState().graph.id).toBe(2);
+    expect(merged.getState().count).toBe(3);
+
+    const replaced = create('/review?count=:3', () => ({}) as Graph);
+    expect(replaced.getState().graph).toEqual({});
+    expect(replaced.getState().count).toBe(3);
+  });
+
+  it('a URL key merges into a class instance, keeping its private fields', () => {
+    class Filter {
+      #scope = 'all';
+      rating = 0;
+      label() {
+        return this.#scope + ':' + this.rating;
+      }
+    }
+    const store = createStore<{ filter: Filter }>()(
+      querystring(() => ({ filter: new Filter() }), {
+        url: '/results?filter=.rating:4',
+        select: () => ({ filter: { rating: true } }),
+      }),
+    );
+
+    expect(store.getState().filter.label()).toBe('all:4');
+  });
+
+  it('with select, a format parses with the selected initial state', () => {
+    // Writes the values in order and reads them back by the keys' order.
+    const format = {
+      stringify: (state: object) => JSON.stringify(Object.values(state)),
+      parse: (value: string, ctx?: ParseContext) => {
+        const keys = Object.keys(ctx!.initialState);
+        return Object.fromEntries(
+          JSON.parse(decodeURIComponent(value)).map((v: unknown, i: number) => [
+            keys[i],
+            v,
+          ]),
+        );
+      },
+    };
+    const store = createStore(
+      querystring(() => ({ sort: 'recent', count: 0 }), {
+        url: '/review?state=%5B3%5D',
+        key: 'state',
+        select: () => ({ count: true }),
+        format,
+      }),
+    );
+
+    expect(store.getState()).toEqual({ sort: 'recent', count: 3 });
+  });
+
+  it('an empty object in the URL leaves a class instance as it is', () => {
+    class Filter {
+      rating = 2;
+    }
+    const filter = new Filter();
+    const store = createStore<{ filter: Filter }>()(
+      querystring(() => ({ filter }), { url: '/results?filter=.' }),
+    );
+
+    expect(store.getState().filter).toBe(filter);
+  });
+});
+
+describe('href', () => {
+  it('works on the server, with the url option', () => {
+    const store = createStore<{ count: number; other: number }>()(
+      querystring(() => ({ count: 0, other: 0 }), { url: '/a?count=:5' }),
+    );
+
+    expect(decodeURIComponent(store.href('/b', { other: 0 }))).toBe(
+      '/b?count=:5&other=:0',
+    );
+  });
+
+  it('writes a passed undefined, with syncUndefined', () => {
+    const store = createStore<{ filter?: string }>()(
+      querystring(() => ({}), { url: '/a?filter=active', syncUndefined: true }),
+    );
+
+    expect(decodeURIComponent(store.href('/b', { filter: undefined }))).toBe(
+      '/b?filter=:undefined',
+    );
+  });
+
+  it('writes a passed undefined with the json format, which a store reads back', () => {
+    const create = (url: string) =>
+      createStore<{ tag?: string }>()(
+        querystring(() => ({ tag: 'active' }), {
+          url,
+          format: json,
+          syncUndefined: true,
+        }),
+      );
+
+    const href = create('/a').href('/b', { tag: undefined });
+    expect(href).toBe('/b?tag=undefined');
+    expect(create(href).getState()).toStrictEqual({ tag: undefined });
+  });
+
+  it('with map, forces the mapped keys only when select keeps a passed key', () => {
+    const store = createStore<{ count: number; hidden: number }>()(
+      querystring(() => ({ count: 0, hidden: 3 }), {
+        url: '/results',
+        select: pathname => ({ count: true, hidden: pathname === '/admin' }),
+        map: {
+          to: state => ({ n: state.count }),
+          from: urlState => ({ count: urlState.n as number }),
+        },
+      }),
+    );
+
+    expect(store.href('/results', { hidden: 7 })).toBe('/results');
+    expect(decodeURIComponent(store.href('/results', { count: 0 }))).toBe(
+      '/results?n=:0',
+    );
+  });
+
+  it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
+    const store = createStore<{ inner: { v: string | null; w?: string } }>()(
+      querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
+    );
+
+    expect(store.href('/b', { inner: { v: null, w: undefined } })).toBe('/b');
+  });
+
+  it('leaves out a passed object none of whose fields select syncs, so its link keeps them', () => {
+    const create = (url?: string) =>
+      createStore<{ filters: { shown?: string; localSort: string } }>()(
+        querystring(
+          () => ({ filters: { shown: 'open', localSort: 'oldest' } }),
+          { url, select: () => ({ filters: { shown: true } }) },
+        ),
+      );
+
+    const href = create('/review').href('/report', {
+      filters: { localSort: 'newest' },
+    });
+    expect(href).toBe('/report');
+    expect(create(href).getState()).toStrictEqual({
+      filters: { shown: 'open', localSort: 'oldest' },
+    });
+    expect(create('/review').href('/report', { filters: {} })).toBe(
+      '/report?filters=.',
+    );
+  });
+
+  it('with select, leaves out an object none of whose fields are selected', () => {
+    const store = createStore<{
+      filters: { shown?: string; hidden?: string };
+    }>()(
+      querystring(() => ({ filters: { shown: 'open' } }), {
+        url: '/review',
+        select: () => ({ filters: { shown: true } }),
+        map: {
+          // map.to gets the object even when select keeps none of its fields.
+          to: state => ({ v: state.filters.shown ?? 'open' }),
+          from: urlState => ({ filters: { shown: urlState.v as string } }),
+        },
+      }),
+    );
+
+    expect(store.href('/review', { filters: { hidden: 'internal' } })).toBe(
+      '/review',
+    );
+    expect(store.href('/review', { filters: {} })).toBe('/review?v=open');
+  });
+});
+
+describe('server store: setDefaults', () => {
+  it.each([
+    ['with url', { url: '/?count=:3' }],
+    ['without url', {}],
+  ] as const)('%s: setDefaults can be called', (_, options) => {
+    const store = createStore(querystring(() => ({ count: 0 }), options));
+    expect(() => store.setDefaults({ count: 5 })).not.toThrow();
+  });
+
+  it.each([
+    ['with url', { url: '/review' }],
+    ['without url', {}],
+  ] as const)('%s: setDefaults works inside the initializer', (_, options) => {
+    const store = createStore<{ view: string }>()(
+      querystring((_set, _get, api) => {
+        api.setDefaults({ view: 'list' });
+        return { view: 'grid' };
+      }, options),
+    );
+
+    expect(store.getState().view).toBe('grid');
+    expect(store.href('/review')).toBe('/review?view=grid');
   });
 });
