@@ -543,9 +543,9 @@ function flatten(
       continue;
     }
 
-    // Empty object: just the key with empty value, like an empty array
+    // Empty object: the key and the nesting separator, with an empty value
     if (isPlainObject(value) && Object.keys(value).length === 0) {
-      result[fullKey] = [''];
+      result[fullKey + opts.nestingSep] = [''];
       continue;
     }
 
@@ -588,6 +588,17 @@ function unflatten(
     const hint = getHintAtPath(initialState, path);
     const isArrayHint = Array.isArray(hint);
 
+    // Empty object: a path ending in an empty segment, with an empty value → {}
+    if (
+      path.length > 1 &&
+      path[path.length - 1] === '' &&
+      rawValues.length === 1 &&
+      rawValues[0] === ''
+    ) {
+      setAtPath(result, path.slice(0, -1), {});
+      continue;
+    }
+
     // Characters that may be escaped in values
     const valueSpecials: string[] = [opts.entrySep];
     if (opts.arraySep !== 'repeat') {
@@ -629,12 +640,6 @@ function unflatten(
     // Empty array: single empty string + array hint → []
     if (values.length === 1 && values[0] === '' && isArrayHint) {
       setAtPath(result, path, []);
-      continue;
-    }
-
-    // Empty object: single empty string + plain object hint → {}
-    if (values.length === 1 && values[0] === '' && isPlainObject(hint)) {
-      setAtPath(result, path, {});
       continue;
     }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { json } from './format/json';
+import { plain, createFormat as createPlainFormat } from './format/plain';
 import { compact, querystring, type ParseContext } from './middleware';
 
 describe('compact', () => {
@@ -480,6 +481,35 @@ describe('url option', () => {
 
     expect(create(false).getState()).toStrictEqual({ tag: 'all' });
     expect(create(true).getState()).toStrictEqual({ tag: undefined });
+  });
+
+  it('with the plain format, an empty value reads as an empty string, null or undefined, not an empty object', () => {
+    for (const mode of [{}, { key: 'state', prefix: 'a_' }]) {
+      for (const [format, value] of [
+        [plain, ''],
+        [createPlainFormat({ nullString: '' }), null],
+        [createPlainFormat({ undefinedString: '' }), undefined],
+      ] as const) {
+        const content = { filters: value };
+        const search =
+          'key' in mode
+            ? 'a_state=' + format.stringify(content)
+            : 'filters=' + format.stringifyStandalone(content).filters[0];
+        const store = createStore<{
+          filters: Record<string, string> | string | null | undefined;
+        }>()(
+          querystring(() => ({ filters: {} }), {
+            ...mode,
+            format,
+            syncNull: true,
+            syncUndefined: true,
+            url: '/review?' + search,
+          }),
+        );
+
+        expect(store.getState().filters).toBe(value);
+      }
+    }
   });
 
   it('a URL key never replaces an action, nor an object holding one', () => {

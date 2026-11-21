@@ -265,9 +265,25 @@ describe('plain format', () => {
     it('should round-trip empty objects', () => {
       const obj = { filters: {}, user: { tags: {} } };
       const serialized = plain.stringify(obj);
-      expect(serialized).toBe('filters=,user.tags=');
-      const parsed = plain.parse(serialized, { initialState: obj });
-      expect(parsed).toEqual(obj);
+      expect(serialized).toBe('filters.=,user.tags.=');
+      expect(plain.parse(serialized, { initialState: obj })).toEqual(obj);
+      expect(plain.parse(serialized, { initialState: {} })).toEqual(obj);
+    });
+
+    it('should read an empty value under an object hint as on main', () => {
+      const initialState = { filters: {} as Record<string, string> | null };
+      expect(plain.parse('filters=', { initialState })).toEqual({
+        filters: '',
+      });
+      expect(
+        createFormat({ nullString: '' }).parse('filters=', { initialState }),
+      ).toEqual({ filters: null });
+      expect(
+        createFormat({ undefinedString: '' }).parseStandalone(
+          { filters: [''] },
+          { initialState },
+        ),
+      ).toEqual({ filters: undefined });
     });
 
     it('should round-trip dates', () => {
@@ -644,7 +660,7 @@ describe('plain format', () => {
     it('should handle standalone mode with empty objects', () => {
       const initialState = { filters: { region: 'EU' } };
       const serialized = plain.stringifyStandalone({ filters: {} });
-      expect(serialized).toEqual({ filters: [''] });
+      expect(serialized).toEqual({ 'filters.': [''] });
       const parsed = plain.parseStandalone(serialized, { initialState });
       expect(parsed).toEqual({ filters: {} });
     });

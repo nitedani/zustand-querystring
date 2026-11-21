@@ -2535,6 +2535,31 @@ describe('href', () => {
     }
   });
 
+  it('clears an object filter the initial state lacks, with the plain format', async () => {
+    for (const options of [{}, { key: 'state', prefix: 'a_' }]) {
+      window.history.replaceState({}, '', '/');
+      const useStore = create<{ filters?: { region?: string } }>()(
+        querystring(() => ({}), {
+          ...options,
+          format: plain,
+          select: () => ({ filters: true }),
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+      useStore.setState({ filters: { region: 'EU' } });
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/results', { filters: {} }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().filters).toEqual({});
+    }
+  });
+
   it('leaves out a key that select excludes on that page', () => {
     const useStore = createNavStore({
       select: pathname => ({ count: pathname === '/b', other: true }),
