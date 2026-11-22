@@ -1204,6 +1204,11 @@ describe('server store (url option): a key naming an Object member keeps the res
     const state = store.getState() as { count: number; polluted?: string };
     expect(state.count).toBe(5);
     expect(state.polluted).toBeUndefined();
+    // zustand copies the state into a new object on each update
+    store.setState({ count: 6 });
+    expect(
+      (store.getState() as { polluted?: string }).polluted,
+    ).toBeUndefined();
   });
 
   it.each([

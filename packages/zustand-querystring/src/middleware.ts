@@ -401,6 +401,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     merges.set(urlState, merged);
     // Keys, not entries: Object.entries is slow on an object with many keys.
     for (const key of keys) {
+      // A __proto__ key would set the prototype of the copy zustand's setState makes.
+      if (key === '__proto__') continue;
       const value = urlState[key];
       if (value === undefined && !defaultedOptions.syncUndefined) continue;
       const current = getOwn(merged, key);
