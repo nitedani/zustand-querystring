@@ -2841,6 +2841,24 @@ describe('href', () => {
     expect(reloaded.getState().filters).toEqual({});
   });
 
+  it('keeps a filter select syncs cleared in the URL, so a reload keeps it cleared', () => {
+    const createFiltersStore = () =>
+      create<{ filters: { query?: string; localSort: string } }>()(
+        querystring(
+          () => ({ filters: { query: 'default', localSort: 'newest' } }),
+          { select: () => ({ filters: { query: true } }) },
+        ),
+      );
+    const useStore = createFiltersStore();
+
+    useStore.setState({ filters: { localSort: 'oldest' } });
+    expect(url()).toBe('/?filters=.');
+
+    expect(createFiltersStore().getState().filters).toEqual({
+      localSort: 'newest',
+    });
+  });
+
   it('a link passing only fields select leaves out keeps the synced ones', async () => {
     const useStore = create<{
       filters: { shown?: string; localSort: string };

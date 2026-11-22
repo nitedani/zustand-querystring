@@ -812,6 +812,8 @@ describe('href', () => {
       '/review',
     );
     expect(store.href('/review', { filters: {} })).toBe('/review?v=open');
+    store.setState({ filters: { hidden: 'internal' } });
+    expect(store.href('/review')).toBe('/review');
   });
 });
 
