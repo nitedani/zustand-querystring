@@ -390,6 +390,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   // Cast format to full type - runtime checks ensure correct methods are called
   const format = defaultedOptions.format as QueryStringFormat;
   const standalone = defaultedOptions.key === false;
+  const namespaceKey = defaultedOptions.prefix + defaultedOptions.key;
 
   const getStateFromUrl = (url: URL, initialState: object) => {
     const params = parseSearchString(url.search);
@@ -414,9 +415,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return Object.keys(result).length > 0 ? result : null;
     } else {
       // Namespaced mode: look for prefix + key directly
-      const fullKey =
-        defaultedOptions.prefix + (defaultedOptions.key as string);
-      const values = params[fullKey];
+      const values = params[namespaceKey];
       if (values && values.length > 0) {
         try {
           // Namespaced mode always has single value (not repeated keys)
@@ -462,16 +461,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const urlDefaults = (pathname: string): object =>
     urlStateOf(initialState, pathname);
 
-  // The params this store writes for a state in URL shape.
-  const ownedKeys = (urlState: object) =>
-    new Set(
-      standalone
-        ? Object.keys(format.stringifyStandalone(urlState)).map(
-            key => defaultedOptions.prefix + key,
-          )
-        : [defaultedOptions.prefix + (defaultedOptions.key as string)],
-    );
-
   const initialize = (url: URL, state, navigation = false) => {
     try {
       const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
@@ -508,13 +497,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return params;
     }
     return Object.keys(compacted).length > 0
-      ? {
-          [defaultedOptions.prefix + (defaultedOptions.key as string)]: [
-            format.stringify(compacted),
-          ],
-        }
+      ? { [namespaceKey]: [format.stringify(compacted)] }
       : {};
   };
+
+  // The params this store writes for a state in URL shape.
+  const ownedKeys = (urlState: object) =>
+    new Set(standalone ? Object.keys(toParams(urlState)) : [namespaceKey]);
 
   const withDefaults = (state, partial) =>
     mergeWith({}, state, partial, (_objValue, srcValue) => {
@@ -570,8 +559,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
     let previouslyManagedKeys = new Set<string>();
 
+    const currentUrl = () => location.pathname + location.search;
     // The URL this store last wrote or read; any other URL is a navigation.
-    let lastUrl = location.pathname + location.search;
+    let lastUrl = currentUrl();
     // A read owes a URL write, creation's too; a timer pays it 100ms later while the store has a subscriber.
     let writeOwed = true;
     let writeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -585,8 +575,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }, 100);
     };
     const readUrl = () => {
-      if (location.pathname + location.search === lastUrl) return;
-      lastUrl = location.pathname + location.search;
+      if (currentUrl() === lastUrl) return;
+      lastUrl = currentUrl();
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
@@ -631,7 +621,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
       }
-      lastUrl = location.pathname + location.search;
+      lastUrl = currentUrl();
     };
 
     // @ts-ignore
