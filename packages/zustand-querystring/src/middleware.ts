@@ -391,6 +391,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const format = defaultedOptions.format as QueryStringFormat;
   const standalone = defaultedOptions.key === false;
   const namespaceKey = defaultedOptions.prefix + defaultedOptions.key;
+  // A parsed key the state lacks is the store's own only in its namespace, under its prefix or in its select.
+  const ownsNewKeys =
+    !standalone || Boolean(defaultedOptions.prefix || defaultedOptions.select);
 
   const getStateFromUrl = (url: URL, initialState: object) => {
     const params = parseSearchString(url.search);
@@ -581,12 +584,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current, true);
-      // Only changed keys, so the others keep their references; a key the state lacks is set from the store's own key, prefix or select.
+      // Only changed keys, so the others keep their references.
       const changed = pickBy(next, (value, key) =>
         Object.prototype.hasOwnProperty.call(current, key)
           ? !isSameState(value, current[key])
-          : !standalone ||
-            Boolean(defaultedOptions.prefix || defaultedOptions.select),
+          : ownsNewKeys,
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
