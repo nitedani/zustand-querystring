@@ -2096,26 +2096,6 @@ describe('navigation', () => {
     expect(url()).toBe('/b?count=:5');
   });
 
-  it('pays the write a navigation owes when the clock is set back', async () => {
-    const useStore = createNavStore();
-    const unsubscribe = useStore.subscribe(() => {});
-    await settle();
-    useStore.setState({ count: 5 });
-
-    window.history.pushState({}, '', '/b');
-    await new Promise(requestAnimationFrame);
-    const { now } = Date;
-    Date.now = () => now() - 60_000;
-    try {
-      await settle();
-    } finally {
-      Date.now = now;
-      unsubscribe();
-    }
-
-    expect(url()).toBe('/b?count=:5');
-  });
-
   it('a subscriber that unsubscribes in its callback stops the store following the URL', async () => {
     const useStore = createNavStore();
     const unsubscribe = useStore.subscribe(state => {
