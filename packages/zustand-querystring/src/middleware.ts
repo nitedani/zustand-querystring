@@ -139,7 +139,7 @@ export const compact = (
           syncUndefined,
           Object.keys(newValue),
         ).output;
-        // An object whose every field the flags leave out is left out too.
+        // An object none of whose fields is written is left out too, unless it is empty.
         if (!isEmpty(fields) || isEmpty(newValue)) {
           output[key] = fields;
         }
@@ -299,7 +299,7 @@ const rewriteSearch = (
   return result.length ? '?' + result.join('&') : '';
 };
 
-// URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
+// URL state replaces what it carries; a plain object merges key by key, into a class instance itself unless it is a navigation.
 // The selection is the one of the URL's pathname, or true where all of it is selected.
 const mergeUrlState = (
   state: object,
@@ -530,7 +530,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // Passed keys are written even at their initial value (with map, all keys), so a link can clear a filter; a key with no field select syncs keeps its state.
+    // Passed keys are written even at their initial value (with map, all keys once a passed key is selected), so a link can clear a filter; a key with no field select syncs keeps its state.
     const passed = getSelectedState(partial, pathname, 'partial');
     const stateForUrl = urlStateOf({ ...get(), ...passed }, pathname);
     const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
@@ -632,6 +632,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       api.__ZUSTAND_QUERYSTRING_INIT__ = true;
       let frame = 0;
       const cb = () => {
+        // Scheduled before the read, so an unsubscribe during the read cancels it.
         frame = requestAnimationFrame(cb);
         readUrl();
       };
