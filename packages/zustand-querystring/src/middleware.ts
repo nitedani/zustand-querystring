@@ -299,6 +299,79 @@ const rewriteSearch = (
   return result.length ? '?' + result.join('&') : '';
 };
 
+// URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
+// The selection is the one of the URL's pathname, or true where all of it is selected.
+const mergeUrlState = (
+  state: object,
+  urlState: object,
+  selection: Record<string, any> | true,
+  { navigation = false, syncUndefined = false } = {},
+) => {
+  // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
+  const merges = new Map<object, object>();
+  // keys is listed once per object: listing the keys of a large object walks all of them.
+  const merge = (
+    state: object,
+    urlState: object,
+    selection: Record<string, any> | true,
+    keys: string[],
+  ) => {
+    const merged: Record<string, any> = isPlainObject(state)
+      ? { ...state }
+      : state;
+    merges.set(urlState, merged);
+    for (const key of keys) {
+      // A __proto__ key would set the prototype of the copy zustand's setState makes.
+      if (key === '__proto__') continue;
+      const value = urlState[key];
+      if (value === undefined && !syncUndefined) continue;
+      const current = getOwn(merged, key);
+      const selected = selection === true ? true : getOwn(selection, key);
+      const valueKeys = isPlainObject(value) ? Object.keys(value) : undefined;
+      const isEmptyObject = valueKeys?.length === 0;
+      // An empty object over an object whose fields select syncs only some of clears just those.
+      if (isEmptyObject && isPlainObject(current) && isPlainObject(selected)) {
+        setOwn(merged, key, clearSelected(current, selected));
+        continue;
+      }
+      // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
+      if (
+        typeof current === 'function' ||
+        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
+      )
+        continue;
+      if (!isPlainObject(value)) {
+        setOwn(merged, key, value);
+        continue;
+      }
+      if (merges.has(value)) {
+        setOwn(merged, key, merges.get(value));
+        continue;
+      }
+      // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
+      const into =
+        isObjectLike(current) &&
+        !Array.isArray(current) &&
+        !(isEmptyObject && isPlainObject(current))
+          ? current
+          : {};
+      if (navigation && !isPlainObject(into)) continue;
+      setOwn(
+        merged,
+        key,
+        merge(
+          into,
+          value,
+          isPlainObject(selected) ? selected : true,
+          valueKeys!,
+        ),
+      );
+    }
+    return merged;
+  };
+  return merge(state, urlState, selection, Object.keys(urlState));
+};
+
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     key: false as string | false,
@@ -383,75 +456,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return map ? map.to(selected, pathname) : selected;
   };
 
-  // URL state replaces the values it carries, arrays, an empty object over a plain one, and undefined with syncUndefined; a plain object merges key by key, into a class instance itself, which a navigation leaves as it is.
-  // The selection is the one of the URL's pathname, or true where all of it is selected.
-  const mergeUrlState = (
-    state: object,
-    urlState: object,
-    selection: Record<string, any> | true,
-    navigation = false,
-    // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
-    merges = new Map<object, object>(),
-    // Listed once per object: listing the keys of a large object walks all of them.
-    keys = Object.keys(urlState),
-  ) => {
-    const merged: Record<string, any> = isPlainObject(state)
-      ? { ...state }
-      : state;
-    merges.set(urlState, merged);
-    // Keys, not entries: Object.entries is slow on an object with many keys.
-    for (const key of keys) {
-      // A __proto__ key would set the prototype of the copy zustand's setState makes.
-      if (key === '__proto__') continue;
-      const value = urlState[key];
-      if (value === undefined && !defaultedOptions.syncUndefined) continue;
-      const current = getOwn(merged, key);
-      const selected = selection === true ? true : getOwn(selection, key);
-      const valueKeys = isPlainObject(value) ? Object.keys(value) : undefined;
-      const isEmptyObject = valueKeys?.length === 0;
-      // An empty object over an object whose fields select syncs only some of clears just those.
-      if (isEmptyObject && isPlainObject(current) && isPlainObject(selected)) {
-        setOwn(merged, key, clearSelected(current, selected));
-        continue;
-      }
-      // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
-      if (
-        typeof current === 'function' ||
-        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
-      )
-        continue;
-      if (!isPlainObject(value)) {
-        setOwn(merged, key, value);
-        continue;
-      }
-      if (merges.has(value)) {
-        setOwn(merged, key, merges.get(value));
-        continue;
-      }
-      // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
-      const into =
-        isObjectLike(current) &&
-        !Array.isArray(current) &&
-        !(isEmptyObject && isPlainObject(current))
-          ? current
-          : {};
-      if (navigation && !isPlainObject(into)) continue;
-      setOwn(
-        merged,
-        key,
-        mergeUrlState(
-          into,
-          value,
-          isPlainObject(selected) ? selected : true,
-          navigation,
-          merges,
-          valueKeys,
-        ),
-      );
-    }
-    return merged;
-  };
-
   let initialState: ReturnType<typeof fn>;
 
   // The initial state in URL shape: the parse hints and the diff baseline.
@@ -485,7 +489,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         defaultedOptions.select
           ? (defaultedOptions.select(url.pathname) as object)
           : true,
-        navigation,
+        { navigation, syncUndefined: defaultedOptions.syncUndefined },
       );
     } catch (error) {
       console.error('[initialize] error:', error);
