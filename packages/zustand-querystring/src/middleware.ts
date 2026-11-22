@@ -1,13 +1,44 @@
-import { isEqual, mergeWith } from 'lodash-es';
+import {
+  isDate,
+  isEmpty,
+  isEqual,
+  isEqualWith,
+  isMap,
+  isObjectLike,
+  isPlainObject,
+  isRegExp,
+  isSet,
+  isTypedArray,
+  mergeWith,
+  pickBy,
+} from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
+import type {
+  QueryStringFormat,
+  QueryStringFormatFor,
+  QueryStringParams,
+} from './format/types.js';
 import { getOwn, setOwn } from './own.js';
+
+export type {
+  ParseContext,
+  QueryStringFormat,
+  QueryStringFormatFor,
+  QueryStringFormatNamespaced,
+  QueryStringFormatStandalone,
+  QueryStringParam,
+  QueryStringParams,
+} from './format/types.js';
 
 type Write<T, U> = Omit<T, keyof U> & U;
 
 type WithQueryString<S, T> = Write<
   S,
-  { setDefaults: (partial: Partial<T>) => void }
+  {
+    setDefaults: (partial: Partial<T>) => void;
+    href: (pathname: string, state?: Partial<T>) => string;
+  }
 >;
 
 declare module 'zustand/vanilla' {
@@ -25,45 +56,6 @@ type DeepSelect<T> = T extends object
       [P in keyof T]?: DeepSelect<T[P]> | boolean;
     }
   : boolean;
-
-export interface QueryStringParam {
-  key: string;
-  value: string | string[];
-}
-
-/** Record of key to array of values - always arrays for consistency */
-export type QueryStringParams = Record<string, string[]>;
-
-/** Format for namespaced mode (key is a string) */
-export interface QueryStringFormatNamespaced {
-  /** Serialize entire state into a single encoded string */
-  stringify: (state: object) => string;
-  /** Deserialize a single encoded string back to state */
-  parse: (value: string, ctx?: ParseContext) => object;
-}
-
-/** Context passed to parse methods for type inference and future extensibility */
-export interface ParseContext {
-  /** Initial state for type inference */
-  initialState: object;
-}
-
-/** Format for standalone mode (key is false) */
-export interface QueryStringFormatStandalone {
-  /** Serialize state into key-value pairs (always arrays for consistency) */
-  stringifyStandalone: (state: object) => QueryStringParams;
-  /** Deserialize key-value pairs back to state */
-  parseStandalone: (params: QueryStringParams, ctx: ParseContext) => object;
-}
-
-/** Full format implementing both modes */
-export type QueryStringFormat = QueryStringFormatNamespaced &
-  QueryStringFormatStandalone;
-
-/** Conditional format type based on key option */
-export type QueryStringFormatFor<K extends string | false> = K extends false
-  ? QueryStringFormatStandalone
-  : QueryStringFormatNamespaced;
 
 /**
  * Bidirectional mapping between store state and URL state.
@@ -116,17 +108,19 @@ export const compact = (
   initialState,
   syncNull = false,
   syncUndefined = false,
+  // Keys kept even at their initial value; nothing inside them is compared.
+  forced: string[] = [],
 ) => {
   const output = {};
-  const removed: string[] = [];
 
   Object.keys(newState).forEach(key => {
     const newValue = newState[key];
     const initialValue = initialState[key];
+    const isForced = forced.includes(key);
 
     if (
       typeof newValue !== 'function' &&
-      !isEqual(newValue, initialValue) &&
+      (isForced || !isEqual(newValue, initialValue)) &&
       (syncNull || newValue !== null) &&
       (syncUndefined || newValue !== undefined)
     ) {
@@ -137,23 +131,43 @@ export const compact = (
         !Array.isArray(newValue) &&
         newValue.constructor === Object;
 
-      if (isPlainObject && initialValue && typeof initialValue === 'object') {
+      if (isPlainObject && isForced) {
+        const fields = compact(
+          newValue,
+          {},
+          syncNull,
+          syncUndefined,
+          Object.keys(newValue),
+        ).output;
+        // An object none of whose fields is written is left out too, unless it is empty.
+        if (!isEmpty(fields) || isEmpty(newValue)) {
+          output[key] = fields;
+        }
+      } else if (
+        isPlainObject &&
+        initialValue &&
+        typeof initialValue === 'object'
+      ) {
         const result = compact(newValue, initialValue, syncNull, syncUndefined);
-        if (result.output && Object.keys(result.output).length > 0) {
+        // An empty object over a non-empty default is kept, so a cleared filter stays cleared.
+        if (!isEmpty(result.output) || isEmpty(newValue)) {
           output[key] = result.output;
         }
       } else {
         output[key] = newValue;
       }
-    } else {
-      removed.push(key);
     }
   });
 
-  return { output, removed };
+  return { output };
 };
 
-const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
+// A partial state leaves out an object none of whose fields are selected, unless it is empty.
+const translateSelectionToState = <T>(
+  selection: DeepSelect<T>,
+  state: T,
+  mode: 'full' | 'partial',
+) => {
   if (typeof state !== 'object' || !state) {
     return {};
   }
@@ -167,30 +181,195 @@ const translateSelectionToState = <T>(selection: DeepSelect<T>, state: T) => {
         acc[key] = state[key];
       }
     } else {
-      acc[key] = translateSelectionToState(value, state[key]);
+      const selected = translateSelectionToState(value, state[key], mode);
+      if (mode === 'full' || !isEmpty(selected) || isEqual(state[key], {})) {
+        acc[key] = selected;
+      }
     }
     return acc;
   }, {} as T);
 };
 
-const parseSearchString = (search: string): QueryStringParams => {
-  const result: QueryStringParams = {};
+// A function, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
+const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
+  if (typeof value === 'function') return true;
+  if (!isPlainObject(value) || seen.has(value)) return false;
+  seen.add(value);
+  return Object.values(value as object).some(v => holdsFunction(v, seen));
+};
 
+// An instance of a user class, which isEqual compares by its visible fields only, missing private ones.
+const isInstance = (value: unknown) => {
+  if (!isObjectLike(value) || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return (
+    proto !== Object.prototype &&
+    proto !== null &&
+    !isDate(value) &&
+    !isRegExp(value) &&
+    !isMap(value) &&
+    !isSet(value) &&
+    !isTypedArray(value)
+  );
+};
+
+// Deep equality where an instance, at any depth, equals only itself.
+const isSameState = (a: unknown, b: unknown) =>
+  isEqualWith(a, b, (x, y) =>
+    isInstance(x) || isInstance(y) ? x === y : undefined,
+  );
+
+// The object without the fields a selection syncs; its other fields and its actions stay.
+const clearSelected = (state: object, selection: object) => {
+  const cleared = { ...state };
+  for (const [key, selected] of Object.entries(selection)) {
+    if (!Object.prototype.hasOwnProperty.call(cleared, key)) continue;
+    if (isPlainObject(selected)) {
+      if (isPlainObject(cleared[key])) {
+        cleared[key] = clearSelected(cleared[key], selected);
+      }
+    } else if (selected && !holdsFunction(cleared[key])) {
+      delete cleared[key];
+    }
+  }
+  return cleared;
+};
+
+// The params of a search in order, as raw text; a param without a value has none.
+const splitSearch = (search: string) =>
   search
     .slice(search.startsWith('?') ? 1 : 0)
     .split('&')
     .filter(Boolean)
-    .forEach(param => {
+    .map(param => {
       const eqIndex = param.indexOf('=');
-      if (eqIndex === -1) return;
-      const key = param.slice(0, eqIndex);
-      const value = param.slice(eqIndex + 1);
-      const values = getOwn(result, key);
-      if (values) values.push(value);
-      else setOwn(result, key, [value]);
+      return eqIndex === -1
+        ? { param, key: param }
+        : {
+            param,
+            key: param.slice(0, eqIndex),
+            value: param.slice(eqIndex + 1),
+          };
     });
 
+const parseSearchString = (search: string): QueryStringParams => {
+  const result: QueryStringParams = {};
+
+  splitSearch(search).forEach(({ key, value }) => {
+    if (value === undefined) return;
+    const values = getOwn(result, key);
+    if (values) values.push(value);
+    else setOwn(result, key, [value]);
+  });
+
   return result;
+};
+
+// Writes the params into a search: an owned param takes its next value in place, or is removed; others stay as they are.
+const rewriteSearch = (
+  search: string,
+  owned: Set<string>,
+  params: QueryStringParams,
+) => {
+  const valuesToWrite = new Map(
+    Object.entries(params).map(([key, values]) => [key, [...values]]),
+  );
+  const result: string[] = [];
+
+  splitSearch(search).forEach(({ param, key }) => {
+    if (!owned.has(key)) {
+      // Not ours - keep as-is
+      result.push(param);
+      return;
+    }
+
+    // Our key - if we have values to write, take one from the front
+    const values = valuesToWrite.get(key);
+    if (values && values.length > 0) {
+      result.push(`${key}=${values.shift()}`);
+    }
+    // If no more values, skip (removed)
+  });
+
+  // Add remaining values at the end in stringify order (new additions)
+  valuesToWrite.forEach((values, key) => {
+    values.forEach(value => result.push(`${key}=${value}`));
+  });
+
+  return result.length ? '?' + result.join('&') : '';
+};
+
+// URL state replaces what it carries; a plain object merges key by key, into a class instance itself unless it is a navigation.
+// The selection is the one of the URL's pathname, or true where all of it is selected.
+const mergeUrlState = (
+  state: object,
+  urlState: object,
+  selection: Record<string, any> | true,
+  { navigation = false, syncUndefined = false } = {},
+) => {
+  // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
+  const merges = new Map<object, object>();
+  // keys is listed once per object: listing the keys of a large object walks all of them.
+  const merge = (
+    state: object,
+    urlState: object,
+    selection: Record<string, any> | true,
+    keys: string[],
+  ) => {
+    const merged: Record<string, any> = isPlainObject(state)
+      ? { ...state }
+      : state;
+    merges.set(urlState, merged);
+    for (const key of keys) {
+      // A __proto__ key would set the prototype of the copy zustand's setState makes.
+      if (key === '__proto__') continue;
+      const value = urlState[key];
+      if (value === undefined && !syncUndefined) continue;
+      const current = getOwn(merged, key);
+      const selected = selection === true ? true : getOwn(selection, key);
+      const valueKeys = isPlainObject(value) ? Object.keys(value) : undefined;
+      const isEmptyObject = valueKeys?.length === 0;
+      // An empty object over an object whose fields select syncs only some of clears just those.
+      if (isEmptyObject && isPlainObject(current) && isPlainObject(selected)) {
+        setOwn(merged, key, clearSelected(current, selected));
+        continue;
+      }
+      // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
+      if (
+        typeof current === 'function' ||
+        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
+      )
+        continue;
+      if (!isPlainObject(value)) {
+        setOwn(merged, key, value);
+        continue;
+      }
+      if (merges.has(value)) {
+        setOwn(merged, key, merges.get(value));
+        continue;
+      }
+      // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
+      const into =
+        isObjectLike(current) &&
+        !Array.isArray(current) &&
+        !(isEmptyObject && isPlainObject(current))
+          ? current
+          : {};
+      if (navigation && !isPlainObject(into)) continue;
+      setOwn(
+        merged,
+        key,
+        merge(
+          into,
+          value,
+          isPlainObject(selected) ? selected : true,
+          valueKeys!,
+        ),
+      );
+    }
+    return merged;
+  };
+  return merge(state, urlState, selection, Object.keys(urlState));
 };
 
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
@@ -211,6 +390,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   // Cast format to full type - runtime checks ensure correct methods are called
   const format = defaultedOptions.format as QueryStringFormat;
   const standalone = defaultedOptions.key === false;
+  const namespaceKey = defaultedOptions.prefix + defaultedOptions.key;
+  // A parsed key the state lacks is the store's own only in its namespace, under its prefix or in its select.
+  const ownsNewKeys =
+    !standalone || Boolean(defaultedOptions.prefix || defaultedOptions.select);
 
   const getStateFromUrl = (url: URL, initialState: object) => {
     const params = parseSearchString(url.search);
@@ -235,9 +418,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return Object.keys(result).length > 0 ? result : null;
     } else {
       // Namespaced mode: look for prefix + key directly
-      const fullKey =
-        defaultedOptions.prefix + (defaultedOptions.key as string);
-      const values = params[fullKey];
+      const values = params[namespaceKey];
       if (values && values.length > 0) {
         try {
           // Namespaced mode always has single value (not repeated keys)
@@ -250,11 +431,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
   };
 
-  const getSelectedState = (state, pathname) => {
+  const getSelectedState = (
+    state,
+    pathname,
+    mode: 'full' | 'partial' = 'full',
+  ) => {
     if (defaultedOptions.select) {
-      const selection = defaultedOptions.select(pathname);
-      const selectedState = translateSelectionToState(selection, state);
-      return selectedState;
+      return translateSelectionToState(
+        defaultedOptions.select(pathname),
+        state,
+        mode,
+      );
     }
     return state ?? {};
   };
@@ -265,237 +452,227 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     | QueryStringMap<object, object>
     | undefined;
 
-  /** Apply map.to if configured, otherwise pass through */
-  const applyMapTo = (state: object, pathname: string): object => {
-    return map ? map.to(state, pathname) : state;
+  // The selected state in URL shape for a pathname.
+  const urlStateOf = (state, pathname: string): object => {
+    const selected = getSelectedState(state, pathname);
+    return map ? map.to(selected, pathname) : selected;
   };
 
-  /** Apply map.from if configured, otherwise pass through */
-  const applyMapFrom = (urlState: object, pathname: string): object => {
-    return map ? map.from(urlState, pathname) : urlState;
-  };
+  let initialState: ReturnType<typeof fn>;
 
-  const initialize = (url: URL, initialState) => {
+  // The initial state in URL shape: the parse hints and the diff baseline.
+  const urlDefaults = (pathname: string): object =>
+    urlStateOf(initialState, pathname);
+
+  const initialize = (url: URL, state, navigation = false) => {
     try {
-      // When map is used, getStateFromUrl returns the URL-shape state.
-      // We need the mapped initial state for type inference in parsing.
-      const mappedInitial = applyMapTo(
-        getSelectedState(initialState, url.pathname),
-        url.pathname,
-      );
-      const stateFromUrl = getStateFromUrl(url, mappedInitial);
+      const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
       if (!stateFromUrl) {
-        return initialState;
+        return state;
       }
       // stateFromUrl is in URL shape — map.from converts it back to store shape
-      const storeState = applyMapFrom(stateFromUrl, url.pathname);
-      const selected = getSelectedState(storeState, url.pathname);
-      const merged = mergeWith(
-        {},
-        initialState,
+      const storeState = map
+        ? map.from(stateFromUrl, url.pathname)
+        : stateFromUrl;
+      const selected = getSelectedState(storeState, url.pathname, 'partial');
+      return mergeUrlState(
+        state,
         selected,
-        (_objValue, srcValue) => {
-          if (Array.isArray(srcValue)) {
-            return srcValue;
-          }
-          return undefined;
-        },
+        defaultedOptions.select
+          ? (defaultedOptions.select(url.pathname) as object)
+          : true,
+        { navigation, syncUndefined: defaultedOptions.syncUndefined },
       );
-      return merged;
     } catch (error) {
       console.error('[initialize] error:', error);
-      return initialState;
+      return state;
     }
   };
 
-  if (typeof window !== 'undefined') {
-    let initialState = fn(
-      (...args) => {
-        set(...(args as Parameters<typeof set>));
-        setQuery();
-      },
-      get,
-      api,
+  const toParams = (compacted: object): QueryStringParams => {
+    if (standalone) {
+      const params: QueryStringParams = {};
+      for (const [key, values] of Object.entries(
+        format.stringifyStandalone(compacted),
+      )) {
+        params[defaultedOptions.prefix + key] = values;
+      }
+      return params;
+    }
+    return Object.keys(compacted).length > 0
+      ? { [namespaceKey]: [format.stringify(compacted)] }
+      : {};
+  };
+
+  // The params this store writes for a state in URL shape.
+  const ownedKeys = (urlState: object) =>
+    new Set(standalone ? Object.keys(toParams(urlState)) : [namespaceKey]);
+
+  const withDefaults = (state, partial) =>
+    mergeWith({}, state, partial, (_objValue, srcValue) => {
+      if (Array.isArray(srcValue)) {
+        return srcValue;
+      }
+      return undefined;
+    });
+
+  // @ts-ignore - typed via StoreMutators augmentation
+  api.setDefaults = (partial: Partial<typeof initialState>) => {
+    initialState = withDefaults(initialState, partial);
+  };
+
+  // A setDefaults call inside the initializer applies to the state it returns.
+  const createState = (setState: typeof set) => {
+    const state = fn(setState, get, api);
+    initialState = initialState ? withDefaults(state, initialState) : state;
+    return state;
+  };
+
+  // @ts-ignore - typed via StoreMutators augmentation
+  api.href = (pathname: string, partial: object = {}) => {
+    // Passed keys are written even at their initial value (with map, all keys once a passed key is selected), so a link can clear a filter; a key with no field select syncs keeps its state.
+    const passed = getSelectedState(partial, pathname, 'partial');
+    const stateForUrl = urlStateOf({ ...get(), ...passed }, pathname);
+    const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
+    const { output } = compact(
+      stateForUrl,
+      urlDefaults(pathname),
+      defaultedOptions.syncNull,
+      defaultedOptions.syncUndefined,
+      forced,
     );
+    // Encoded like the store's own write, so a # in a value stays in the query.
+    const query = new URL('http://localhost');
+    query.search = rewriteSearch('', new Set(), toParams(output));
+    return pathname + query.search;
+  };
+
+  if (typeof window !== 'undefined') {
+    // A change reads a navigation first, so it applies after it, then writes the URL.
+    const withUrl =
+      (apply: typeof set): typeof set =>
+      (...args) => {
+        readUrl();
+        apply(...(args as Parameters<typeof set>));
+        setQuery();
+      };
+    const state = createState(withUrl(set));
 
     // Track previously managed URL keys so we can remove orphaned params
     // when dynamic state keys disappear (e.g., filters reset from populated to {}).
     let previouslyManagedKeys = new Set<string>();
 
-    // Pre-compute the mapped initial state for diffing when map is used
-    const getMappedInitial = (pathname: string) => {
-      if (defaultedOptions.map) {
-        return applyMapTo(getSelectedState(initialState, pathname), pathname);
-      }
-      return initialState;
+    const currentUrl = () => location.pathname + location.search;
+    // The URL this store last wrote or read; any other URL is a navigation.
+    let lastUrl = currentUrl();
+    // A read owes a URL write, creation's too; a timer pays it 100ms later while the store has a subscriber.
+    let writeOwed = true;
+    let writeTimer: ReturnType<typeof setTimeout> | undefined;
+    // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
+    let subscribers = 0;
+    const armWrite = () => {
+      clearTimeout(writeTimer);
+      writeTimer = setTimeout(() => {
+        readUrl();
+        if (subscribers > 0) setQuery();
+      }, 100);
     };
-
-    // @ts-ignore - typed via StoreMutators augmentation
-    api.setDefaults = (partial: Partial<typeof initialState>) => {
-      initialState = mergeWith(
-        {},
-        initialState,
-        partial,
-        (_objValue, srcValue) => {
-          if (Array.isArray(srcValue)) {
-            return srcValue;
-          }
-          return undefined;
-        },
+    const readUrl = () => {
+      if (currentUrl() === lastUrl) return;
+      lastUrl = currentUrl();
+      writeOwed = true;
+      if (subscribers > 0) armWrite();
+      const current = get() as Record<string, unknown>;
+      const next = initialize(new URL(location.href), current, true);
+      // Only changed keys, so the others keep their references.
+      const changed = pickBy(next, (value, key) =>
+        Object.prototype.hasOwnProperty.call(current, key)
+          ? !isSameState(value, current[key])
+          : ownsNewKeys,
       );
+      if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
 
     const setQuery = () => {
+      readUrl();
+      // Paid before the write, so a write that throws isn't owed again.
+      writeOwed = false;
+      clearTimeout(writeTimer);
       const url = new URL(window.location.href);
-      const selectedState = getSelectedState(get(), url.pathname);
-      // When map is used, transform to URL shape before compacting
-      const stateForUrl = applyMapTo(selectedState, url.pathname);
-      const mappedInitial = getMappedInitial(url.pathname);
+      const stateForUrl = urlStateOf(get(), url.pathname);
       const { output: newCompacted } = compact(
         stateForUrl,
-        mappedInitial,
+        urlDefaults(url.pathname),
         defaultedOptions.syncNull,
         defaultedOptions.syncUndefined,
       );
       const previous = url.search;
 
-      // Get the key-value pairs based on mode
-      let stateParams: QueryStringParams;
-      let managedKeys: Set<string>;
-
-      if (standalone) {
-        // Stringify the full selected state to get all managed keys
-        const allParams = format.stringifyStandalone(stateForUrl as object);
-        const currentKeys = new Set(
-          Object.keys(allParams).map(k => defaultedOptions.prefix + k),
-        );
-
-        // managedKeys = current keys ∪ previously managed keys
-        // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
-        // the old URL params are still recognized as ours and get removed.
-        managedKeys = new Set([
-          ...Array.from(currentKeys),
-          ...Array.from(previouslyManagedKeys),
-        ]);
-        previouslyManagedKeys = currentKeys;
-
-        // Stringify compacted state for values to write (with prefix)
-        const compactedParams = format.stringifyStandalone(newCompacted);
-        stateParams = {};
-        for (const [key, values] of Object.entries(compactedParams)) {
-          stateParams[defaultedOptions.prefix + key] = values;
-        }
-      } else {
-        // Namespaced mode: single key (with prefix)
-        const fullKey =
-          defaultedOptions.prefix + (defaultedOptions.key as string);
-        if (Object.keys(newCompacted).length > 0) {
-          stateParams = { [fullKey]: [format.stringify(newCompacted)] };
-        } else {
-          stateParams = {};
-        }
-        managedKeys = new Set([fullKey]);
-      }
-
-      // Build a map of key -> array of values to write
-      const valuesToWrite = new Map<string, string[]>();
-      const keyOrder: string[] = []; // Track key order
-      for (const [key, values] of Object.entries(stateParams)) {
-        valuesToWrite.set(key, [...values]);
-        keyOrder.push(key);
-      }
-
-      const params = url.search.slice(1).split('&').filter(Boolean);
-      const result: string[] = [];
-
-      // Process existing params
-      params.forEach(param => {
-        const eqIndex = param.indexOf('=');
-        const key = eqIndex === -1 ? param : param.slice(0, eqIndex);
-
-        if (!managedKeys.has(key)) {
-          // Not ours - keep as-is
-          result.push(param);
-          return;
-        }
-
-        // Our key - if we have values to write, take one from the front
-        const values = valuesToWrite.get(key);
-        if (values && values.length > 0) {
-          const value = values.shift()!;
-          result.push(`${key}=${value}`);
-        }
-        // If no more values, skip (removed)
-      });
-
-      // Add remaining values at the end in stringify order (new additions)
-      for (const key of keyOrder) {
-        const values = valuesToWrite.get(key);
-        if (values) {
-          values.forEach(v => result.push(`${key}=${v}`));
-        }
-      }
-
-      url.search = result.length ? '?' + result.join('&') : '';
+      const currentKeys = ownedKeys(stateForUrl);
+      // managedKeys = current keys ∪ previously managed keys
+      // This ensures that when dynamic keys disappear (e.g., filters: {} → no sub-keys),
+      // the old URL params are still recognized as ours and get removed.
+      const managedKeys = new Set([...currentKeys, ...previouslyManagedKeys]);
+      previouslyManagedKeys = currentKeys;
+      url.search = rewriteSearch(
+        url.search,
+        managedKeys,
+        toParams(newCompacted),
+      );
 
       if (url.search !== previous) {
         history.replaceState(history.state, '', url);
       }
+      lastUrl = currentUrl();
     };
 
     // @ts-ignore
     if (!api.__ZUSTAND_QUERYSTRING_INIT__) {
       // @ts-ignore
       api.__ZUSTAND_QUERYSTRING_INIT__ = true;
-      let previousPathname = '';
+      let frame = 0;
       const cb = () => {
-        if (location.pathname !== previousPathname) {
-          previousPathname = location.pathname;
-          setTimeout(setQuery, 100);
-        }
-        requestAnimationFrame(cb);
+        // Scheduled before the read, so an unsubscribe during the read cancels it.
+        frame = requestAnimationFrame(cb);
+        readUrl();
       };
-      // React may create a store twice and keep one; only the kept one is subscribed.
-      let started = false;
       const originalSubscribe = api.subscribe;
       api.subscribe = (...args) => {
-        if (!started) {
-          started = true;
-          requestAnimationFrame(cb);
+        if (subscribers++ === 0) {
+          frame = requestAnimationFrame(cb);
+          if (writeOwed) armWrite();
         }
-        return originalSubscribe(...args);
+        const unsubscribe = originalSubscribe(...args);
+        let subscribed = true;
+        return () => {
+          if (subscribed && --subscribers === 0) {
+            cancelAnimationFrame(frame);
+            clearTimeout(writeTimer);
+          }
+          subscribed = false;
+          unsubscribe();
+        };
       };
     }
-    const originalSetState = api.setState;
-    api.setState = (...args) => {
-      originalSetState(...(args as Parameters<typeof set>));
-      setQuery();
-    };
-    const initialized = initialize(new URL(window.location.href), initialState);
+    api.setState = withUrl(api.setState);
+    const initialized = initialize(new URL(window.location.href), state);
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
-    if (standalone) {
-      const initSelected = getSelectedState(
-        initialized,
-        new URL(window.location.href).pathname,
-      );
-      const initParams = format.stringifyStandalone(initSelected as object);
-      previouslyManagedKeys = new Set(
-        Object.keys(initParams).map(k => defaultedOptions.prefix + k),
-      );
-    }
+    previouslyManagedKeys = ownedKeys(
+      urlStateOf(initialized, location.pathname),
+    );
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
     const initialized = initialize(
       new URL(defaultedOptions.url, 'http://localhost'),
-      fn(set, get, api),
+      createState(set),
     );
     api.getInitialState = () => initialized;
     return initialized;
   }
 
-  return fn(set, get, api);
+  return createState(set);
 };
 
 export const querystring = queryStringImpl as unknown as QueryString;

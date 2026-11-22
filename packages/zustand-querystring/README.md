@@ -166,10 +166,11 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 
 ## How State Syncs
 
-1. **On page load**: URL → State
+1. **On store creation**: URL → State
 2. **On state change**: State → URL (via `replaceState`)
+3. **On navigation** (a link, `router.push`, Back/Forward), while something subscribes to the store, like a component that uses it: URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
 
-Only values **different from initial state** are written to URL:
+When the store writes the current URL, only values **different from initial state** are written:
 
 ```ts
 // Initial: { search: '', page: 1, sort: 'date' }
@@ -183,6 +184,29 @@ Type handling:
 - Objects: recursively diffed
 - Arrays, Dates: compared as whole values
 - Functions: never synced
+
+---
+
+## Links
+
+`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. Pass a field's initial value to restore it, like clearing a filter. Call it in a selector, so the link updates when the state changes:
+
+```tsx
+const useStore = create<{ status: string; search?: string }>()(
+  querystring(() => ({ status: 'all' }), {
+    // search starts out missing from the state, so select includes it for a link to set it
+    select: () => ({ status: true, search: true }),
+  }),
+);
+
+// Current: { status: 'active', search: 'acme' }
+const href = useStore(() => useStore.href('/customers', { status: 'all' }));
+// href: /customers?status=all&search=acme
+
+<Link href={href}>All customers</Link>;
+```
+
+A navigation sets a top-level field the store's state doesn't have yet only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
 
 ---
 

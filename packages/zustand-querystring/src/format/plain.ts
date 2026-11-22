@@ -19,7 +19,7 @@ import type {
   ParseContext,
   QueryStringFormat,
   QueryStringParams,
-} from '../middleware.js';
+} from './types.js';
 import { getOwn, setOwn } from '../own.js';
 import { decodeComponent } from './decode.js';
 
@@ -159,6 +159,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
     typeof value === 'object' &&
     !Array.isArray(value) &&
     !isDate(value)
+  );
+}
+
+function isEmptyObject(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.keys(value).length === 0
   );
 }
 
@@ -464,7 +472,10 @@ function flatten(
           const item = value[i];
           const indexedKey = fullKey + opts.nestingSep + i;
 
-          if (isObject(item)) {
+          if (isEmptyObject(item)) {
+            // Empty object: the indexed key with no values
+            result[indexedKey] = [];
+          } else if (isObject(item)) {
             Object.assign(result, flatten(item, indexedKey, opts));
           } else {
             const serialized = serializeValue(item, opts);
@@ -483,6 +494,12 @@ function flatten(
           return escape(serialized, valueEscapeChars, opts.escape);
         });
       }
+      continue;
+    }
+
+    // Empty object: the key with no values
+    if (isEmptyObject(value)) {
+      result[fullKey] = [];
       continue;
     }
 
@@ -506,6 +523,7 @@ function flatten(
 interface PathNode {
   leaf?: string[];
   children?: Map<string, PathNode>;
+  emptyObject?: boolean;
 }
 
 // What build returns for a path it leaves to the default
@@ -535,8 +553,13 @@ function plantEntries(
       if (!child) children.set(segment, (child = {}));
       node = child;
     }
-    // Of two spellings of one path (x_ and x__), the later one wins
-    node.leaf = values;
+    // An empty object's entry has no values
+    if (values.length === 0) {
+      node.emptyObject = true;
+    } else {
+      // Of two spellings of one path (x_ and x__), the later one wins
+      node.leaf = values;
+    }
   });
   return root.children;
 }
@@ -562,12 +585,17 @@ function build(
 ): unknown {
   // A value at a shorter path (a=1 beside a.b=2) wins
   if (node.leaf) return readLeaf(node.leaf, hint, opts);
-  const children = node.children!;
-  if (isArrayContainer(hint, Array.from(children.keys()))) {
+  const children = node.children ?? new Map<string, PathNode>();
+  // An empty object makes its path a record, except under an array default, which drops it
+  if (
+    (!node.emptyObject || Array.isArray(hint)) &&
+    isArrayContainer(hint, Array.from(children.keys()))
+  ) {
     const list = buildList(children, hint, slots, opts);
     if (list !== undefined) return list;
   }
-  return buildRecord(children, hint, slots, opts);
+  const record = buildRecord(children, hint, slots, opts);
+  return record === dropped && node.emptyObject ? {} : record;
 }
 
 /**
@@ -739,16 +767,28 @@ function parseNamespaced(
 
   let currentKey: string | null = null;
   let currentParts: string[] = [];
+  // An empty object's key ends in a lone escape char, which reads the '=' after it as escaped.
+  const emptyObjectEnd = opts.nestingSep + opts.escape + '=';
+  // An empty object's entry has no values; a value at its path wins
+  const flush = () => {
+    if (currentKey === null) return;
+    if (currentParts.length > 0) {
+      addValue(entries, currentKey, currentParts.join(opts.entrySep));
+    } else if (!entries.has(currentKey)) {
+      entries.set(currentKey, []);
+    }
+  };
 
   for (const part of parts) {
     const eqIndex = findUnescaped(part, '=', opts.escape);
 
-    if (eqIndex !== -1) {
+    if (eqIndex === -1 && part.endsWith(emptyObjectEnd)) {
+      flush();
+      currentKey = part.slice(0, -emptyObjectEnd.length);
+      currentParts = [];
+    } else if (eqIndex !== -1) {
       // This part has key=value - finish previous and start new
-      if (currentKey !== null) {
-        addValue(entries, currentKey, currentParts.join(opts.entrySep));
-      }
-
+      flush();
       currentKey = part.slice(0, eqIndex);
       currentParts = [part.slice(eqIndex + 1)];
     } else if (currentKey !== null) {
@@ -758,9 +798,7 @@ function parseNamespaced(
   }
 
   // Flush the last key
-  if (currentKey !== null) {
-    addValue(entries, currentKey, currentParts.join(opts.entrySep));
-  }
+  flush();
 
   return entries;
 }
@@ -773,7 +811,13 @@ function stringifyNamespaced(state: object, opts: ResolvedOptions): string {
   const parts: string[] = [];
 
   for (const [key, values] of Object.entries(entries)) {
-    if (opts.arraySep === 'repeat') {
+    if (values.length === 0) {
+      // Empty object: the key, the nesting separator and a lone escape char, which no escaped key segment is
+      parts.push(
+        encodePreservingMarkers(key + opts.nestingSep + opts.escape, opts) +
+          '=',
+      );
+    } else if (opts.arraySep === 'repeat') {
       // Repeated keys for arrays
       for (const value of values) {
         parts.push(
@@ -809,7 +853,9 @@ function stringifyStandalone(
   const entries = flatten(state, '', opts);
   const result: QueryStringParams = {};
 
-  for (const [key, values] of Object.entries(entries)) {
+  for (const [key, flatValues] of Object.entries(entries)) {
+    // An empty object stands alone as its key with a lone escape char, which no escaped value is.
+    const values = flatValues.length === 0 ? [opts.escape] : flatValues;
     const encodedKey = encodePreservingMarkers(key, opts);
     const encodedValues = values.map(v => encodePreservingMarkers(v, opts));
 
@@ -836,10 +882,11 @@ function parseStandalone(
 
   for (const [key, values] of Object.entries(params)) {
     const decodedKey = decodeComponent(key);
-    entries.set(
-      decodedKey,
-      values.map(v => decodeComponent(v)),
-    );
+    const decodedValues = values.map(v => decodeComponent(v));
+    // An empty object's entry has no values
+    const isEmptyObject =
+      decodedValues.length === 1 && decodedValues[0] === opts.escape;
+    entries.set(decodedKey, isEmptyObject ? [] : decodedValues);
   }
 
   return unflatten(entries, initialState, opts);

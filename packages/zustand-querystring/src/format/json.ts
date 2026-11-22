@@ -2,7 +2,7 @@ import type {
   ParseContext,
   QueryStringFormat,
   QueryStringParams,
-} from '../middleware.js';
+} from './types.js';
 import { setOwn } from '../own.js';
 import { decodeComponent } from './decode.js';
 
@@ -37,7 +37,12 @@ export const json: QueryStringFormat = {
     for (const [key, values] of Object.entries(params)) {
       try {
         // Always use first value (json format doesn't use repeated keys)
-        setOwn(result, key, decodeValue(values[0]));
+        // JSON has no undefined; it is written as the text undefined.
+        setOwn(
+          result,
+          key,
+          values[0] === 'undefined' ? undefined : decodeValue(values[0]),
+        );
       } catch {
         // skip invalid values
       }

@@ -274,6 +274,125 @@ describe('plain format', () => {
       expect(parsed).toEqual(obj);
     });
 
+    it('should round-trip empty objects', () => {
+      const obj = { filters: {}, user: { tags: {} } };
+      const serialized = plain.stringify(obj);
+      expect(serialized).toBe('filters._=,user.tags._=');
+      expect(plain.parse(serialized, { initialState: obj })).toEqual(obj);
+      expect(plain.parse(serialized, { initialState: {} })).toEqual(obj);
+    });
+
+    it('should round-trip an empty object in an array', () => {
+      for (const [state, namespaced, standalone] of [
+        [
+          { rows: [{}, { name: 'b' }] },
+          'rows.0._=,rows.1.name=b',
+          { 'rows.0': ['_'], 'rows.1.name': ['b'] },
+        ],
+        [{ rows: [{}] }, 'rows.0._=', { 'rows.0': ['_'] }],
+      ] as const) {
+        const value = plain.stringify(state);
+        expect(value).toBe(namespaced);
+        const params = plain.stringifyStandalone(state);
+        expect(params).toEqual(standalone);
+        for (const initialState of [{}, { rows: [{ name: 'a' }] }]) {
+          expect(plain.parse(value, { initialState })).toEqual(state);
+          expect(plain.parseStandalone(params, { initialState })).toEqual(
+            state,
+          );
+        }
+      }
+    });
+
+    it('should keep an empty object apart from an entry with an empty or escape-char label', () => {
+      for (const fmt of [plain, createFormat({ nestingSeparator: '::' })]) {
+        const sep = fmt === plain ? '.' : '::';
+        for (const [state, namespaced, standalone] of [
+          [{ filters: {} }, `filters${sep}_=`, { filters: ['_'] }],
+          [
+            { filters: { '': '' } },
+            `filters${sep}=`,
+            { [`filters${sep}`]: [''] },
+          ],
+          [
+            { filters: { _: '' } },
+            `filters${sep}__=`,
+            { [`filters${sep}__`]: [''] },
+          ],
+          [{ filters: '_' }, 'filters=__', { filters: ['__'] }],
+          [{ filters: '__' }, 'filters=____', { filters: ['____'] }],
+          [
+            { filters: {}, query: 'x', tags: {} },
+            `filters${sep}_=,query=x,tags${sep}_=`,
+            { filters: ['_'], query: ['x'], tags: ['_'] },
+          ],
+        ] as const) {
+          const value = fmt.stringify(state);
+          expect(decodeURIComponent(value)).toBe(namespaced);
+          const params = fmt.stringifyStandalone(state);
+          expect(
+            Object.fromEntries(
+              Object.entries(params).map(([k, v]) => [
+                decodeURIComponent(k),
+                v.map(decodeURIComponent),
+              ]),
+            ),
+          ).toEqual(standalone);
+          for (const initialState of [{}, { filters: {} }]) {
+            expect(fmt.parse(value, { initialState })).toEqual(state);
+            expect(fmt.parseStandalone(params, { initialState })).toEqual(
+              state,
+            );
+          }
+        }
+      }
+    });
+
+    it('should read the standalone filters. spelling as an empty label, as before', () => {
+      for (const initialState of [{}, { filters: {} }]) {
+        expect(
+          plain.parseStandalone({ 'filters.': [''] }, { initialState }),
+        ).toEqual({ filters: { '': '' } });
+      }
+    });
+
+    it('should read an empty value under an object hint as on main', () => {
+      const initialState = { filters: {} as Record<string, string> | null };
+      expect(plain.parse('filters=', { initialState })).toEqual({
+        filters: '',
+      });
+      expect(
+        createFormat({ nullString: '' }).parse('filters=', { initialState }),
+      ).toEqual({ filters: null });
+      expect(
+        createFormat({ undefinedString: '' }).parseStandalone(
+          { filters: [''] },
+          { initialState },
+        ),
+      ).toEqual({ filters: undefined });
+    });
+
+    it('should read an empty object beside other entries of its path', () => {
+      // A value at a shorter path wins
+      expect(plain.parse('f=x,f._=', { initialState: {} })).toEqual({ f: 'x' });
+      // Keys beside it make the path a record
+      expect(plain.parse('f._=,f.a=1', { initialState: {} })).toEqual({
+        f: { a: 1 },
+      });
+      expect(plain.parse('f._=,f.0=1', { initialState: {} })).toEqual({
+        f: { 0: 1 },
+      });
+      expect(
+        plain.parseStandalone({ f: ['_'], 'f.a': ['1'] }, { initialState: {} }),
+      ).toEqual({ f: { a: 1 } });
+      // An array default drops it
+      const initialState = { tags: ['a'] };
+      expect(plain.parse('tags._=', { initialState })).toEqual({});
+      expect(plain.parseStandalone({ tags: ['_'] }, { initialState })).toEqual(
+        {},
+      );
+    });
+
     it('should round-trip dates', () => {
       const obj = { created: new Date('2024-01-15T12:00:00.000Z') };
       const serialized = plain.stringify(obj);
@@ -643,6 +762,14 @@ describe('plain format', () => {
       const serialized = plain.stringifyStandalone(obj);
       const parsed = plain.parseStandalone(serialized, { initialState: obj });
       expect(parsed).toEqual(obj);
+    });
+
+    it('should handle standalone mode with empty objects', () => {
+      const initialState = { filters: { region: 'EU' } };
+      const serialized = plain.stringifyStandalone({ filters: {} });
+      expect(serialized).toEqual({ filters: ['_'] });
+      const parsed = plain.parseStandalone(serialized, { initialState });
+      expect(parsed).toEqual({ filters: {} });
     });
 
     it('should handle path through primitive hint', () => {
