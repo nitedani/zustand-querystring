@@ -564,6 +564,18 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state;
   };
 
+  // The fields of next that differ from prev, a key prev lacks included.
+  const changedUrlFields = (next: object, prev: object) =>
+    compact(
+      next,
+      prev,
+      defaultedOptions.syncNull,
+      defaultedOptions.syncUndefined,
+      Object.keys(next).filter(
+        key => !Object.prototype.hasOwnProperty.call(prev, key),
+      ),
+    ).output;
+
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
     // A click applies the passed keys to the live state, a new tab to a fresh one; neither changes a class instance in place.
@@ -576,21 +588,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       applyState(freshState, partial, pathname, true),
       pathname,
     );
-    // The fields of next that differ from prev, a key prev lacks included.
-    const changed = (next: object, prev: object) =>
-      compact(
-        next,
-        prev,
-        defaultedOptions.syncNull,
-        defaultedOptions.syncUndefined,
-        Object.keys(next).filter(
-          key => !Object.prototype.hasOwnProperty.call(prev, key),
-        ),
-      ).output;
     // What a click or a new tab changes, written with the click's values: a map packing fields into one param keeps those not passed.
     const output = pickFields(clicked, [
-      changed(opened, urlStateOf(freshState, pathname)),
-      changed(clicked, urlStateOf(state, pathname)),
+      changedUrlFields(opened, urlStateOf(freshState, pathname)),
+      changedUrlFields(clicked, urlStateOf(state, pathname)),
     ]);
     // Encoded like the store's own write, so a # in a value stays in the query.
     const query = new URL('http://localhost');
