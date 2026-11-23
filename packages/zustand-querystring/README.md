@@ -189,7 +189,7 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. The link leaves out the rest of the current state, like a search the user typed, so it is safe to share. The exception is a `map`: a URL param that the fields you pass change is written with the current values of the other fields the `map` puts in it ([below](#links-with-a-packing-map)). A field that `select` doesn't sync on `pathname` stays out of the link, even when you pass it.
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. The link leaves out the rest of the current state, like a search the user typed, so it is safe to share, unless a custom `map` writes current values of fields you didn't pass ([below](#links-with-a-packing-map)). A field that `select` doesn't sync on `pathname` stays out of the link, even when you pass it.
 
 Navigate to the link on the client, with your router's `Link` or `router.push(href)`: the store follows the navigation while something subscribes to it, like a component that uses it (see [How State Syncs](#how-state-syncs)). Call `href` in a selector, so the link updates when the state changes:
 
@@ -259,7 +259,7 @@ useStore.href('/customers', { status: 'paid' });
 // href: /customers?q=paid-3
 ```
 
-A click sets `status` to `'paid'` and keeps `page: 3` and `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
+A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
 
 ### Reading a link
 
