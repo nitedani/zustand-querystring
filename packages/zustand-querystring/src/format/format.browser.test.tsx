@@ -2692,6 +2692,24 @@ describe('navigation', () => {
   });
 });
 
+interface CustomersState {
+  status: string;
+  page: number;
+  sort: string;
+  search: string;
+}
+
+function createCustomersStore(
+  options: QueryStringOptions<CustomersState> = {},
+) {
+  return create<CustomersState>()(
+    querystring(
+      () => ({ status: 'all', page: 1, sort: 'name', search: '' }),
+      options,
+    ),
+  );
+}
+
 describe('href', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
@@ -2710,6 +2728,81 @@ describe('href', () => {
     expect(useStore.getState().status).toBe('all');
     expect(useStore.getState().other).toBe(3);
     expect(url()).toBe('/b?other=:3');
+  });
+
+  it('carries the initial state plus the passed keys, never the rest of the current state', async () => {
+    const useStore = createCustomersStore();
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+    const nav = useStore.href('/customers');
+    const paid = useStore.href('/customers', { status: 'paid' });
+    const all = useStore.href('/customers', { status: 'all' });
+
+    window.history.pushState({}, '', all);
+    await settle();
+    unsubscribe();
+    expect(nav).toBe('/customers');
+    expect(paid).toBe('/customers?status=paid');
+    expect(all).toBe('/customers?status=all');
+    expect(useStore.getState()).toMatchObject({
+      status: 'all',
+      page: 3,
+      search: 'acme',
+    });
+
+    window.history.replaceState({}, '', paid);
+    expect(createCustomersStore().getState()).toStrictEqual({
+      status: 'paid',
+      page: 1,
+      sort: 'name',
+      search: '',
+    });
+  });
+
+  it('carries the current state that is passed', () => {
+    const useStore = createCustomersStore();
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const href = useStore.href('/customers', {
+      ...useStore.getState(),
+      status: 'paid',
+    });
+    expect(decodeURIComponent(href)).toBe(
+      '/customers?status=paid&page=:3&search=acme',
+    );
+  });
+
+  it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
+    const useStore = createCustomersStore({
+      map: {
+        to: state => ({
+          q: `${state.status}-${state.page}`,
+          sort: state.sort,
+          search: state.search,
+        }),
+        from: ({ q, ...rest }) => {
+          if (typeof q !== 'string') return rest;
+          const [status, page] = q.split('-');
+          return { ...rest, status, page: Number(page) };
+        },
+      },
+    });
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const unchanged = useStore.href('/customers', { status: 'active' });
+    const href = useStore.href('/customers', { status: 'paid' });
+
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+    expect(unchanged).toBe('/customers?q=active-3');
+    expect(href).toBe('/customers?q=paid-3');
+    expect(useStore.getState()).toMatchObject({
+      status: 'paid',
+      page: 3,
+      search: 'acme',
+    });
   });
 
   it('clears an object filter whose initial value is empty', async () => {
