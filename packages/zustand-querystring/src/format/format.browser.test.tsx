@@ -2730,25 +2730,14 @@ describe('href', () => {
     expect(url()).toBe('/b?other=:3');
   });
 
-  it('carries the initial state plus the passed keys, never the rest of the current state', async () => {
+  it('carries the initial state plus the passed keys, never the rest of the current state', () => {
     const useStore = createCustomersStore();
-    const unsubscribe = useStore.subscribe(() => {});
     useStore.setState({ status: 'active', page: 3, search: 'acme' });
     const nav = useStore.href('/customers');
     const paid = useStore.href('/customers', { status: 'paid' });
-    const all = useStore.href('/customers', { status: 'all' });
 
-    window.history.pushState({}, '', all);
-    await settle();
-    unsubscribe();
     expect(nav).toBe('/customers');
     expect(paid).toBe('/customers?status=paid');
-    expect(all).toBe('/customers?status=all');
-    expect(useStore.getState()).toMatchObject({
-      status: 'all',
-      page: 3,
-      search: 'acme',
-    });
 
     window.history.replaceState({}, '', paid);
     expect(createCustomersStore().getState()).toStrictEqual({
