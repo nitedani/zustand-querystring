@@ -187,18 +187,22 @@ const pickFields = (source: object, changes: object[]) => {
 };
 
 // The fields of next a store reading prev would change: a different value or a key prev lacks, down to the fields of a plain object.
-const changedUrlFields = (next: object, prev: object) => {
+const changedUrlFields = (
+  next: object,
+  prev: object,
+  isSame: (a: unknown, b: unknown) => boolean = isEqual,
+) => {
   const changed = {};
   for (const [key, value] of Object.entries(next)) {
     const has = Object.prototype.hasOwnProperty.call(prev, key);
-    if (has && isEqual(value, prev[key])) continue;
+    if (has && isSame(value, prev[key])) continue;
     if (
       has &&
       isPlainObject(value) &&
       isPlainObject(prev[key]) &&
       !isEmpty(value)
     ) {
-      const fields = changedUrlFields(value, prev[key]);
+      const fields = changedUrlFields(value, prev[key], isSame);
       if (!isEmpty(fields)) setOwn(changed, key, fields);
     } else {
       setOwn(changed, key, value);
@@ -343,6 +347,12 @@ const rewriteSearch = (
 
   return result.length ? '?' + result.join('&') : '';
 };
+
+// An object other than a plain one, like a class instance, an array or a Date, or a plain object holding one at any depth.
+const holdsObject = (value: unknown): boolean =>
+  isPlainObject(value)
+    ? Object.values(value as object).some(holdsObject)
+    : isObjectLike(value);
 
 // A class instance with the same prototype and fields; its private fields stay with the instance.
 const copyOf = (instance: object) =>
@@ -656,9 +666,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const state = (get() ?? {}) as object;
     const fresh = freshState ?? state;
     const initial = urlDefaults(pathname);
-    // A state as a store reads it back from the URL written for all of it, so values the format writes alike are alike.
-    const read = base => {
-      const urlState = urlStateOf(base, pathname);
+    // A URL state after the sync policy, with each field that holds an object as a store reads it back, so objects the format writes alike are alike.
+    const read = (urlState: object) => {
       const { output } = compact(
         urlState,
         {},
@@ -666,17 +675,44 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         defaultedOptions.syncUndefined,
         Object.keys(urlState),
       );
-      return getStateFromUrl(urlOf(output), initial) ?? {};
+      const objects = pickBy(output, holdsObject);
+      if (isEmpty(objects)) return output;
+      const readBack = getStateFromUrl(urlOf(objects), initial) ?? {};
+      const result = {};
+      for (const [key, value] of Object.entries(output)) {
+        if (!Object.prototype.hasOwnProperty.call(objects, key)) {
+          setOwn(result, key, value);
+        } else if (Object.prototype.hasOwnProperty.call(readBack, key)) {
+          setOwn(result, key, readBack[key]);
+        }
+      }
+      return result;
     };
     // The state with the passed keys applied as a navigation or the store's creation applies them, to copies of class instances.
     const applied = (base, { navigation = false } = {}) =>
-      read(applyState(base, partial, pathname, { navigation, copy: true }));
+      urlStateOf(
+        applyState(base, partial, pathname, { navigation, copy: true }),
+        pathname,
+      );
+    // Compared by what the format writes; a value prev holds itself writes the same, so only the others are read back.
+    const changes = (next: object, prev: object) => {
+      const different = changedUrlFields(next, prev, (a, b) => a === b);
+      return changedUrlFields(
+        read(different),
+        read(pickFields(prev, [different])),
+      );
+    };
     // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
     // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
-    const output = pickFields(applied(state), [
-      changedUrlFields(applied(fresh), read(fresh)),
-      changedUrlFields(applied(state, { navigation: true }), read(state)),
-    ]);
+    const changed = [
+      changes(applied(fresh), urlStateOf(fresh, pathname)),
+      changes(
+        applied(state, { navigation: true }),
+        urlStateOf(state, pathname),
+      ),
+    ];
+    const source = pickFields(applied(state), changed);
+    const output = pickFields(read(source), changed);
     return pathname + urlOf(output).search;
   };
 
