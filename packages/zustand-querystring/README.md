@@ -189,7 +189,7 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. The link leaves out the rest of the current state, like a search the user typed, so it is safe to share, unless a custom `map` writes current values of fields you didn't pass ([below](#links-with-a-packing-map)). A field that `select` doesn't sync on `pathname` stays out of the link, even when you pass it.
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still write them ([below](#links-with-a-packing-map)). A field that `select` doesn't sync on `pathname` stays out of the link, even when you pass it.
 
 Navigate to the link on the client, with your router's `Link` or `router.push(href)`: the store follows the navigation while something subscribes to it, like a component that uses it (see [How State Syncs](#how-state-syncs)). Call `href` in a selector, so the link updates when the state changes:
 
