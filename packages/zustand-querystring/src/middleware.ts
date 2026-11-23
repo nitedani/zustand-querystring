@@ -344,13 +344,42 @@ const rewriteSearch = (
   return result.length ? '?' + result.join('&') : '';
 };
 
+// A class instance with the same prototype and fields; its private fields stay with the instance.
+const copyOf = (instance: object) =>
+  Object.assign(Object.create(Object.getPrototypeOf(instance)), instance);
+
+// The value with each object copies has a copy of replaced by that copy, in copies of the plain objects and copies that hold one.
+const withCopies = (
+  value: unknown,
+  copies: Map<object, object>,
+  seen = new Map<object, object>(),
+) => {
+  if (!isObjectLike(value)) return value;
+  if (seen.has(value as object)) return seen.get(value as object);
+  const copy =
+    copies.get(value as object) ??
+    (isPlainObject(value) ? { ...(value as object) } : undefined);
+  if (!copy) return value;
+  seen.set(value as object, copy);
+  for (const [key, field] of Object.entries(copy)) {
+    setOwn(copy, key, withCopies(field, copies, seen));
+  }
+  return copy;
+};
+
 // URL state replaces what it carries; a plain object merges key by key, into a class instance itself unless it is a navigation.
-// The selection is the one of the URL's pathname, or true where all of it is selected. With copy, a class instance is merged into as a copy.
+// The selection is the one of the URL's pathname, or true where all of it is selected. With copy, a class instance is merged into as a copy;
+// with before, each class instance merged into keeps a copy of itself from before there.
 const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
-  { navigation = false, copy = false, syncUndefined = false } = {},
+  {
+    navigation = false,
+    copy = false,
+    before = undefined as Map<object, object> | undefined,
+    syncUndefined = false,
+  } = {},
 ) => {
   // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
   const merges = new Map<object, object>();
@@ -361,10 +390,13 @@ const mergeUrlState = (
     selection: Record<string, any> | true,
     keys: string[],
   ) => {
+    if (!isPlainObject(state) && !copy && before && !before.has(state)) {
+      before.set(state, copyOf(state));
+    }
     const merged: Record<string, any> = isPlainObject(state)
       ? { ...state }
       : copy
-        ? Object.assign(Object.create(Object.getPrototypeOf(state)), state)
+        ? copyOf(state)
         : state;
     merges.set(urlState, merged);
     for (const key of keys) {
@@ -516,7 +548,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     state,
     storeState,
     pathname: string,
-    { navigation = false, copy = false } = {},
+    {
+      navigation = false,
+      copy = false,
+      before = undefined as Map<object, object> | undefined,
+    } = {},
   ) =>
     mergeUrlState(
       state,
@@ -524,10 +560,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       defaultedOptions.select
         ? (defaultedOptions.select(pathname) as object)
         : true,
-      { navigation, copy, syncUndefined: defaultedOptions.syncUndefined },
+      {
+        navigation,
+        copy,
+        before,
+        syncUndefined: defaultedOptions.syncUndefined,
+      },
     );
 
-  const initialize = (url: URL, state, navigation = false) => {
+  const initialize = (
+    url: URL,
+    state,
+    options: Parameters<typeof applyState>[3] = {},
+  ) => {
     try {
       const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
       if (!stateFromUrl) {
@@ -537,7 +582,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const storeState = map
         ? map.from(stateFromUrl, url.pathname)
         : stateFromUrl;
-      return applyState(state, storeState, url.pathname, { navigation });
+      return applyState(state, storeState, url.pathname, options);
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
@@ -592,6 +637,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const url = new URL('http://localhost');
     url.search = rewriteSearch('', new Set(), toParams(compacted));
     return url;
+  };
+
+  // Creation merges the URL into a class instance itself, so the initial and fresh state keep copies of it from before.
+  const initializeCreated = (url: URL, state) => {
+    const before = new Map<object, object>();
+    const initialized = initialize(url, state, { before });
+    if (before.size > 0) {
+      freshState = withCopies(freshState, before) as typeof freshState;
+      initialState = withCopies(initialState, before) as typeof initialState;
+    }
+    return initialized;
   };
 
   // @ts-ignore - typed via StoreMutators augmentation
@@ -660,7 +716,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      const next = initialize(new URL(location.href), current, true);
+      const next = initialize(new URL(location.href), current, {
+        navigation: true,
+      });
       // Only changed keys, so the others keep their references.
       const changed = pickBy(next, (value, key) =>
         Object.prototype.hasOwnProperty.call(current, key)
@@ -732,7 +790,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
     }
     api.setState = withUrl(api.setState);
-    const initialized = initialize(new URL(window.location.href), state);
+    const initialized = initializeCreated(new URL(window.location.href), state);
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     previouslyManagedKeys = ownedKeys(
@@ -741,7 +799,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
-    const initialized = initialize(
+    const initialized = initializeCreated(
       new URL(defaultedOptions.url, 'http://localhost'),
       createState(set),
     );

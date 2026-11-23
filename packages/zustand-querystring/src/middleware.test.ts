@@ -812,6 +812,28 @@ describe('href', () => {
     expect(store.getState().filter.rating).toBe(4);
   });
 
+  it('writes a class instance field the URL set at creation, when it is passed', () => {
+    class Filter {
+      rating = 0;
+    }
+    const create = (url: string) =>
+      createStore<{ filter: Filter }>()(
+        querystring(() => ({ filter: new Filter() }), {
+          url,
+          select: () => ({ filter: { rating: true } }),
+        }),
+      );
+    const store = create('/results?filter=.rating:4');
+    const four = Object.assign(new Filter(), { rating: 4 });
+
+    const spread = store.href('/results', { ...store.getState() });
+    expect(decodeURIComponent(spread)).toBe('/results?filter=.rating:4');
+    expect(decodeURIComponent(store.href('/results', { filter: four }))).toBe(
+      '/results?filter=.rating:4',
+    );
+    expect(create(spread).getState().filter.rating).toBe(4);
+  });
+
   it('with a map, leaves out a value the format writes alike from two classes', () => {
     class ActiveSearch {
       constructor(public value: string) {}

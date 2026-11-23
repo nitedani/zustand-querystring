@@ -2609,6 +2609,26 @@ describe('navigation', () => {
     expect(url()).toBe('/?count=:2');
   });
 
+  it('keeps the value it read into a class instance at creation in the URL', async () => {
+    class Filter {
+      rating = 0;
+    }
+    window.history.replaceState({}, '', '/results?filter=.rating:4');
+    const useStore = create<{ filter: Filter; page: number }>()(
+      querystring(() => ({ filter: new Filter(), page: 1 }), {
+        select: () => ({ filter: { rating: true }, page: true }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    expect(url()).toBe('/results?filter=.rating:4');
+
+    useStore.setState({ page: 2 });
+    unsubscribe();
+    expect(useStore.getState().filter.rating).toBe(4);
+    expect(url()).toBe('/results?filter=.rating:4&page=:2');
+  });
+
   it("ignores params that aren't keys of the store", async () => {
     const useStore = createNavStore();
     await subscribe(useStore);
