@@ -170,6 +170,8 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 2. **On state change**: State → URL (via `replaceState`)
 3. **On navigation** (a link, `router.push`, Back/Forward), while something subscribes to the store, like a component that uses it: URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
 
+A navigation sets a field the state doesn't have yet, like an optional `search` the initializer leaves out, only when `select` lists it, or when the store keeps its params under a `key` or a `prefix`. Without them, a store following the navigation reads only the fields its state has, so `/customers?search=acme` leaves a store without `search` as it is. A store created on that URL, as in a new tab, reads `search` from it too.
+
 When the store writes the current URL, only values **different from initial state** are written:
 
 ```ts
@@ -189,9 +191,9 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still write them ([below](#links-with-a-packing-map)). A field that `select` doesn't sync on `pathname` stays out of the link, even when you pass it.
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still write them ([below](#links-with-a-packing-map)).
 
-Navigate to the link on the client, with your router's `Link` or `router.push(href)`: the store follows the navigation while something subscribes to it, like a component that uses it (see [How State Syncs](#how-state-syncs)). Call `href` in a selector, so the link updates when the state changes:
+Navigate to the link on the client, with your router's `Link` or `router.push(href)`: the store follows the navigation while something subscribes to it, like a component that uses it (see [How State Syncs](#how-state-syncs)). Call `href` in a selector, so the link updates when the state changes. To carry the current view, spread the current state into `state` and override the fields that change:
 
 ```tsx
 const useStore = create<{ status: string; page: number; search: string }>()(
@@ -199,39 +201,22 @@ const useStore = create<{ status: string; page: number; search: string }>()(
 );
 
 // Current: { status: 'active', page: 3, search: 'acme' }
-const href = useStore(() => useStore.href('/customers', { status: 'paid' }));
-// href: /customers?status=paid
+const next = useStore(s => useStore.href('/customers', { ...s, page: 2 }));
+// next: /customers?status=active&page=:2&search=acme
 
-<Link href={href}>Paid customers</Link>;
+<Link href={next}>Next page</Link>;
+```
+
+A link without the spread carries only what you pass:
+
+```tsx
+const paid = useStore(() => useStore.href('/customers', { status: 'paid' }));
+// paid: /customers?status=paid
 ```
 
 A click sets `status` to `'paid'` and keeps `page: 3` and `search: 'acme'`. A new tab opens `/customers?status=paid` with `status: 'paid'`, `page: 1` and an empty search. To clear a filter on a click, pass its initial value: `useStore.href('/customers', { status: 'all' })` gives `/customers?status=all`.
 
-To carry the current view, spread the current state into `state` and override the fields that change:
-
-```tsx
-const href = useStore(s =>
-  useStore.href('/customers', { ...s, status: 'paid' }),
-);
-// href: /customers?status=paid&page=:3&search=acme
-```
-
-When `select` syncs `search` only on `/search`, a link to `/customers` leaves out the search you pass:
-
-```ts
-const useStore = create<{ status: string; page: number; search: string }>()(
-  querystring(() => ({ status: 'all', page: 1, search: '' }), {
-    select: pathname => ({
-      status: true,
-      page: true,
-      search: pathname === '/search',
-    }),
-  }),
-);
-
-useStore.href('/customers', { status: 'paid', search: 'acme' });
-// href: /customers?status=paid
-```
+`href` uses [`select`](#select) for the target pathname. If `search` is enabled only on `/search`, a link to `/customers` leaves it out.
 
 ### Links with a packing map
 
@@ -264,8 +249,6 @@ A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A
 ### Reading a link
 
 Anyone can edit a link before they share it, and the store reads its values without checking their types: a new tab on `/customers?page=abc` sets `page` to the string `'abc'`. Check a field like `page` before your app uses it as a number. `href` writes `pathname` as given, so build it from your own routes, never from user input: `useStore.href('//example.com')` returns `//example.com`, a link to another site.
-
-On a click, a link sets a field the state doesn't have yet, like an optional `search` the initializer leaves out, only when `select` lists it, or when the store keeps its params under a `key` or a `prefix`. Without them, a store following the navigation reads only the fields its state has, so `/customers?search=acme` leaves a store without `search` as it is. A store created on that URL, as in a new tab, reads `search` from it too.
 
 ---
 
