@@ -1070,23 +1070,19 @@ describe('Edge Cases and Regression Tests', () => {
         return null;
       }
 
-      const screen = await render(
-        <StrictMode>
-          <Provider />
-        </StrictMode>,
-      );
       try {
+        await render(
+          <StrictMode>
+            <Provider />
+          </StrictMode>,
+        );
         store.setState({ step: 5 });
         window.history.pushState({}, '', '/b');
-        // The URL is rewritten 100ms after a pathname change.
-        await new Promise(r => setTimeout(r, 200));
+        await settle();
 
         expect(unsubscribes).toHaveLength(2);
-        expect(
-          window.location.pathname + decodeURIComponent(window.location.search),
-        ).toBe('/b?step=:5');
+        expect(url()).toBe('/b?step=:5');
       } finally {
-        screen.unmount();
         unsubscribes.forEach(unsubscribe => unsubscribe());
       }
     });
