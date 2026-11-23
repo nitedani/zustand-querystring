@@ -2772,6 +2772,30 @@ describe('href', () => {
     );
   });
 
+  it('with a map that returns new class instances, leaves out the values a link does not change', () => {
+    class SearchParam {
+      constructor(public value: string) {}
+    }
+    const useStore = createCustomersStore({
+      map: {
+        to: state => ({
+          search: new SearchParam(state.search),
+          page: state.page,
+        }),
+        from: ({ search, page }) => ({
+          search: (search as SearchParam | undefined)?.value,
+          page: page as number | undefined,
+        }),
+      },
+    });
+    useStore.setState({ search: 'acme', page: 3 });
+
+    expect(useStore.href('/customers')).toBe('/customers');
+    expect(decodeURIComponent(useStore.href('/customers', { page: 2 }))).toBe(
+      '/customers?page=:2',
+    );
+  });
+
   it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
     const useStore = createCustomersStore({
       map: {

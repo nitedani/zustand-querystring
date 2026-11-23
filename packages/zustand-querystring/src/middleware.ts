@@ -545,7 +545,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const forced = Object.keys(clicked).filter(
       key =>
         !Object.prototype.hasOwnProperty.call(live, key) ||
-        !isSameState(clicked[key], live[key]),
+        !isEqual(clicked[key], live[key]),
     );
     // A key the link writes holds its value after a click, so a map packing fields into one param keeps those not passed.
     const linkState = mapValues(
