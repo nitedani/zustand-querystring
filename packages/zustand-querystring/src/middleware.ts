@@ -39,8 +39,8 @@ type WithQueryString<S, T> = Write<
   {
     setDefaults: (partial: Partial<T>) => void;
     /**
-     * A URL for `pathname` with the initial state plus `state`, as far as `select` syncs it there; it never carries the rest of the current state.
-     * A click sets just the passed fields. To carry the current view, pass it: `href(pathname, { ...state, page: 2 })`.
+     * A URL for `pathname` with the initial state plus the fields of `state` that `select` syncs there. It leaves out the rest of the current state, except a field a `map` packs into the same param as a passed field.
+     * A click sets just the passed fields. To carry the current view, spread the current state: `href(pathname, { ...state, page: 2 })`.
      */
     href: (pathname: string, state?: Partial<T>) => string;
   }
