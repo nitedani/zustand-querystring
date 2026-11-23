@@ -324,12 +324,12 @@ const rewriteSearch = (
 };
 
 // URL state replaces what it carries; a plain object merges key by key, into a class instance itself unless it is a navigation.
-// The selection is the one of the URL's pathname, or true where all of it is selected.
+// The selection is the one of the URL's pathname, or true where all of it is selected. With copy, a class instance is merged into as a copy.
 const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
-  { navigation = false, syncUndefined = false } = {},
+  { navigation = false, copy = false, syncUndefined = false } = {},
 ) => {
   // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
   const merges = new Map<object, object>();
@@ -342,7 +342,9 @@ const mergeUrlState = (
   ) => {
     const merged: Record<string, any> = isPlainObject(state)
       ? { ...state }
-      : state;
+      : copy
+        ? Object.assign(Object.create(Object.getPrototypeOf(state)), state)
+        : state;
     merges.set(urlState, merged);
     for (const key of keys) {
       // A __proto__ key would set the prototype of the copy zustand's setState makes.
@@ -493,7 +495,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     state,
     storeState,
     pathname: string,
-    navigation: boolean,
+    { navigation = false, copy = false } = {},
   ) =>
     mergeUrlState(
       state,
@@ -501,7 +503,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       defaultedOptions.select
         ? (defaultedOptions.select(pathname) as object)
         : true,
-      { navigation, syncUndefined: defaultedOptions.syncUndefined },
+      { navigation, copy, syncUndefined: defaultedOptions.syncUndefined },
     );
 
   const initialize = (url: URL, state, navigation = false) => {
@@ -514,7 +516,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const storeState = map
         ? map.from(stateFromUrl, url.pathname)
         : stateFromUrl;
-      return applyState(state, storeState, url.pathname, navigation);
+      return applyState(state, storeState, url.pathname, { navigation });
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
@@ -578,20 +580,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // A click applies the passed keys to the live state, a new tab to a fresh one; neither changes a class instance in place.
     const state = get() as object;
-    const clicked = urlStateOf(
-      applyState(state, partial, pathname, true),
-      pathname,
-    );
-    const opened = urlStateOf(
-      applyState(freshState, partial, pathname, true),
-      pathname,
-    );
-    // What a click or a new tab changes, written with the click's values: a map packing fields into one param keeps those not passed.
-    const output = pickFields(clicked, [
-      changedUrlFields(opened, urlStateOf(freshState, pathname)),
-      changedUrlFields(clicked, urlStateOf(state, pathname)),
+    // The state with the passed keys applied as a navigation or the store's creation applies them, to copies of class instances.
+    const applied = (base, navigation: boolean) =>
+      urlStateOf(
+        applyState(base, partial, pathname, { navigation, copy: true }),
+        pathname,
+      );
+    // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
+    // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
+    const output = pickFields(applied(state, false), [
+      changedUrlFields(
+        applied(freshState, false),
+        urlStateOf(freshState, pathname),
+      ),
+      changedUrlFields(applied(state, true), urlStateOf(state, pathname)),
     ]);
     // Encoded like the store's own write, so a # in a value stays in the query.
     const query = new URL('http://localhost');

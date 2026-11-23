@@ -765,6 +765,53 @@ describe('href', () => {
     );
   });
 
+  it('leaves a class instance state as it is, and writes the passed field', () => {
+    class Filters {
+      constructor(public status: string) {}
+    }
+    const store = createStore<Filters>()(
+      querystring(() => new Filters('all'), { url: '/list' }),
+    );
+
+    expect(store.href('/list', { status: 'paid' })).toBe('/list?status=paid');
+    expect(store.getState().status).toBe('all');
+  });
+
+  it('writes a plain object passed for a class instance field, which a new store merges into its instance', () => {
+    class Filters {
+      constructor(public status: string) {}
+    }
+    const create = (url: string) =>
+      createStore<{ filters: Filters }>()(
+        querystring(() => ({ filters: new Filters('all') }), { url }),
+      );
+
+    const href = create('/list').href('/list', { filters: { status: 'paid' } });
+    expect(decodeURIComponent(href)).toBe('/list?filters=.status=paid');
+    const opened = create(href).getState().filters;
+    expect(opened).toBeInstanceOf(Filters);
+    expect(opened.status).toBe('paid');
+  });
+
+  it('writes a field passed for a class instance the URL set at creation, and leaves the instance as it is', () => {
+    class Filter {
+      rating = 0;
+    }
+    const create = (url: string) =>
+      createStore<{ filter: Filter }>()(
+        querystring(() => ({ filter: new Filter() }), {
+          url,
+          select: () => ({ filter: { rating: true } }),
+        }),
+      );
+    const store = create('/results?filter=.rating:4');
+
+    const href = store.href('/results', { filter: { rating: 2 } });
+    expect(decodeURIComponent(href)).toBe('/results?filter=.rating:2');
+    expect(create(href).getState().filter.rating).toBe(2);
+    expect(store.getState().filter.rating).toBe(4);
+  });
+
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
