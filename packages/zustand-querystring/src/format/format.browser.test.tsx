@@ -2916,6 +2916,38 @@ describe('href', () => {
     expect(url()).toBe('/?page=:2');
   });
 
+  it('with a map packing fields into an object param, writes the whole param, so a reader needing all of it follows the link', async () => {
+    const options: QueryStringOptions<CustomersState> = {
+      map: {
+        to: ({ status, page }) => ({ q: { status, page } }),
+        // Reads q only when it holds both fields.
+        from: ({ q }) => {
+          const { status, page } = (q ?? {}) as Partial<CustomersState>;
+          return status === undefined || page === undefined
+            ? {}
+            : { status, page };
+        },
+      },
+    };
+    const useStore = createCustomersStore(options);
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const href = useStore.href('/customers', { status: 'paid' });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/customers?q=.status=paid,page:3');
+    expect(useStore.getState()).toMatchObject({ status: 'paid', page: 3 });
+    window.history.replaceState({}, '', href);
+    expect(createCustomersStore(options).getState()).toMatchObject({
+      status: 'paid',
+      page: 3,
+      search: '',
+    });
+  });
+
   it('clears an object filter whose initial value is empty', async () => {
     const useStore = create<{ filters: { query?: string } }>()(
       querystring(() => ({ filters: {} })),

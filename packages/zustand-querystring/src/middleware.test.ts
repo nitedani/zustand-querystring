@@ -933,6 +933,98 @@ describe('href', () => {
     expect(create(href).getState().search).toBe('acme');
   });
 
+  // A format whose text for a date needs the mode next to it.
+  const needsMode = (state: object) => {
+    if ('date' in state && !('mode' in state)) throw Error('date needs mode');
+    return state;
+  };
+  it.each([
+    [
+      'writer',
+      {
+        ...marked,
+        stringify: (state: object) => marked.stringify(needsMode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(needsMode(state)),
+      },
+    ],
+    [
+      'reader',
+      {
+        ...marked,
+        parse: (value: string, ctx?: ParseContext) =>
+          needsMode(marked.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => needsMode(marked.parseStandalone(params, ctx)),
+      },
+    ],
+  ])(
+    'writes the passed fields to a format whose %s needs them together',
+    (_, format) => {
+      for (const [key, link] of [
+        [false, '/list?mode=calendar&date=D1769904000000'],
+        ['view', '/list?view=mode=calendar,date=D1769904000000'],
+      ] as const) {
+        const create = (url?: string) =>
+          createStore<{ mode: string; date: Date }>()(
+            querystring(
+              () => ({ mode: 'compact', date: new Date('2026-01-01') }),
+              { url, key, format },
+            ),
+          );
+
+        const href = create().href('/list', {
+          mode: 'calendar',
+          date: new Date('2026-02-01'),
+        });
+        expect(href).toBe(link);
+        expect(create(href).getState()).toStrictEqual({
+          mode: 'calendar',
+          date: new Date('2026-02-01'),
+        });
+      }
+    },
+  );
+
+  it.each([
+    [false, '/list?date=2026-02-01T00:00:00.000Z'],
+    ['view', '/list?view=date=2026-02-01T00:00:00.000Z'],
+  ] as const)(
+    'with key %s, writes the values the map returns to a format that encodes them',
+    (key, link) => {
+      // Writes a date as its ISO text, which map.from turns back into a date.
+      const encode = (state: { date?: Date }) =>
+        state.date ? { date: state.date.toISOString() } : state;
+      const format = {
+        ...marked,
+        stringify: (state: object) => marked.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(encode(state)),
+      };
+      const create = (url?: string) =>
+        createStore<{ date: Date }>()(
+          querystring(() => ({ date: new Date('2026-01-01') }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ date }) => ({ date }),
+              from: ({ date }) =>
+                date === undefined ? {} : { date: new Date(date as string) },
+            },
+          }),
+        );
+
+      const href = create().href('/list', { date: new Date('2026-02-01') });
+      expect(href).toBe(link);
+      expect(create(href).getState().date).toStrictEqual(
+        new Date('2026-02-01'),
+      );
+    },
+  );
+
   it('writes a passed nested undefined, with syncUndefined', () => {
     const create = (url: string) =>
       createStore<{ filters: { region: string; tag?: string } }>()(

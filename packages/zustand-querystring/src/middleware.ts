@@ -166,14 +166,14 @@ export const compact = (
   return { output };
 };
 
-// The fields of source that any of changes holds, down to where one of them holds a whole value.
-const pickFields = (source: object, changes: object[]) => {
+// The fields of source that any of the masks holds, down to where one of them holds a whole value.
+const pickFields = (source: object, masks: object[]) => {
   const picked = {};
-  for (const key of Object.keys(Object.assign({}, ...changes))) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-    const fields = changes
-      .filter(c => Object.prototype.hasOwnProperty.call(c, key))
-      .map(c => c[key] as object);
+  for (const key of Object.keys(source)) {
+    const fields = masks
+      .filter(m => Object.prototype.hasOwnProperty.call(m, key))
+      .map(m => m[key] as object);
+    if (!fields.length) continue;
     setOwn(
       picked,
       key,
@@ -186,25 +186,54 @@ const pickFields = (source: object, changes: object[]) => {
   return picked;
 };
 
-// The fields of next a store reading prev would change: a different value or a key prev lacks, down to the fields of a plain object.
-const changedUrlFields = (
+// The object with the value at a path of keys, in copies of the objects on the way.
+const setAt = (object: object, [key, ...rest]: string[], value: unknown) => {
+  const copy = { ...object };
+  setOwn(
+    copy,
+    key,
+    rest.length
+      ? setAt(isPlainObject(copy[key]) ? copy[key] : {}, rest, value)
+      : value,
+  );
+  return copy;
+};
+
+// The fields of next that prev lacks or holds another value for: with deep, down to the fields of a plain object.
+// Two objects that aren't the same one are another value unless sameObject says they are alike.
+const changedFields = (
   next: object,
   prev: object,
-  isSame: (a: unknown, b: unknown) => boolean = isEqual,
+  deep: boolean,
+  sameObject: (path: string[], value: object, before: object) => boolean,
+  path: string[] = [],
 ) => {
   const changed = {};
-  for (const [key, value] of Object.entries(next)) {
-    const has = Object.prototype.hasOwnProperty.call(prev, key);
-    if (has && isSame(value, prev[key])) continue;
+  for (const key of Object.keys(next)) {
+    const value = next[key];
+    const before = prev[key];
+    const has =
+      before !== undefined || Object.prototype.hasOwnProperty.call(prev, key);
+    if (has && Object.is(value, before)) continue;
     if (
-      has &&
+      deep &&
       isPlainObject(value) &&
-      isPlainObject(prev[key]) &&
-      !isEmpty(value)
+      !isEmpty(value) &&
+      isObjectLike(before) &&
+      !Array.isArray(before)
     ) {
-      const fields = changedUrlFields(value, prev[key], isSame);
+      const fields = changedFields(value, before, deep, sameObject, [
+        ...path,
+        key,
+      ]);
       if (!isEmpty(fields)) setOwn(changed, key, fields);
-    } else {
+    } else if (
+      !(
+        isObjectLike(value) &&
+        isObjectLike(before) &&
+        sameObject([...path, key], value, before)
+      )
+    ) {
       setOwn(changed, key, value);
     }
   }
@@ -347,12 +376,6 @@ const rewriteSearch = (
 
   return result.length ? '?' + result.join('&') : '';
 };
-
-// An object other than a plain one, like a class instance, an array or a Date, or a plain object holding one at any depth.
-const holdsObject = (value: unknown): boolean =>
-  isPlainObject(value)
-    ? Object.values(value as object).some(holdsObject)
-    : isObjectLike(value);
 
 type Instances = 'merge' | 'keep' | 'read';
 
@@ -645,6 +668,20 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return url;
   };
 
+  // The fields of a URL state the sync policy writes.
+  const synced = (urlState: object): object =>
+    compact(
+      urlState,
+      {},
+      defaultedOptions.syncNull,
+      defaultedOptions.syncUndefined,
+      Object.keys(urlState),
+    ).output;
+
+  // The params a URL state writes, as one text.
+  const textOf = (urlState: object) =>
+    JSON.stringify(toParams(synced(urlState)));
+
   // Creation merges the URL into a class instance itself, so the initial and fresh state keep copies of it from before.
   const initializeCreated = (url: URL, state) => {
     const before = new Map<object, object>();
@@ -657,56 +694,48 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // @ts-ignore - typed via StoreMutators augmentation
-  api.href = (pathname: string, partial: object = {}) => {
+  api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
-    const state = (get() ?? {}) as object;
-    const fresh = freshState ?? state;
-    const initial = urlDefaults(pathname);
-    // A URL state after the sync policy, with each field that holds an object as a store reads it back, so objects the format writes alike are alike.
-    const read = (urlState: object) => {
-      const { output } = compact(
-        urlState,
-        {},
-        defaultedOptions.syncNull,
-        defaultedOptions.syncUndefined,
-        Object.keys(urlState),
-      );
-      const objects = pickBy(output, holdsObject);
-      if (isEmpty(objects)) return output;
-      const readBack = getStateFromUrl(urlOf(objects), initial) ?? {};
-      const result = {};
-      for (const [key, value] of Object.entries(output)) {
-        if (!Object.prototype.hasOwnProperty.call(objects, key)) {
-          setOwn(result, key, value);
-        } else if (Object.prototype.hasOwnProperty.call(readBack, key)) {
-          setOwn(result, key, readBack[key]);
-        }
-      }
-      return result;
-    };
-    // The state with the passed keys applied as a store following the link applies them; a class instance reads as its own fields, so none is written into.
-    const applied = base =>
+    const live = (get() ?? {}) as object;
+    const start = freshState ?? live;
+    // The URL state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
+    const follow = (base: object) =>
       urlStateOf(
-        applyState(base, partial, pathname, { instances: 'read' }),
+        applyState(base, passed, pathname, { instances: 'read' }),
         pathname,
       );
-    // Compared by what the format writes; a value prev holds itself writes the same, so only the others are read back.
-    const changes = (next: object, prev: object) => {
-      const different = changedUrlFields(next, prev, (a, b) => a === b);
-      return changedUrlFields(
-        read(different),
-        read(pickFields(prev, [different])),
+    // What a click and a new tab change. Without a map the store reads a plain object field by field; a map reads a URL key whole.
+    const target = follow(live);
+    const sides = [[target, urlStateOf(live, pathname)]];
+    if (start !== live)
+      sides.push([follow(start), urlStateOf(start, pathname)]);
+    const diff = () =>
+      sides.map(([next, prev]) => changedFields(next, prev, !map, sameObject));
+    // Objects are alike when equal as data. A class instance can hide its data, so the text of the link with either object in it decides.
+    let link: object | undefined;
+    let hidden = false;
+    const sameObject = (path: string[], value: object, before: object) => {
+      let instances = false;
+      const equal = isEqualWith(value, before, (a, b) => {
+        if (!isInstance(a) && !isInstance(b)) return undefined;
+        if (a !== b) instances = true;
+        return a === b;
+      });
+      if (equal || !instances) return equal;
+      hidden = true;
+      return (
+        link !== undefined &&
+        textOf(setAt(link, path, value)) === textOf(setAt(link, path, before))
       );
     };
-    // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
-    const followed = applied(state);
-    const changed = [
-      changes(applied(fresh), urlStateOf(fresh, pathname)),
-      changes(followed, urlStateOf(state, pathname)),
-    ];
-    const source = pickFields(followed, changed);
-    const output = pickFields(read(source), changed);
-    return pathname + urlOf(output).search;
+    let changed = diff();
+    // The first diff counts such a pair as changed, so the link it gives holds every field the text can need.
+    if (hidden) {
+      link = pickFields(target, changed);
+      changed = diff();
+    }
+    // Written with the click's values: a map packing fields into one param keeps those not passed.
+    return pathname + urlOf(synced(pickFields(target, changed))).search;
   };
 
   if (typeof window !== 'undefined') {
