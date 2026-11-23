@@ -2796,6 +2796,33 @@ describe('href', () => {
     );
   });
 
+  it('with a map whose param name depends on a field, a click applies the passed value', async () => {
+    const useStore = create<{ mode: string; page: number }>()(
+      querystring(() => ({ mode: 'simple', page: 1 }), {
+        map: {
+          to: state =>
+            state.mode === 'simple'
+              ? { simplePage: state.page }
+              : { advancedPage: state.page },
+          from: urlState =>
+            'advancedPage' in urlState
+              ? { mode: 'advanced', page: urlState.advancedPage as number }
+              : { mode: 'simple', page: urlState.simplePage as number },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ mode: 'advanced', page: 3 });
+
+    const href = useStore.href('/list', { page: 2 });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?advancedPage=:2');
+    expect(useStore.getState()).toMatchObject({ mode: 'advanced', page: 2 });
+  });
+
   it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
     const useStore = createCustomersStore({
       map: {

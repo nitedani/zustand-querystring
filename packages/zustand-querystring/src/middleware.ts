@@ -9,7 +9,6 @@ import {
   isRegExp,
   isSet,
   isTypedArray,
-  mapValues,
   mergeWith,
   pickBy,
 } from 'lodash-es';
@@ -165,6 +164,26 @@ export const compact = (
   });
 
   return { output };
+};
+
+// The fields of state that any of written holds, down to where one of them holds a whole value.
+const pickFields = (state: object, written: object[]) => {
+  const picked = {};
+  for (const key of Object.keys(Object.assign({}, ...written))) {
+    if (!Object.prototype.hasOwnProperty.call(state, key)) continue;
+    const fields = written
+      .filter(w => Object.prototype.hasOwnProperty.call(w, key))
+      .map(w => w[key] as object);
+    setOwn(
+      picked,
+      key,
+      isPlainObject(state[key]) &&
+        fields.every(f => isPlainObject(f) && !isEmpty(f))
+        ? pickFields(state[key], fields)
+        : state[key],
+    );
+  }
+  return picked;
 };
 
 // A partial state leaves out an object none of whose fields are selected, unless it is empty.
@@ -535,33 +554,27 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // The link holds the initial state with the passed keys applied, never other current state.
+    // A click applies the passed keys to the live state, a new tab to the initial state.
     const passed = getSelectedState(partial, pathname, 'partial');
     const state = get() as object;
-    const live = urlStateOf(state, pathname);
     const clicked = urlStateOf({ ...state, ...passed }, pathname);
-    const defaults = urlDefaults(pathname);
-    // A key a click changes is written even at its initial value, so a link can clear a filter.
-    const forced = Object.keys(clicked).filter(
-      key =>
-        !Object.prototype.hasOwnProperty.call(live, key) ||
-        !isEqual(clicked[key], live[key]),
-    );
-    // A key the link writes holds its value after a click, so a map packing fields into one param keeps those not passed.
-    const linkState = mapValues(
-      urlStateOf({ ...initialState, ...passed }, pathname),
-      (value, key) =>
-        forced.includes(key) || !isEqual(value, defaults[key])
-          ? clicked[key]
-          : value,
-    );
-    const { output } = compact(
-      linkState,
-      defaults,
-      defaultedOptions.syncNull,
-      defaultedOptions.syncUndefined,
-      forced,
-    );
+    const opened = urlStateOf({ ...initialState, ...passed }, pathname);
+    // The fields of next that differ from prev, a key prev lacks included.
+    const changed = (next: object, prev: object) =>
+      compact(
+        next,
+        prev,
+        defaultedOptions.syncNull,
+        defaultedOptions.syncUndefined,
+        Object.keys(next).filter(
+          key => !Object.prototype.hasOwnProperty.call(prev, key),
+        ),
+      ).output;
+    // What a click or a new tab changes, written with the click's values: a map packing fields into one param keeps those not passed.
+    const output = pickFields(clicked, [
+      changed(opened, urlDefaults(pathname)),
+      changed(clicked, urlStateOf(state, pathname)),
+    ]);
     // Encoded like the store's own write, so a # in a value stays in the query.
     const query = new URL('http://localhost');
     query.search = rewriteSearch('', new Set(), toParams(output));
