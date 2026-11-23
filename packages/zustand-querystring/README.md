@@ -189,22 +189,34 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. Pass a field's initial value to restore it, like clearing a filter. Call it in a selector, so the link updates when the state changes:
+`useStore.href(pathname, state)` returns a URL for `pathname` that carries the initial state with `state` applied, never the rest of the current state, so a link is safe to share. It writes the fields `select` syncs on that page. Call it in a selector, so the link updates when the state changes:
 
 ```tsx
-const useStore = create<{ status: string; search?: string }>()(
-  querystring(() => ({ status: 'all' }), {
-    // search starts out missing from the state, so select includes it for a link to set it
-    select: () => ({ status: true, search: true }),
-  }),
+const useStore = create<{ status: string; page: number; search: string }>()(
+  querystring(() => ({ status: 'all', page: 1, search: '' })),
 );
 
-// Current: { status: 'active', search: 'acme' }
-const href = useStore(() => useStore.href('/customers', { status: 'all' }));
-// href: /customers?status=all&search=acme
+// Current: { status: 'active', page: 3, search: 'acme' }
+const href = useStore(() => useStore.href('/customers', { status: 'paid' }));
+// href: /customers?status=paid
 
-<Link href={href}>All customers</Link>;
+<Link href={href}>Paid customers</Link>;
 ```
+
+A click sets the passed fields and the store keeps the rest, here page 3 and the search. A new tab opens with the initial state plus the passed fields. Pass a field's initial value to restore it on a click, like clearing a filter: `useStore.href('/customers', { status: 'all' })` gives `/customers?status=all`.
+
+To carry the current view, pass it:
+
+```tsx
+const href = useStore(s =>
+  useStore.href('/customers', { ...s, status: 'paid' }),
+);
+// href: /customers?status=paid&page=:3&search=acme
+```
+
+With a `map` that packs several fields into one param, a link writes that whole param, with the current values of the fields it doesn't pass.
+
+A link is input from whoever shares it: the store reads its values without checking their types, so validate what your app relies on. The pathname is used as written, so don't build it from user input.
 
 A navigation sets a top-level field the store's state doesn't have yet only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
 
