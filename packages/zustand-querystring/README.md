@@ -265,7 +265,7 @@ A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A
 
 Anyone can edit a link before they share it, and the store reads its values without checking their types: a new tab on `/customers?page=abc` sets `page` to the string `'abc'`. Check a field like `page` before your app uses it as a number. `href` writes `pathname` as given, so build it from your own routes, never from user input: `useStore.href('//example.com')` returns `//example.com`, a link to another site.
 
-A link sets a field the state doesn't have yet, like an optional `search` the initializer leaves out, only when `select` lists it, or when the store keeps its params under a `key` or a `prefix`. Without them, the store reads only the fields its state has, so `/customers?search=acme` leaves a store without `search` as it is.
+On a click, a link sets a field the state doesn't have yet, like an optional `search` the initializer leaves out, only when `select` lists it, or when the store keeps its params under a `key` or a `prefix`. Without them, a store following the navigation reads only the fields its state has, so `/customers?search=acme` leaves a store without `search` as it is. A store created on that URL, as in a new tab, reads `search` from it too.
 
 ---
 
