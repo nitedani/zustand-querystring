@@ -873,6 +873,27 @@ describe('href', () => {
     expect(create(spread).getState().filter.rating).toBe(4);
   });
 
+  it('links from a class instance with a private field that the URL set at creation', () => {
+    class Filter {
+      #label = 'Rating';
+      rating = 0;
+      get label() {
+        return this.#label;
+      }
+    }
+    const store = createStore<{ rating: number; label: string }>()(
+      querystring(() => new Filter(), {
+        url: '/list?rating=:4',
+        select: () => ({ rating: true, label: true }),
+      }),
+    );
+
+    expect(store.getState().rating).toBe(4);
+    expect(decodeURIComponent(store.href('/list', { rating: 2 }))).toBe(
+      '/list?rating=:2',
+    );
+  });
+
   it('with a map, leaves out a value the format writes alike from two classes', () => {
     class ActiveSearch {
       constructor(public value: string) {}

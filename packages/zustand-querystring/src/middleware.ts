@@ -379,39 +379,16 @@ const rewriteSearch = (
 
 type Instances = 'merge' | 'keep' | 'read';
 
-// A class instance with the same prototype and fields; its private fields stay with the instance.
-const copyOf = (instance: object) =>
-  Object.assign(Object.create(Object.getPrototypeOf(instance)), instance);
-
-// The value with each object copies has a copy of replaced by that copy, in copies of the plain objects and copies that hold one.
-const withCopies = (
-  value: unknown,
-  copies: Map<object, object>,
-  seen = new Map<object, object>(),
-) => {
-  if (!isObjectLike(value)) return value;
-  if (seen.has(value as object)) return seen.get(value as object);
-  const copy =
-    copies.get(value as object) ??
-    (isPlainObject(value) ? { ...(value as object) } : undefined);
-  if (!copy) return value;
-  seen.set(value as object, copy);
-  for (const [key, field] of Object.entries(copy)) {
-    setOwn(copy, key, withCopies(field, copies, seen));
-  }
-  return copy;
-};
-
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
-// and read as a plain object of its own fields for a link ('read'). With before, each class instance merged into keeps a copy of itself from before there.
+// and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
 const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
   {
     instances = 'merge' as Instances,
-    before = undefined as Map<object, object> | undefined,
+    inPlace = undefined as Set<string> | undefined,
     syncUndefined = false,
   } = {},
 ) => {
@@ -423,12 +400,14 @@ const mergeUrlState = (
     urlState: object,
     selection: Record<string, any> | true,
     keys: string[],
+    top?: string,
   ) => {
     const copied = isPlainObject(state) || instances === 'read';
-    if (!copied && before && !before.has(state)) {
-      before.set(state, copyOf(state));
-    }
     const merged: Record<string, any> = copied ? { ...state } : state;
+    const write = (key: string, value: unknown) => {
+      if (!copied) inPlace?.add(top ?? key);
+      setOwn(merged, key, value);
+    };
     merges.set(urlState, merged);
     for (const key of keys) {
       // A __proto__ key would set the prototype of the copy zustand's setState makes.
@@ -441,7 +420,7 @@ const mergeUrlState = (
       const isEmptyObject = valueKeys?.length === 0;
       // An empty object over an object whose fields select syncs only some of clears just those.
       if (isEmptyObject && isPlainObject(current) && isPlainObject(selected)) {
-        setOwn(merged, key, clearSelected(current, selected));
+        write(key, clearSelected(current, selected));
         continue;
       }
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
@@ -451,11 +430,11 @@ const mergeUrlState = (
       )
         continue;
       if (!isPlainObject(value)) {
-        setOwn(merged, key, value);
+        write(key, value);
         continue;
       }
       if (merges.has(value)) {
-        setOwn(merged, key, merges.get(value));
+        write(key, merges.get(value));
         continue;
       }
       // A plain object merges into the object it lands on, or into a new one, so no two stores share the URL's object.
@@ -466,14 +445,14 @@ const mergeUrlState = (
           ? current
           : {};
       if (instances === 'keep' && !isPlainObject(into)) continue;
-      setOwn(
-        merged,
+      write(
         key,
         merge(
           into,
           value,
           isPlainObject(selected) ? selected : true,
           valueKeys!,
+          top ?? key,
         ),
       );
     }
@@ -581,7 +560,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     pathname: string,
     {
       instances = 'merge' as Instances,
-      before = undefined as Map<object, object> | undefined,
+      inPlace = undefined as Set<string> | undefined,
     } = {},
   ) =>
     mergeUrlState(
@@ -592,16 +571,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         : true,
       {
         instances,
-        before,
+        inPlace,
         syncUndefined: defaultedOptions.syncUndefined,
       },
     );
 
-  const initialize = (
-    url: URL,
-    state,
-    options: Parameters<typeof applyState>[3] = {},
-  ) => {
+  // The URL keys under which creation's URL was written into a class instance: their value from before is gone, so they never count as unchanged.
+  let urlSetKeys: string[] = [];
+
+  const initialize = (url: URL, state, instances: 'merge' | 'keep') => {
     try {
       const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
       if (!stateFromUrl) {
@@ -611,7 +589,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const storeState = map
         ? map.from(stateFromUrl, url.pathname)
         : stateFromUrl;
-      return applyState(state, storeState, url.pathname, options);
+      const inPlace = new Set<string>();
+      const merged = applyState(state, storeState, url.pathname, {
+        instances,
+        inPlace,
+      });
+      // With a map the URL keys behind an instance aren't known, so all the URL's keys count.
+      if (instances === 'merge' && inPlace.size > 0) {
+        urlSetKeys = map ? Object.keys(stateFromUrl) : Array.from(inPlace);
+      }
+      return merged;
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
@@ -682,17 +669,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const textOf = (urlState: object) =>
     JSON.stringify(toParams(synced(urlState)));
 
-  // Creation merges the URL into a class instance itself, so the initial and fresh state keep copies of it from before.
-  const initializeCreated = (url: URL, state) => {
-    const before = new Map<object, object>();
-    const initialized = initialize(url, state, { before });
-    if (before.size > 0) {
-      freshState = withCopies(freshState, before) as typeof freshState;
-      initialState = withCopies(initialState, before) as typeof initialState;
-    }
-    return initialized;
-  };
-
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
@@ -734,6 +710,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       link = pickFields(target, changed);
       changed = diff();
     }
+    // A key the creation URL set inside a class instance is written whenever it is passed.
+    if (!map)
+      changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
     // Written with the click's values: a map packing fields into one param keeps those not passed.
     return pathname + urlOf(synced(pickFields(target, changed))).search;
   };
@@ -774,9 +753,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      const next = initialize(new URL(location.href), current, {
-        instances: 'keep',
-      });
+      const next = initialize(new URL(location.href), current, 'keep');
       // Only changed keys, so the others keep their references.
       const changed = pickBy(next, (value, key) =>
         Object.prototype.hasOwnProperty.call(current, key)
@@ -798,6 +775,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         urlDefaults(url.pathname),
         defaultedOptions.syncNull,
         defaultedOptions.syncUndefined,
+        urlSetKeys,
       );
       const previous = url.search;
 
@@ -848,7 +826,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
     }
     api.setState = withUrl(api.setState);
-    const initialized = initializeCreated(new URL(window.location.href), state);
+    const initialized = initialize(
+      new URL(window.location.href),
+      state,
+      'merge',
+    );
     // Seed previouslyManagedKeys from the initialized (URL-merged) state so that
     // if the user's first action is clearing dynamic keys, they can still be removed.
     previouslyManagedKeys = ownedKeys(
@@ -857,9 +839,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     api.getInitialState = () => initialized;
     return initialized;
   } else if (defaultedOptions.url) {
-    const initialized = initializeCreated(
+    const initialized = initialize(
       new URL(defaultedOptions.url, 'http://localhost'),
       createState(set),
+      'merge',
     );
     api.getInitialState = () => initialized;
     return initialized;

@@ -2948,6 +2948,60 @@ describe('href', () => {
     });
   });
 
+  it('a store created on a URL that sets a field of a class instance with a private field writes and links it', () => {
+    class Filter {
+      #scale = 2;
+      rating = 0;
+      get scaled() {
+        return this.rating * this.#scale;
+      }
+      label() {
+        return `${this.rating * this.#scale} of 10`;
+      }
+    }
+    type State = { filter: { rating: number }; page: number };
+    for (const [options, written] of [
+      [
+        {
+          select: () => ({
+            filter: { rating: true, scaled: true },
+            page: true,
+          }),
+        },
+        '/list?filter=.rating:4,scaled:8&page=:2',
+      ],
+      [
+        {
+          map: {
+            to: ({ filter, page }) => ({
+              filter: {
+                rating: filter.rating,
+                label: (filter as Filter).label(),
+              },
+              page,
+            }),
+            from: ({ filter, page }) => ({
+              ...(filter ? { filter: filter as { rating: number } } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        },
+        '/list?filter=.rating:4,label=8 of 10&page=:2',
+      ],
+    ] as [QueryStringOptions<State>, string][]) {
+      window.history.replaceState({}, '', '/list?filter=.rating:4');
+      const useStore = create<State>()(
+        querystring(() => ({ filter: new Filter(), page: 1 }), options),
+      );
+
+      useStore.setState({ page: 2 });
+      expect(url()).toBe(written);
+      expect(decodeURIComponent(useStore.href('/list', { page: 3 }))).toBe(
+        '/list?page=:3',
+      );
+    }
+  });
+
   it('clears an object filter whose initial value is empty', async () => {
     const useStore = create<{ filters: { query?: string } }>()(
       querystring(() => ({ filters: {} })),
