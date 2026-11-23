@@ -382,6 +382,7 @@ type Instances = 'merge' | 'keep' | 'read';
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
 // and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
+// With delta, the result holds only the fields urlState carries, as the state would hold them.
 const mergeUrlState = (
   state: object,
   urlState: object,
@@ -389,6 +390,7 @@ const mergeUrlState = (
   {
     instances = 'merge' as Instances,
     inPlace = undefined as Set<string> | undefined,
+    delta = false,
     syncUndefined = false,
   } = {},
 ) => {
@@ -403,7 +405,11 @@ const mergeUrlState = (
     top?: string,
   ) => {
     const copied = isPlainObject(state) || instances === 'read';
-    const merged: Record<string, any> = copied ? { ...state } : state;
+    const merged: Record<string, any> = delta
+      ? {}
+      : copied
+        ? { ...state }
+        : state;
     const write = (key: string, value: unknown) => {
       if (!copied) inPlace?.add(top ?? key);
       setOwn(merged, key, value);
@@ -414,7 +420,10 @@ const mergeUrlState = (
       if (key === '__proto__') continue;
       const value = urlState[key];
       if (value === undefined && !syncUndefined) continue;
-      const current = getOwn(merged, key);
+      const current = getOwn(
+        (delta ? state : merged) as Record<string, any>,
+        key,
+      );
       const selected = selection === true ? true : getOwn(selection, key);
       const valueKeys = isPlainObject(value) ? Object.keys(value) : undefined;
       const isEmptyObject = valueKeys?.length === 0;
@@ -561,6 +570,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     {
       instances = 'merge' as Instances,
       inPlace = undefined as Set<string> | undefined,
+      delta = false,
     } = {},
   ) =>
     mergeUrlState(
@@ -572,6 +582,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       {
         instances,
         inPlace,
+        delta,
         syncUndefined: defaultedOptions.syncUndefined,
       },
     );
@@ -677,7 +688,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // The URL state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
     const follow = (base: object) =>
       urlStateOf(
-        applyState(base, passed, pathname, { instances: 'read' }),
+        applyState(base, passed, pathname, {
+          instances: 'read',
+          // Without a map only the passed fields can reach the link.
+          delta: !map,
+        }),
         pathname,
       );
     // What a click and a new tab change. Without a map the store reads a plain object field by field; a map reads a URL key whole.
