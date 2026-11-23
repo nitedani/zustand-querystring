@@ -9,6 +9,7 @@ import {
   isRegExp,
   isSet,
   isTypedArray,
+  mapValues,
   mergeWith,
   pickBy,
 } from 'lodash-es';
@@ -530,13 +531,29 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // Passed keys are written even at their initial value (with map, all keys once a passed key is selected), so a link can clear a filter; a key with no field select syncs keeps its state.
+    // The link holds the initial state with the passed keys applied, never other current state.
     const passed = getSelectedState(partial, pathname, 'partial');
-    const stateForUrl = urlStateOf({ ...get(), ...passed }, pathname);
-    const forced = Object.keys(map && !isEmpty(passed) ? stateForUrl : passed);
+    const state = get() as object;
+    const live = urlStateOf(state, pathname);
+    const clicked = urlStateOf({ ...state, ...passed }, pathname);
+    const defaults = urlDefaults(pathname);
+    // A key a click changes is written even at its initial value, so a link can clear a filter.
+    const forced = Object.keys(clicked).filter(
+      key =>
+        !Object.prototype.hasOwnProperty.call(live, key) ||
+        !isSameState(clicked[key], live[key]),
+    );
+    // A key the link writes holds its value after a click, so a map packing fields into one param keeps those not passed.
+    const linkState = mapValues(
+      urlStateOf({ ...initialState, ...passed }, pathname),
+      (value, key) =>
+        forced.includes(key) || !isEqual(value, defaults[key])
+          ? clicked[key]
+          : value,
+    );
     const { output } = compact(
-      stateForUrl,
-      urlDefaults(pathname),
+      linkState,
+      defaults,
       defaultedOptions.syncNull,
       defaultedOptions.syncUndefined,
       forced,

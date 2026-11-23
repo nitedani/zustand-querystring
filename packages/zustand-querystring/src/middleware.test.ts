@@ -716,8 +716,9 @@ describe('href', () => {
       querystring(() => ({ count: 0, other: 0 }), { url: '/a?count=:5' }),
     );
 
-    expect(decodeURIComponent(store.href('/b', { other: 0 }))).toBe(
-      '/b?count=:5&other=:0',
+    expect(store.href('/b', { other: 0 })).toBe('/b');
+    expect(decodeURIComponent(store.href('/b', { count: 0 }))).toBe(
+      '/b?count=:0',
     );
   });
 
@@ -746,10 +747,10 @@ describe('href', () => {
     expect(create(href).getState()).toStrictEqual({ tag: undefined });
   });
 
-  it('with map, forces the mapped keys only when select keeps a passed key', () => {
+  it('with map, writes a passed key only when select keeps it', () => {
     const store = createStore<{ count: number; hidden: number }>()(
       querystring(() => ({ count: 0, hidden: 3 }), {
-        url: '/results',
+        url: '/results?n=:2',
         select: pathname => ({ count: true, hidden: pathname === '/admin' }),
         map: {
           to: state => ({ n: state.count }),
@@ -811,7 +812,7 @@ describe('href', () => {
     expect(store.href('/review', { filters: { hidden: 'internal' } })).toBe(
       '/review',
     );
-    expect(store.href('/review', { filters: {} })).toBe('/review?v=open');
+    expect(store.href('/review', { filters: {} })).toBe('/review');
     store.setState({ filters: { hidden: 'internal' } });
     expect(store.href('/review')).toBe('/review');
   });
@@ -838,7 +839,7 @@ describe('server store: setDefaults', () => {
     );
 
     expect(store.getState().view).toBe('grid');
-    expect(store.href('/review')).toBe('/review?view=grid');
+    expect(store.href('/review', { view: 'grid' })).toBe('/review?view=grid');
   });
 });
 

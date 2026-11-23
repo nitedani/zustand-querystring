@@ -2703,11 +2703,12 @@ describe('href', () => {
     useStore.setState({ other: 3, status: 'active' });
 
     const href = useStore.href('/b', { status: 'all' });
-    expect(decodeURIComponent(href)).toBe('/b?other=:3&status=all');
+    expect(decodeURIComponent(href)).toBe('/b?status=all');
 
     window.history.pushState({}, '', href);
     await settle();
     expect(useStore.getState().status).toBe('all');
+    expect(useStore.getState().other).toBe(3);
     expect(url()).toBe('/b?other=:3');
   });
 
