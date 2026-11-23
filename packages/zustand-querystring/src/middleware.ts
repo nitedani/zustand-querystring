@@ -488,6 +488,22 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const urlDefaults = (pathname: string): object =>
     urlStateOf(initialState, pathname);
 
+  // The state with a store-shaped state applied, as a navigation or the store's creation applies a URL.
+  const applyState = (
+    state,
+    storeState,
+    pathname: string,
+    navigation: boolean,
+  ) =>
+    mergeUrlState(
+      state,
+      getSelectedState(storeState, pathname, 'partial'),
+      defaultedOptions.select
+        ? (defaultedOptions.select(pathname) as object)
+        : true,
+      { navigation, syncUndefined: defaultedOptions.syncUndefined },
+    );
+
   const initialize = (url: URL, state, navigation = false) => {
     try {
       const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
@@ -498,15 +514,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const storeState = map
         ? map.from(stateFromUrl, url.pathname)
         : stateFromUrl;
-      const selected = getSelectedState(storeState, url.pathname, 'partial');
-      return mergeUrlState(
-        state,
-        selected,
-        defaultedOptions.select
-          ? (defaultedOptions.select(url.pathname) as object)
-          : true,
-        { navigation, syncUndefined: defaultedOptions.syncUndefined },
-      );
+      return applyState(state, storeState, url.pathname, navigation);
     } catch (error) {
       console.error('[initialize] error:', error);
       return state;
@@ -554,11 +562,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // A click applies the passed keys to the live state, a new tab to the initial state.
-    const passed = getSelectedState(partial, pathname, 'partial');
+    // A click applies the passed keys to the live state, a new tab to the initial state; neither changes a class instance in place.
     const state = get() as object;
-    const clicked = urlStateOf({ ...state, ...passed }, pathname);
-    const opened = urlStateOf({ ...initialState, ...passed }, pathname);
+    const clicked = urlStateOf(
+      applyState(state, partial, pathname, true),
+      pathname,
+    );
+    const opened = urlStateOf(
+      applyState(initialState, partial, pathname, true),
+      pathname,
+    );
     // The fields of next that differ from prev, a key prev lacks included.
     const changed = (next: object, prev: object) =>
       compact(

@@ -2856,6 +2856,33 @@ describe('href', () => {
     });
   });
 
+  it('with a map packing nested fields into one param, a click keeps the nested field the link leaves out', async () => {
+    const useStore = create<{ filters: { status: string; page?: number } }>()(
+      querystring(() => ({ filters: { status: 'all', page: 1 } }), {
+        select: () => ({ filters: { status: true, page: true } }),
+        map: {
+          to: state => ({
+            q: `${state.filters.status}-${state.filters.page ?? 1}`,
+          }),
+          from: ({ q }) => {
+            const [status, page] = String(q).split('-');
+            return { filters: { status, page: Number(page) } };
+          },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filters: { status: 'active', page: 3 } });
+
+    const href = useStore.href('/list', { filters: { status: 'paid' } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/list?q=paid-3');
+    expect(useStore.getState().filters).toEqual({ status: 'paid', page: 3 });
+  });
+
   it('clears an object filter whose initial value is empty', async () => {
     const useStore = create<{ filters: { query?: string } }>()(
       querystring(() => ({ filters: {} })),
