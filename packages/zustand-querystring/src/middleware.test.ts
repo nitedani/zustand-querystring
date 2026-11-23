@@ -911,6 +911,23 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    ['with url', { url: '/list' }],
+    ['without url', {}],
+  ] as const)('%s: works inside the initializer', (_, options) => {
+    const store = createStore<{ status: string; paidHref: string }>()(
+      querystring(
+        (_set, _get, api) => ({
+          status: 'all',
+          paidHref: api.href('/list', { status: 'paid' }),
+        }),
+        options,
+      ),
+    );
+
+    expect(store.getState().paidHref).toBe('/list?status=paid');
+  });
+
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),

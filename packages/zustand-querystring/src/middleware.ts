@@ -596,7 +596,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    const state = get() as object;
+    // Inside the initializer there is no state yet, so a link starts from none.
+    const state = (get() ?? {}) as object;
+    const fresh = freshState ?? state;
     const initial = urlDefaults(pathname);
     // A state as a store reads it back from the URL written for all of it, so values the format writes alike are alike.
     const read = base => {
@@ -616,7 +618,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
     // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
     const output = pickFields(applied(state, false), [
-      changedUrlFields(applied(freshState, false), read(freshState)),
+      changedUrlFields(applied(fresh, false), read(fresh)),
       changedUrlFields(applied(state, true), read(state)),
     ]);
     return pathname + urlOf(output).search;
