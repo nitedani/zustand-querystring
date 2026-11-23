@@ -219,13 +219,15 @@ const href = useStore(s =>
 When `select` syncs `search` only on `/search`, a link to `/customers` leaves out the search you pass:
 
 ```ts
-querystring(() => ({ status: 'all', page: 1, search: '' }), {
-  select: pathname => ({
-    status: true,
-    page: true,
-    search: pathname === '/search',
+const useStore = create<{ status: string; page: number; search: string }>()(
+  querystring(() => ({ status: 'all', page: 1, search: '' }), {
+    select: pathname => ({
+      status: true,
+      page: true,
+      search: pathname === '/search',
+    }),
   }),
-});
+);
 
 useStore.href('/customers', { status: 'paid', search: 'acme' });
 // href: /customers?status=paid
@@ -236,16 +238,21 @@ useStore.href('/customers', { status: 'paid', search: 'acme' });
 A `map` that packs `status` and `page` into one param `q` makes the link write the whole param, so it carries the current `page` you didn't pass:
 
 ```ts
-querystring(() => ({ status: 'all', page: 1, search: '' }), {
-  map: {
-    to: state => ({ q: `${state.status}-${state.page}`, search: state.search }),
-    from: ({ q, ...rest }) => {
-      if (typeof q !== 'string') return rest;
-      const [status, page] = q.split('-');
-      return { ...rest, status, page: Number(page) };
+const useStore = create<{ status: string; page: number; search: string }>()(
+  querystring(() => ({ status: 'all', page: 1, search: '' }), {
+    map: {
+      to: state => ({
+        q: `${state.status}-${state.page}`,
+        search: state.search,
+      }),
+      from: ({ q, ...rest }) => {
+        if (typeof q !== 'string') return rest;
+        const [status, page] = q.split('-');
+        return { ...rest, status, page: Number(page) };
+      },
     },
-  },
-});
+  }),
+);
 
 // Current: { status: 'active', page: 3, search: 'acme' }
 useStore.href('/customers', { status: 'paid' });
