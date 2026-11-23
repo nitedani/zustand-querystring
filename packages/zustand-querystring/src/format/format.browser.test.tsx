@@ -2892,6 +2892,30 @@ describe('href', () => {
     expect(useStore.getState().filters).toEqual({ status: 'paid', page: 3 });
   });
 
+  it('building a link leaves a class instance whose field is an accessor as it is', () => {
+    class Filter {
+      storage = { status: 'all' };
+      get status() {
+        return this.storage.status;
+      }
+      set status(status: string) {
+        this.storage.status = status;
+      }
+    }
+    const useStore = create<{ filter: { status: string }; page: number }>()(
+      querystring(() => ({ filter: new Filter(), page: 1 }), {
+        select: () => ({ filter: { status: true }, page: true }),
+      }),
+    );
+
+    const href = useStore.href('/list', { filter: { status: 'paid' } });
+    useStore.setState({ page: 2 });
+
+    expect(decodeURIComponent(href)).toBe('/list?filter=.status=paid');
+    expect(useStore.getState().filter.status).toBe('all');
+    expect(url()).toBe('/?page=:2');
+  });
+
   it('clears an object filter whose initial value is empty', async () => {
     const useStore = create<{ filters: { query?: string } }>()(
       querystring(() => ({ filters: {} })),

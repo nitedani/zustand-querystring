@@ -354,6 +354,8 @@ const holdsObject = (value: unknown): boolean =>
     ? Object.values(value as object).some(holdsObject)
     : isObjectLike(value);
 
+type Instances = 'merge' | 'keep' | 'read';
+
 // A class instance with the same prototype and fields; its private fields stay with the instance.
 const copyOf = (instance: object) =>
   Object.assign(Object.create(Object.getPrototypeOf(instance)), instance);
@@ -377,16 +379,15 @@ const withCopies = (
   return copy;
 };
 
-// URL state replaces what it carries; a plain object merges key by key, into a class instance itself unless it is a navigation.
-// The selection is the one of the URL's pathname, or true where all of it is selected. With copy, a class instance is merged into as a copy;
-// with before, each class instance merged into keeps a copy of itself from before there.
+// URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
+// A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
+// and read as a plain object of its own fields for a link ('read'). With before, each class instance merged into keeps a copy of itself from before there.
 const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
   {
-    navigation = false,
-    copy = false,
+    instances = 'merge' as Instances,
     before = undefined as Map<object, object> | undefined,
     syncUndefined = false,
   } = {},
@@ -400,14 +401,11 @@ const mergeUrlState = (
     selection: Record<string, any> | true,
     keys: string[],
   ) => {
-    if (!isPlainObject(state) && !copy && before && !before.has(state)) {
+    const copied = isPlainObject(state) || instances === 'read';
+    if (!copied && before && !before.has(state)) {
       before.set(state, copyOf(state));
     }
-    const merged: Record<string, any> = isPlainObject(state)
-      ? { ...state }
-      : copy
-        ? copyOf(state)
-        : state;
+    const merged: Record<string, any> = copied ? { ...state } : state;
     merges.set(urlState, merged);
     for (const key of keys) {
       // A __proto__ key would set the prototype of the copy zustand's setState makes.
@@ -444,7 +442,7 @@ const mergeUrlState = (
         !(isEmptyObject && isPlainObject(current))
           ? current
           : {};
-      if (navigation && !isPlainObject(into)) continue;
+      if (instances === 'keep' && !isPlainObject(into)) continue;
       setOwn(
         merged,
         key,
@@ -559,8 +557,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     storeState,
     pathname: string,
     {
-      navigation = false,
-      copy = false,
+      instances = 'merge' as Instances,
       before = undefined as Map<object, object> | undefined,
     } = {},
   ) =>
@@ -571,8 +568,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ? (defaultedOptions.select(pathname) as object)
         : true,
       {
-        navigation,
-        copy,
+        instances,
         before,
         syncUndefined: defaultedOptions.syncUndefined,
       },
@@ -688,10 +684,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }
       return result;
     };
-    // The state with the passed keys applied as a navigation or the store's creation applies them, to copies of class instances.
-    const applied = (base, { navigation = false } = {}) =>
+    // The state with the passed keys applied as a store following the link applies them; a class instance reads as its own fields, so none is written into.
+    const applied = base =>
       urlStateOf(
-        applyState(base, partial, pathname, { navigation, copy: true }),
+        applyState(base, partial, pathname, { instances: 'read' }),
         pathname,
       );
     // Compared by what the format writes; a value prev holds itself writes the same, so only the others are read back.
@@ -703,15 +699,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
     };
     // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
-    // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
+    const followed = applied(state);
     const changed = [
       changes(applied(fresh), urlStateOf(fresh, pathname)),
-      changes(
-        applied(state, { navigation: true }),
-        urlStateOf(state, pathname),
-      ),
+      changes(followed, urlStateOf(state, pathname)),
     ];
-    const source = pickFields(applied(state), changed);
+    const source = pickFields(followed, changed);
     const output = pickFields(read(source), changed);
     return pathname + urlOf(output).search;
   };
@@ -753,7 +746,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current, {
-        navigation: true,
+        instances: 'keep',
       });
       // Only changed keys, so the others keep their references.
       const changed = pickBy(next, (value, key) =>

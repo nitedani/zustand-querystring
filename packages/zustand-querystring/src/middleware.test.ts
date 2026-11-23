@@ -777,6 +777,45 @@ describe('href', () => {
     expect(store.getState().status).toBe('all');
   });
 
+  it('leaves a class instance whose field is an accessor as it is, and writes the passed field', () => {
+    class Filter {
+      storage = { status: 'all' };
+      get status() {
+        return this.storage.status;
+      }
+      set status(status: string) {
+        this.storage.status = status;
+      }
+    }
+    const store = createStore<{ status: string }>()(
+      querystring(() => new Filter(), {
+        url: '/list',
+        select: () => ({ status: true }),
+      }),
+    );
+
+    expect(store.href('/list', { status: 'paid' })).toBe('/list?status=paid');
+    expect(store.getState().status).toBe('all');
+  });
+
+  it('writes a plain object passed for a class instance whose toJSON reads a private field', () => {
+    class Filter {
+      #unit = 'stars';
+      rating = 0;
+      toJSON() {
+        return { rating: this.rating, unit: this.#unit };
+      }
+    }
+    const create = (url?: string) =>
+      createStore<{ filter: { rating: number } }>()(
+        querystring(() => ({ filter: new Filter() }), { url, format: json }),
+      );
+
+    const href = create().href('/list', { filter: { rating: 2 } });
+    expect(decodeURIComponent(href)).toBe('/list?filter={"rating":2}');
+    expect(create(href).getState().filter.rating).toBe(2);
+  });
+
   it('writes a plain object passed for a class instance field, which a new store merges into its instance', () => {
     class Filters {
       constructor(public status: string) {}
