@@ -553,23 +553,27 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     initialState = withDefaults(initialState, partial);
   };
 
+  // What the store starts with on a URL that carries none of its params.
+  let freshState: ReturnType<typeof fn>;
+
   // A setDefaults call inside the initializer applies to the state it returns.
   const createState = (setState: typeof set) => {
     const state = fn(setState, get, api);
+    freshState = state;
     initialState = initialState ? withDefaults(state, initialState) : state;
     return state;
   };
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
-    // A click applies the passed keys to the live state, a new tab to the initial state; neither changes a class instance in place.
+    // A click applies the passed keys to the live state, a new tab to a fresh one; neither changes a class instance in place.
     const state = get() as object;
     const clicked = urlStateOf(
       applyState(state, partial, pathname, true),
       pathname,
     );
     const opened = urlStateOf(
-      applyState(initialState, partial, pathname, true),
+      applyState(freshState, partial, pathname, true),
       pathname,
     );
     // The fields of next that differ from prev, a key prev lacks included.
@@ -585,7 +589,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       ).output;
     // What a click or a new tab changes, written with the click's values: a map packing fields into one param keeps those not passed.
     const output = pickFields(clicked, [
-      changed(opened, urlDefaults(pathname)),
+      changed(opened, urlStateOf(freshState, pathname)),
       changed(clicked, urlStateOf(state, pathname)),
     ]);
     // Encoded like the store's own write, so a # in a value stays in the query.

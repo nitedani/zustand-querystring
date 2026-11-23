@@ -831,15 +831,20 @@ describe('server store: setDefaults', () => {
     ['with url', { url: '/review' }],
     ['without url', {}],
   ] as const)('%s: setDefaults works inside the initializer', (_, options) => {
-    const store = createStore<{ view: string }>()(
-      querystring((_set, _get, api) => {
-        api.setDefaults({ view: 'list' });
-        return { view: 'grid' };
-      }, options),
-    );
+    const create = (options: { url?: string }) =>
+      createStore<{ view: string }>()(
+        querystring((_set, _get, api) => {
+          api.setDefaults({ view: 'list' });
+          return { view: 'grid' };
+        }, options),
+      );
+    const store = create(options);
 
     expect(store.getState().view).toBe('grid');
-    expect(store.href('/review', { view: 'grid' })).toBe('/review?view=grid');
+    store.setState({ view: 'list' });
+    const href = store.href('/review', { view: 'list' });
+    expect(href).toBe('/review?view=list');
+    expect(create({ url: href }).getState().view).toBe('list');
   });
 });
 
