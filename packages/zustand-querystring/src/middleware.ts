@@ -166,24 +166,45 @@ export const compact = (
   return { output };
 };
 
-// The fields of state that any of written holds, down to where one of them holds a whole value.
-const pickFields = (state: object, written: object[]) => {
+// The fields of source that any of changes holds, down to where one of them holds a whole value.
+const pickFields = (source: object, changes: object[]) => {
   const picked = {};
-  for (const key of Object.keys(Object.assign({}, ...written))) {
-    if (!Object.prototype.hasOwnProperty.call(state, key)) continue;
-    const fields = written
-      .filter(w => Object.prototype.hasOwnProperty.call(w, key))
-      .map(w => w[key] as object);
+  for (const key of Object.keys(Object.assign({}, ...changes))) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const fields = changes
+      .filter(c => Object.prototype.hasOwnProperty.call(c, key))
+      .map(c => c[key] as object);
     setOwn(
       picked,
       key,
-      isPlainObject(state[key]) &&
+      isPlainObject(source[key]) &&
         fields.every(f => isPlainObject(f) && !isEmpty(f))
-        ? pickFields(state[key], fields)
-        : state[key],
+        ? pickFields(source[key], fields)
+        : source[key],
     );
   }
   return picked;
+};
+
+// The fields of next a store reading prev would change: a different value or a key prev lacks, down to the fields of a plain object.
+const changedUrlFields = (next: object, prev: object) => {
+  const changed = {};
+  for (const [key, value] of Object.entries(next)) {
+    const has = Object.prototype.hasOwnProperty.call(prev, key);
+    if (has && isEqual(value, prev[key])) continue;
+    if (
+      has &&
+      isPlainObject(value) &&
+      isPlainObject(prev[key]) &&
+      !isEmpty(value)
+    ) {
+      const fields = changedUrlFields(value, prev[key]);
+      if (!isEmpty(fields)) setOwn(changed, key, fields);
+    } else {
+      setOwn(changed, key, value);
+    }
+  }
+  return changed;
 };
 
 // A partial state leaves out an object none of whose fields are selected, unless it is empty.
@@ -566,40 +587,39 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state;
   };
 
-  // The fields of next that differ from prev, a key prev lacks included.
-  const changedUrlFields = (next: object, prev: object) =>
-    compact(
-      next,
-      prev,
-      defaultedOptions.syncNull,
-      defaultedOptions.syncUndefined,
-      Object.keys(next).filter(
-        key => !Object.prototype.hasOwnProperty.call(prev, key),
-      ),
-    ).output;
+  // A URL with the params this store writes for a compacted state, encoded like the store's own write, so a # in a value stays in the query.
+  const urlOf = (compacted: object) => {
+    const url = new URL('http://localhost');
+    url.search = rewriteSearch('', new Set(), toParams(compacted));
+    return url;
+  };
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, partial: object = {}) => {
     const state = get() as object;
+    const initial = urlDefaults(pathname);
+    // A state as a store reads it back from the URL written for all of it, so values the format writes alike are alike.
+    const read = base => {
+      const urlState = urlStateOf(base, pathname);
+      const { output } = compact(
+        urlState,
+        {},
+        defaultedOptions.syncNull,
+        defaultedOptions.syncUndefined,
+        Object.keys(urlState),
+      );
+      return getStateFromUrl(urlOf(output), initial) ?? {};
+    };
     // The state with the passed keys applied as a navigation or the store's creation applies them, to copies of class instances.
     const applied = (base, navigation: boolean) =>
-      urlStateOf(
-        applyState(base, partial, pathname, { navigation, copy: true }),
-        pathname,
-      );
+      read(applyState(base, partial, pathname, { navigation, copy: true }));
     // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
     // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
     const output = pickFields(applied(state, false), [
-      changedUrlFields(
-        applied(freshState, false),
-        urlStateOf(freshState, pathname),
-      ),
-      changedUrlFields(applied(state, true), urlStateOf(state, pathname)),
+      changedUrlFields(applied(freshState, false), read(freshState)),
+      changedUrlFields(applied(state, true), read(state)),
     ]);
-    // Encoded like the store's own write, so a # in a value stays in the query.
-    const query = new URL('http://localhost');
-    query.search = rewriteSearch('', new Set(), toParams(output));
-    return pathname + query.search;
+    return pathname + urlOf(output).search;
   };
 
   if (typeof window !== 'undefined') {

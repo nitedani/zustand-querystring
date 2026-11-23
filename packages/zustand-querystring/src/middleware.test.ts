@@ -812,6 +812,105 @@ describe('href', () => {
     expect(store.getState().filter.rating).toBe(4);
   });
 
+  it('with a map, leaves out a value the format writes alike from two classes', () => {
+    class ActiveSearch {
+      constructor(public value: string) {}
+    }
+    class ArchivedSearch {
+      constructor(public value: string) {}
+    }
+    const store = createStore<{ mode: string; search: string }>()(
+      querystring(() => ({ mode: 'active', search: '' }), {
+        url: '/results?search=.value=acme',
+        map: {
+          to: ({ mode, search }) => ({
+            mode,
+            search:
+              mode === 'archived'
+                ? new ArchivedSearch(search)
+                : new ActiveSearch(search),
+          }),
+          from: ({ mode, search }) => ({
+            mode: mode as string | undefined,
+            search: (search as ActiveSearch | undefined)?.value,
+          }),
+        },
+      }),
+    );
+
+    expect(store.getState().search).toBe('acme');
+    expect(store.href('/results', { mode: 'archived' })).toBe(
+      '/results?mode=archived',
+    );
+  });
+
+  it('with a map, writes a passed value the format writes from a private field', () => {
+    class SearchParam {
+      #value: string;
+      constructor(value: string) {
+        this.#value = value;
+      }
+      toJSON() {
+        return this.#value;
+      }
+    }
+    const create = (url: string) =>
+      createStore<{ search: string }>()(
+        querystring(() => ({ search: '' }), {
+          url,
+          key: 'view',
+          format: json,
+          map: {
+            to: ({ search }) => ({ search: new SearchParam(search) }),
+            from: ({ search }) => ({ search: search as unknown as string }),
+          },
+        }),
+      );
+
+    const href = create('/results').href('/results', { search: 'acme' });
+    expect(decodeURIComponent(href)).toBe('/results?view={"search":"acme"}');
+    expect(create(href).getState().search).toBe('acme');
+  });
+
+  it('writes a passed nested undefined, with syncUndefined', () => {
+    const create = (url: string) =>
+      createStore<{ filters: { region: string; tag?: string } }>()(
+        querystring(() => ({ filters: { region: 'EU' } }), {
+          url,
+          format: plain,
+          syncUndefined: true,
+        }),
+      );
+
+    const href = create('/results').href('/results', {
+      filters: { tag: undefined },
+    });
+    expect(href).toBe('/results?filters.tag=undefined');
+    expect(create(href).getState()).toStrictEqual({
+      filters: { region: 'EU', tag: undefined },
+    });
+  });
+
+  it.each([null, undefined])(
+    'leaves out the %s a map writes, without syncNull and syncUndefined',
+    empty => {
+      const store = createStore<{ mode: string; page: number | null }>()(
+        querystring(() => ({ mode: 'visible', page: 1 }), {
+          url: '/list',
+          map: {
+            to: ({ mode, page }) => ({
+              page: mode === 'hidden' ? empty : page,
+            }),
+            from: ({ page }) => ({ page: page as number }),
+          },
+        }),
+      );
+      store.setState({ mode: 'hidden', page: 3 });
+
+      expect(store.href('/list', { page: 2 })).toBe('/list');
+    },
+  );
+
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),
