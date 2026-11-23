@@ -550,7 +550,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   let initialState: ReturnType<typeof fn>;
 
-  // The initial state in URL shape: the parse hints and the diff baseline.
+  // The initial state in URL shape: the parse hints, and what the store leaves out of the URL it writes.
   const urlDefaults = (pathname: string): object =>
     urlStateOf(initialState, pathname);
 
@@ -641,12 +641,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // What the store starts with on a URL that carries none of its params.
-  let freshState: ReturnType<typeof fn>;
+  let startState: ReturnType<typeof fn>;
 
   // A setDefaults call inside the initializer applies to the state it returns.
   const createState = (setState: typeof set) => {
     const state = fn(setState, get, api);
-    freshState = state;
+    startState = state;
     initialState = initialState ? withDefaults(state, initialState) : state;
     return state;
   };
@@ -676,7 +676,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
     const live = (get() ?? {}) as object;
-    const start = freshState ?? live;
+    const start = startState ?? live;
     // The URL state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
     const follow = (base: object) =>
       urlStateOf(
