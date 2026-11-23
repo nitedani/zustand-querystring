@@ -613,13 +613,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return getStateFromUrl(urlOf(output), initial) ?? {};
     };
     // The state with the passed keys applied as a navigation or the store's creation applies them, to copies of class instances.
-    const applied = (base, navigation: boolean) =>
+    const applied = (base, { navigation = false } = {}) =>
       read(applyState(base, partial, pathname, { navigation, copy: true }));
     // What a new tab or a click changes, written with the live values and the passed ones: a map packing fields into one param keeps those not passed.
     // A new tab merges a passed object into a class instance, as the store's creation does, and a click leaves the instance as it is.
-    const output = pickFields(applied(state, false), [
-      changedUrlFields(applied(fresh, false), read(fresh)),
-      changedUrlFields(applied(state, true), read(state)),
+    const output = pickFields(applied(state), [
+      changedUrlFields(applied(fresh), read(fresh)),
+      changedUrlFields(applied(state, { navigation: true }), read(state)),
     ]);
     return pathname + urlOf(output).search;
   };
