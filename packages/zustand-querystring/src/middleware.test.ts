@@ -1268,19 +1268,19 @@ describe('href', () => {
     });
   });
 
-  it('with a map that returns new class instances, reads back the current and the initial state once', () => {
+  it('with a map that returns new class instances, writes the current and the initial state once', () => {
     class Box {
       constructor(public value: string) {}
     }
-    let reads = 0;
+    let writes = 0;
     const store = createStore<{ search: string; page: number }>()(
       querystring(() => ({ search: '', page: 1 }), {
         url: '/list',
         format: {
           ...marked,
-          parseStandalone: (params, ctx) => {
-            reads++;
-            return marked.parseStandalone(params, ctx);
+          stringifyStandalone: (state: object) => {
+            writes++;
+            return marked.stringifyStandalone(state);
           },
         },
         map: {
@@ -1295,11 +1295,114 @@ describe('href', () => {
     store.setState({ search: 'acme' });
 
     const counts = [2, 3].map(page => {
-      reads = 0;
+      writes = 0;
       expect(store.href('/list', { page })).toBe(`/list?page=:${page}`);
-      return reads;
+      return writes;
     });
-    expect(counts).toStrictEqual([4, 2]);
+    expect(counts).toStrictEqual([5, 3]);
+  });
+
+  it.each([
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 1, 2],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 1, 1],
+  ] as const)(
+    'with key %s and a map that returns new class instances, writes a link that carries the current view once and reads only the params it changes',
+    (key, link, writes, reads) => {
+      class Facet {
+        constructor(public value: string) {}
+      }
+      const counts = { writes: 0, reads: 0 };
+      const count =
+        <A extends unknown[], R>(
+          name: keyof typeof counts,
+          fn: (...args: A) => R,
+          params: (...args: A) => number,
+        ) =>
+        (...args: A) => {
+          counts[name] += params(...args);
+          return fn(...args);
+        };
+      const store = createStore<{
+        color: string;
+        size: string;
+        page: number;
+      }>()(
+        querystring(() => ({ color: 'all', size: 'all', page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            stringify: count('writes', marked.stringify, () => 1),
+            parse: count('reads', marked.parse, () => 1),
+            stringifyStandalone: count(
+              'writes',
+              marked.stringifyStandalone,
+              () => 1,
+            ),
+            parseStandalone: count(
+              'reads',
+              marked.parseStandalone,
+              params => Object.keys(params).length,
+            ),
+          },
+          map: {
+            to: ({ color, size, page }) => ({
+              color: new Facet(color),
+              size: new Facet(size),
+              page,
+            }),
+            from: ({ color, size, page }) => ({
+              ...(color ? { color: (color as Facet).value } : {}),
+              ...(size ? { size: (size as Facet).value } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ color: 'red', size: 'red' });
+      store.href('/list', { ...store.getState(), page: 2 });
+      counts.writes = counts.reads = 0;
+
+      expect(
+        decodeURIComponent(
+          store.href('/list', { ...store.getState(), page: 3 }),
+        ),
+      ).toBe(link);
+      expect(counts).toStrictEqual({ writes, reads });
+    },
+  );
+
+  it("with a map that returns new class instances, leaves out a current value when the format's reader rejects the changed param alone", () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    const store = createStore<{ mode: string; date: Date; search: string }>()(
+      querystring(
+        () => ({ mode: 'calendar', date: new Date('2026-01-01'), search: '' }),
+        {
+          url: '/list',
+          format: {
+            ...marked,
+            parseStandalone: (params, ctx) =>
+              needsMode(marked.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ search, ...state }) => ({
+              ...state,
+              search: new Box(search),
+            }),
+            from: ({ search, ...state }) => ({
+              ...state,
+              ...(search ? { search: (search as Box).value } : {}),
+            }),
+          },
+        },
+      ),
+    );
+    store.setState({ search: 'acme' });
+
+    expect(store.href('/list', { date: new Date('2026-02-01') })).toBe(
+      '/list?date=D1769904000000',
+    );
   });
 
   it('with a map that returns new class instances, writes a link that passes nothing once', () => {
