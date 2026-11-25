@@ -711,12 +711,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         delta,
         syncUndefined: !byField || defaultedOptions.syncUndefined,
       });
-    // The URL written for each URL state this link compares or writes.
+    // The search written for each URL state this link compares or writes.
     const written = new Map<object, string>();
     const writtenOf = (urlState: object) => {
-      let url = written.get(urlState);
-      if (!url) written.set(urlState, (url = writeLinkUrl(urlState)));
-      return url;
+      let search = written.get(urlState);
+      if (search === undefined)
+        written.set(urlState, (search = writeLinkUrl(urlState)));
+      return search;
     };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
