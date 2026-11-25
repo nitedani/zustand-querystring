@@ -1405,7 +1405,7 @@ describe('href', () => {
     });
   });
 
-  it('with a map that returns new class instances, writes the current and the initial state once', () => {
+  it('with a map that returns new class instances, writes the current and the initial state once per link', () => {
     class Box {
       constructor(public value: string) {}
     }
@@ -1436,14 +1436,14 @@ describe('href', () => {
       expect(store.href('/list', { page })).toBe(`/list?page=:${page}`);
       return writes;
     });
-    expect(counts).toStrictEqual([5, 3]);
+    expect(counts).toStrictEqual([5, 5]);
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 1, 3],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 1, 1],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 3, 3],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 3, 1],
   ] as const)(
-    'with key %s and a map that returns new class instances, writes a link that carries the current view once and reads it once',
+    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading again only the URL of the link',
     (key, link, writes, reads) => {
       class Facet {
         constructor(public value: string) {}
@@ -1635,6 +1635,61 @@ describe('href', () => {
 
     expect(store.href('/collection/1')).toBe('/collection/1');
     expect(writes).toBe(1);
+  });
+
+  it('with a map, leaves out a field the app edited in place after an earlier link', () => {
+    const store = createStore<{ filter: { search: string }; page: number }>()(
+      querystring(() => ({ filter: { search: '' }, page: 1 }), {
+        url: '/list',
+        map: {
+          to: ({ filter, page }) => ({ search: filter.search, page }),
+          from: ({ search, page }) => ({
+            ...(search === undefined ? {} : { filter: { search } }),
+            ...(page === undefined ? {} : { page }),
+          }),
+        },
+      }),
+    );
+    store.href('/list', { page: 2 });
+    store.getState().filter.search = 'private';
+
+    expect(decodeURIComponent(store.href('/list', { page: 3 }))).toBe(
+      '/list?page=:3',
+    );
+  });
+
+  it("with a map that returns new class instances, leaves out a current value once the format's reader reads again", () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    let readable = true;
+    const store = createStore<{ search: string; page: number }>()(
+      querystring(() => ({ search: '', page: 1 }), {
+        url: '/list',
+        format: {
+          ...marked,
+          parseStandalone: (params, ctx) => {
+            if (!readable) throw new Error('lookup unavailable');
+            return marked.parseStandalone(params, ctx);
+          },
+        },
+        map: {
+          to: ({ search, page }) => ({ search: new Box(search), page }),
+          from: ({ search, page }) => ({
+            ...(search ? { search: (search as Box).value } : {}),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ search: 'private' });
+    readable = false;
+    store.href('/list', { page: 3 });
+    readable = true;
+
+    expect(decodeURIComponent(store.href('/list', { page: 3 }))).toBe(
+      '/list?page=:3',
+    );
   });
 
   it.each([

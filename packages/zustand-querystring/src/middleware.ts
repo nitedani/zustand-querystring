@@ -3,7 +3,6 @@ import {
   isEmpty,
   isEqual,
   isEqualWith,
-  isFunction,
   isMap,
   isObjectLike,
   isPlainObject,
@@ -260,16 +259,12 @@ const translateSelectionToState = <T>(
   }, {} as T);
 };
 
-// A value test accepts, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
-const holds = (
-  value: unknown,
-  test: (value: unknown) => boolean,
-  seen = new Set<unknown>(),
-): boolean => {
-  if (test(value)) return true;
+// A function, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
+const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
+  if (typeof value === 'function') return true;
   if (!isPlainObject(value) || seen.has(value)) return false;
   seen.add(value);
-  return Object.values(value as object).some(v => holds(v, test, seen));
+  return Object.values(value as object).some(v => holdsFunction(v, seen));
 };
 
 // An instance of a user class, which isEqual compares by its visible fields only, missing private ones.
@@ -312,7 +307,7 @@ const clearSelected = (state: object, selection: object) => {
       if (isPlainObject(cleared[key])) {
         cleared[key] = clearSelected(cleared[key], selected);
       }
-    } else if (selected && !holds(cleared[key], isFunction)) {
+    } else if (selected && !holdsFunction(cleared[key])) {
       delete cleared[key];
     }
   }
@@ -388,9 +383,6 @@ type Instances = 'merge' | 'keep' | 'read';
 // The search of a URL a store writes, and once read, what it reads from it.
 type Written = { search: string; read?: [object | undefined] };
 
-// A base state's URL state and, once written, its URL.
-type Base = { urlState: object; url?: Written };
-
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
 // and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
@@ -447,7 +439,7 @@ const mergeUrlState = (
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         typeof current === 'function' ||
-        ((!isPlainObject(value) || isEmptyObject) && holds(current, isFunction))
+        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
       )
         continue;
       if (!isPlainObject(value)) {
@@ -686,8 +678,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       Object.keys(urlState),
     ).output;
 
-  // A state's URL state and the URL a store writes for it, per pathname and the defaults it wrote with. A store never writes into a plain object, so one that holds no class instance stands for its data.
-  const bases = new WeakMap<object, Map<string, [object, Base]> | null>();
+  // What the store read from each URL a link compared, by its search and pathname, with the initial state it read with.
+  // A page's links share the URLs of their bases, which each link reads again and so keeps among the last 100.
+  const reads = new Map<string, object>();
+  let readsWith: object | undefined;
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
@@ -714,8 +708,22 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const writeUrl = (urlState: object): Written => ({
       search: urlOf(synced(urlState)).search,
     });
-    const readAll = (url: Written) =>
-      (url.read ??= [read(parseSearchString(url.search))])[0];
+    const readAll = (url: Written) => {
+      if (url.read) return url.read[0];
+      if (readsWith !== initialState) {
+        reads.clear();
+        readsWith = initialState as object;
+      }
+      // A URL's search has no line break.
+      const key = `${url.search}\n${pathname}`;
+      const value = reads.get(key) ?? read(parseSearchString(url.search));
+      reads.delete(key);
+      // A read that fails may succeed later, so only one that succeeded is kept.
+      if (value) reads.set(key, value);
+      if (reads.size > 100) reads.delete(reads.keys().next().value!);
+      url.read = [value];
+      return value;
+    };
     // The URL written for each URL state this link compares or writes.
     const written = new Map<object, Written>();
     const writtenOf = (urlState: object) => {
@@ -723,18 +731,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (!url) written.set(urlState, (url = writeUrl(urlState)));
       return url;
     };
-    // A base state's URL state, remembered with the URL written for it for a plain state that holds no class instance.
-    const baseOf = (base: object): Base => {
-      let known = bases.get(base);
-      if (known === undefined)
-        bases.set(base, (known = holds(base, isInstance) ? null : new Map()));
-      const remembered = known?.get(pathname);
-      if (remembered && remembered[0] === initialState) return remembered[1];
-      const found = { urlState: urlStateOf(base, pathname) };
-      known?.set(pathname, [initialState as object, found]);
-      return found;
-    };
-    const urlOfBase = (base: Base) => (base.url ??= writeUrl(base.urlState));
     // Two class values are alike when the format writes them alike as the one field of a state, and not where it can't write one alone.
     const writesAlike = (path: string[], a: unknown, b: unknown) => {
       const alone = (value: unknown) =>
@@ -787,7 +783,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         )
       )
         return {};
-      const known = baseOf(base);
+      const known = urlStateOf(base, pathname);
       const urlState = next();
       let nextUrl: Written | undefined;
       // A class instance can hide its data, so two of them are alike when a store reads them alike from the two whole states' URLs.
@@ -802,9 +798,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         nextUrl ??= writtenOf(
           byField ? urlStateOf(follow(base, false), pathname) : urlState,
         );
-        return alike(nextUrl, urlOfBase(known), path);
+        return alike(nextUrl, writtenOf(known), path);
       };
-      return changedFields(urlState, known.urlState, byField, sameObject);
+      return changedFields(urlState, known, byField, sameObject);
     };
     const clicked = follow(live);
     let values: object | undefined;

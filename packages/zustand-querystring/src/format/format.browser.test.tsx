@@ -2828,6 +2828,31 @@ describe('href', () => {
     );
   });
 
+  it('with a map, a click resets a date the app changed in place after an earlier link', async () => {
+    const useStore = create<{ date: Date; page: number }>()(
+      querystring(() => ({ date: new Date('2026-01-01'), page: 1 }), {
+        map: {
+          to: ({ date, page }) => ({ date: date.toISOString(), page }),
+          from: ({ date, page }) => ({
+            ...(date === undefined ? {} : { date: new Date(date as string) }),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.href('/list', { page: 2 });
+    useStore.getState().date.setUTCDate(3);
+
+    const href = useStore.href('/list', { date: new Date('2026-01-01') });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/list?date=2026-01-01T00:00:00.000Z');
+    expect(useStore.getState().date).toStrictEqual(new Date('2026-01-01'));
+  });
+
   it('with a map whose param name depends on a field, a click applies the passed value', async () => {
     const useStore = create<{ mode: string; page: number }>()(
       querystring(() => ({ mode: 'simple', page: 1 }), {
