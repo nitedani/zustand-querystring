@@ -570,7 +570,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     state,
     storeState,
     pathname: string,
-    options: { instances: Instances; inPlace?: Set<string>; delta?: boolean },
+    options: {
+      instances: Instances;
+      inPlace?: Set<string>;
+      delta?: boolean;
+      syncUndefined?: boolean;
+    },
   ) =>
     mergeUrlState(
       state,
@@ -578,7 +583,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       defaultedOptions.select
         ? (defaultedOptions.select(pathname) as object)
         : true,
-      { ...options, syncUndefined: defaultedOptions.syncUndefined },
+      { syncUndefined: defaultedOptions.syncUndefined, ...options },
     );
 
   // The URL keys under which a URL was written into a class instance, at creation or into the state by a navigation: their value from before is gone, so they never count as unchanged.
@@ -691,8 +696,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Without a map the store reads a plain object field by field, so only the passed fields can reach the link; a map reads a URL key whole.
     const byField = !map;
     // The state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
+    // A map gets a passed undefined, which it may write as a value; the URL it returns follows syncUndefined.
     const follow = (base: object, delta = byField) =>
-      applyState(base, passed, pathname, { instances: 'read', delta });
+      applyState(base, passed, pathname, {
+        instances: 'read',
+        delta,
+        syncUndefined: !byField || defaultedOptions.syncUndefined,
+      });
     let defaults: object | undefined;
     // What a store reads from params, or undefined where creation reads nothing from them.
     const read = (params: QueryStringParams) => {

@@ -3089,6 +3089,30 @@ describe('href', () => {
     expect(url()).toBe('/results');
   });
 
+  it('with a map that writes an unset filter field as a value, a link passing undefined clears it on a click', async () => {
+    const useStore = create<{ filter: { status?: string } }>()(
+      querystring(() => ({ filter: {} }), {
+        map: {
+          to: ({ filter }) => ({ status: filter.status ?? 'none' }),
+          from: ({ status }) =>
+            status === undefined
+              ? {}
+              : { filter: status === 'none' ? {} : { status } },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filter: { status: 'paid' } });
+
+    const href = useStore.href('/customers', { filter: { status: undefined } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/customers?status=none');
+    expect(useStore.getState().filter).toStrictEqual({});
+  });
+
   it('clears an object filter with the plain format, in standalone and namespaced mode', async () => {
     for (const options of [{}, { key: 'state' }]) {
       window.history.replaceState({}, '', '/');

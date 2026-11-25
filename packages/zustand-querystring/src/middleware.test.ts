@@ -1802,6 +1802,28 @@ describe('href', () => {
     });
   });
 
+  it('gives a map a passed undefined, which it can write as a value that clears a filter', () => {
+    const create = (url: string) =>
+      createStore<{ filter: { status?: string } }>()(
+        querystring(() => ({ filter: {} }), {
+          url,
+          map: {
+            to: ({ filter }) => ({ status: filter.status ?? 'none' }),
+            from: ({ status }) =>
+              status === undefined
+                ? {}
+                : { filter: status === 'none' ? {} : { status } },
+          },
+        }),
+      );
+    const store = create('/customers');
+    store.setState({ filter: { status: 'paid' } });
+
+    const href = store.href('/customers', { filter: { status: undefined } });
+    expect(href).toBe('/customers?status=none');
+    expect(create(href).getState()).toStrictEqual({ filter: {} });
+  });
+
   it.each([null, undefined])(
     'leaves out the %s a map writes, without syncNull and syncUndefined',
     empty => {
