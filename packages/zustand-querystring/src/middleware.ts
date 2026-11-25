@@ -380,9 +380,6 @@ const rewriteSearch = (
 
 type Instances = 'merge' | 'keep' | 'read';
 
-// The search of a URL a store writes, and once read, what it reads from it.
-type Written = { search: string; read?: [object | undefined] };
-
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
 // and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
@@ -667,7 +664,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // The search of a link to a URL state: the fields the sync policy writes, encoded like the store's own write, so a # in a value stays in the query.
-  const writeLinkUrl = (urlState: object): Written => {
+  const writeLinkUrl = (urlState: object): string => {
     const { output } = compact(
       urlState,
       {},
@@ -677,13 +674,38 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     );
     const url = new URL('http://localhost');
     url.search = rewriteSearch('', new Set(), toParams(output));
-    return { search: url.search };
+    return url.search;
   };
 
   // What the store read from each URL a link compared, by its search and pathname, with the initial state it read with.
   // A page's links share the URLs of their bases, which each link reads again and so keeps among the last 100.
   const reads = new Map<string, object>();
   let readsWith: object | undefined;
+  // What a store at pathname reads from a link's search, or undefined where creation reads nothing from it.
+  const readLinkUrl = (search: string, pathname: string) => {
+    if (readsWith !== initialState) {
+      reads.clear();
+      readsWith = initialState as object;
+    }
+    // A URL's search has no line break.
+    const key = `${search}\n${pathname}`;
+    let value = reads.get(key);
+    reads.delete(key);
+    if (!value) {
+      const params = parseSearchString(search);
+      try {
+        value = isEmpty(params)
+          ? {}
+          : (fromParams(params, urlDefaults(pathname)) ?? undefined);
+      } catch {
+        value = undefined;
+      }
+    }
+    // A read that fails may succeed later, so only one that succeeded is kept.
+    if (value) reads.set(key, value);
+    if (reads.size > 100) reads.delete(reads.keys().next().value!);
+    return value;
+  };
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
@@ -700,36 +722,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         delta,
         syncUndefined: !byField || defaultedOptions.syncUndefined,
       });
-    let defaults: object | undefined;
-    // What a store reads from params, or undefined where creation reads nothing from them.
-    const read = (params: QueryStringParams) => {
-      if (isEmpty(params)) return {};
-      try {
-        return (
-          fromParams(params, (defaults ??= urlDefaults(pathname))) ?? undefined
-        );
-      } catch {
-        return undefined;
-      }
-    };
-    const readAll = (url: Written) => {
-      if (url.read) return url.read[0];
-      if (readsWith !== initialState) {
-        reads.clear();
-        readsWith = initialState as object;
-      }
-      // A URL's search has no line break.
-      const key = `${url.search}\n${pathname}`;
-      const value = reads.get(key) ?? read(parseSearchString(url.search));
-      reads.delete(key);
-      // A read that fails may succeed later, so only one that succeeded is kept.
-      if (value) reads.set(key, value);
-      if (reads.size > 100) reads.delete(reads.keys().next().value!);
-      url.read = [value];
-      return value;
-    };
     // The URL written for each URL state this link compares or writes.
-    const written = new Map<object, Written>();
+    const written = new Map<object, string>();
     const writtenOf = (urlState: object) => {
       let url = written.get(urlState);
       if (!url) written.set(urlState, (url = writeLinkUrl(urlState)));
@@ -740,7 +734,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const alone = (value: unknown) =>
         writeLinkUrl(
           path.reduceRight((field, key) => ({ [key]: field }), value) as object,
-        ).search;
+        );
       try {
         return alone(a) === alone(b);
       } catch {
@@ -768,9 +762,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
     };
     // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
-    const alike = (a: Written, b: Written, path: string[]) => {
-      if (a.search === b.search) return true;
-      const [x, y] = [readAll(a), readAll(b)];
+    const alike = (a: string, b: string, path: string[]) => {
+      if (a === b) return true;
+      const [x, y] = [readLinkUrl(a, pathname), readLinkUrl(b, pathname)];
       if (!x || !y) return false;
       return readAlike(path, getIn(x, path), getIn(y, path));
     };
@@ -788,7 +782,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return {};
       const known = urlStateOf(base, pathname);
       const urlState = next();
-      let nextUrl: Written | undefined;
+      let nextUrl: string | undefined;
       // A class instance can hide its data, so two of them are alike when a store reads them alike from the two whole states' URLs.
       const sameObject = (path: string[], value: object, before: object) => {
         let instances = false;
@@ -826,7 +820,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const link = changed.every(isEmpty)
       ? {}
       : pickFields(clickedUrlState(), changed);
-    return pathname + writtenOf(link).search;
+    return pathname + writtenOf(link);
   };
 
   if (typeof window !== 'undefined') {
