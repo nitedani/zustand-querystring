@@ -480,9 +480,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const ownsNewKeys =
     !standalone || Boolean(defaultedOptions.prefix || defaultedOptions.select);
 
-  const getStateFromUrl = (url: URL, initialState: object) => {
-    const params = parseSearchString(url.search);
-
+  // The URL state the format reads from this store's params, with the defaults as type hints; null when there are none or the one param can't be read.
+  const fromParams = (params: QueryStringParams, initialState: object) => {
     if (standalone) {
       // Standalone mode: filter by prefix and strip it from keys
       let filteredParams = params;
@@ -579,7 +578,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialize = (url: URL, state, instances: 'merge' | 'keep') => {
     try {
-      const stateFromUrl = getStateFromUrl(url, urlDefaults(url.pathname));
+      const stateFromUrl = fromParams(
+        parseSearchString(url.search),
+        urlDefaults(url.pathname),
+      );
       if (!stateFromUrl) {
         return state;
       }
