@@ -288,6 +288,34 @@ const isSameState = (a: unknown, b: unknown) =>
     isInstance(x) || isInstance(y) ? x === y : undefined,
   );
 
+// What a format can see in type hints: each own enumerable field's path and type, with its class for an object and its value otherwise; a cycle's object once.
+const hintsOf = (
+  value: unknown,
+  path: string[] = [],
+  seen = new Set<unknown>(),
+  leaves: unknown[] = [],
+) => {
+  if (isObjectLike(value) && !isDate(value)) {
+    leaves.push([path, Object.getPrototypeOf(value)?.constructor?.name]);
+    if (!seen.has(value)) {
+      seen.add(value);
+      for (const [key, field] of Object.entries(value as object))
+        hintsOf(field, [...path, key], seen, leaves);
+    }
+  } else {
+    leaves.push([
+      path,
+      typeof value,
+      isDate(value)
+        ? value.getTime()
+        : typeof value === 'function'
+          ? ''
+          : String(value),
+    ]);
+  }
+  return leaves;
+};
+
 // The value at a path of own keys, or undefined where the path leaves the objects.
 const getIn = (state: unknown, path: string[]) =>
   path.reduce<unknown>(
@@ -677,18 +705,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return url.search;
   };
 
-  // What the store read from each URL a link compared, by its search and pathname, with the initial state it read with.
+  // What the store read from each URL a link compared, by its search and what a format sees in the defaults it read with.
   // A page's links share the URLs of their bases, which each link reads again and so keeps among the last 100.
   const reads = new Map<string, object>();
   let readsWith: object | undefined;
-  // What a store at pathname reads from a link's search, or undefined where creation reads nothing from it.
-  const readLinkUrl = (search: string, pathname: string) => {
+  // What a store reads from a link's search with the defaults of the link's pathname, or undefined where creation reads nothing from it.
+  const readLinkUrl = (
+    search: string,
+    [defaults, hints]: [defaults: object, hints: string],
+  ) => {
     if (readsWith !== initialState) {
       reads.clear();
       readsWith = initialState as object;
     }
     // A URL's search has no line break.
-    const key = `${search}\n${pathname}`;
+    const key = `${search}\n${hints}`;
     let value = reads.get(key);
     reads.delete(key);
     if (!value) {
@@ -696,7 +727,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       try {
         value = isEmpty(params)
           ? {}
-          : (fromParams(params, urlDefaults(pathname)) ?? undefined);
+          : (fromParams(params, defaults) ?? undefined);
       } catch {
         value = undefined;
       }
@@ -766,10 +797,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         )
       );
     };
+    // The defaults a store at pathname reads with, and what a format sees in them, as the app may have edited them in place.
+    let defaults: [object, string] | undefined;
+    const read = (search: string) => {
+      if (!defaults) {
+        const urlState = urlDefaults(pathname);
+        defaults = [urlState, JSON.stringify(hintsOf(urlState))];
+      }
+      return readLinkUrl(search, defaults);
+    };
     // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
     const alike = (a: string, b: string, path: string[]) => {
       if (a === b) return true;
-      const [x, y] = [readLinkUrl(a, pathname), readLinkUrl(b, pathname)];
+      const [x, y] = [read(a), read(b)];
       if (!x || !y) return false;
       return readAlike(path, getIn(x, path), getIn(y, path));
     };

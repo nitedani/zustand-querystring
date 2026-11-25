@@ -1810,6 +1810,53 @@ describe('href', () => {
   });
 
   it.each([
+    [false, 1, '1', '01', '/list?id.value=01'],
+    ['view', 1, '1', '01', '/list?view=id.value=01'],
+    [
+      false,
+      new Date('2026-01-01T00:00:00.000Z'),
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00Z',
+      '/list?id.value=2026-01-01T00:00:00Z',
+    ],
+    [
+      'view',
+      new Date('2026-01-01T00:00:00.000Z'),
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00Z',
+      '/list?view=id.value=2026-01-01T00:00:00Z',
+    ],
+  ] as const)(
+    'with key %s, the plain format and a map that returns a class instance, writes a passed value a store reads differently once the app edits the initial %o to %o in place',
+    (key, initial, edited, passed, link) => {
+      class Id {
+        constructor(public value: unknown) {}
+      }
+      const options = {
+        key,
+        format: plain,
+        map: {
+          to: ({ id }) => ({ id: new Id(id) }),
+          from: ({ id }) => (id ? { id: (id as Id).value } : {}),
+        },
+      } satisfies Parameters<typeof querystring<{ id: unknown }>>[1];
+      const store = createStore<{ id: unknown }>()(
+        querystring(() => ({ id: initial }), { ...options, url: '/list' }),
+      );
+      store.href('/list', { id: passed });
+      store.getState().id = edited;
+
+      const href = store.href('/list', { id: passed });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      const opened = createStore<{ id: unknown }>()(
+        querystring(() => ({ id: edited }), { ...options, url: href }),
+      );
+      expect(opened.getState().id).toBe(passed);
+    },
+  );
+
+  it.each([
     [false, '/list?date=2026-02-01T00:00:00.000Z'],
     ['view', '/list?view=date=2026-02-01T00:00:00.000Z'],
   ] as const)(
