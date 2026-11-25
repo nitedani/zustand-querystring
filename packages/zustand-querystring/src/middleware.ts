@@ -333,19 +333,6 @@ const deleteIn = (state: Record<string, any>, [key, ...rest]: string[]) => {
   if (!rest.length || isEmpty(inner)) delete state[key];
 };
 
-// A copy of a state's plain objects, arrays and Dates, so an edit in place leaves it as it was; a class instance is kept.
-const snapshot = (value: unknown, copies = new Map<object, object>()) => {
-  if (isDate(value)) return new Date(value.getTime());
-  if (!Array.isArray(value) && !isPlainObject(value)) return value;
-  const source = value as Record<string, unknown>;
-  if (copies.has(source)) return copies.get(source);
-  const copy = Array.isArray(source) ? [] : {};
-  copies.set(source, copy);
-  for (const key of Object.keys(source))
-    setOwn(copy, key, snapshot(source[key], copies));
-  return copy;
-};
-
 // The object without the fields a selection syncs; its other fields and its actions stay.
 const clearSelected = (state: object, selection: object) => {
   const cleared = { ...state };
@@ -703,7 +690,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   // A setDefaults call inside the initializer applies to the state it returns.
   const createState = (setState: typeof set) => {
     const state = fn(setState, get, api);
-    startState = snapshot(state) as typeof state;
+    startState = state;
     initialState = initialState ? withDefaults(state, initialState) : state;
     return state;
   };
