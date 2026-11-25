@@ -1446,10 +1446,10 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 3, 9],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 3, 3],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 5, 0],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 5, 0],
   ] as const)(
-    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading the URLs of the link and its two bases once',
+    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading no URL',
     (key, link, writes, reads) => {
       class Facet {
         constructor(public value: string) {}
@@ -1754,6 +1754,168 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?prices=[1.75]&fractional=true'],
+    ['view', '/list?view={"prices":[1.75],"fractional":true}'],
+  ] as const)(
+    'with key %s and a format that reads an array as class instances, writes the array a link changes where a sibling steers how the format writes it',
+    (key, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Writes whole amounts unless fractional is set, and reads amounts back as prices.
+      const encode = ({ prices, fractional }: Record<string, unknown>) => ({
+        ...(prices === undefined
+          ? {}
+          : {
+              prices: (prices as Price[]).map(({ amount }) =>
+                fractional ? amount : Math.trunc(amount),
+              ),
+            }),
+        ...(fractional === undefined ? {} : { fractional }),
+      });
+      const decode = (state: Record<string, unknown>) =>
+        state.prices === undefined
+          ? state
+          : {
+              ...state,
+              prices: (state.prices as number[]).map(
+                amount => new Price(amount),
+              ),
+            };
+      const options = {
+        key,
+        format: {
+          stringify: state => json.stringify(encode(state)),
+          parse: (value, ctx) => decode(json.parse(value, ctx)),
+          stringifyStandalone: state => json.stringifyStandalone(encode(state)),
+          parseStandalone: (params, ctx) =>
+            decode(json.parseStandalone(params, ctx)),
+        },
+        map: {
+          to: ({ prices, fractional }) => ({
+            prices: prices.map(amount => new Price(amount)),
+            fractional,
+          }),
+          from: ({ prices, fractional }) => ({
+            ...(prices === undefined
+              ? {}
+              : { prices: (prices as Price[]).map(({ amount }) => amount) }),
+            ...(fractional === undefined
+              ? {}
+              : { fractional: fractional as boolean }),
+          }),
+        },
+      } satisfies Parameters<
+        typeof querystring<{ prices: number[]; fractional: boolean }>
+      >[1];
+      const create = (url: string) =>
+        createStore<{ prices: number[]; fractional: boolean }>()(
+          querystring(() => ({ prices: [1], fractional: false }), {
+            ...options,
+            url,
+          }),
+        );
+
+      const href = create('/list').href('/list', {
+        prices: [1.75],
+        fractional: true,
+      });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        prices: [1.75],
+        fractional: true,
+      });
+    },
+  );
+
+  it('with a map that returns new class instances and a reader that returns a circular object, leaves out a current value the link leaves as it is', () => {
+    class Segment {
+      constructor(public id: string) {}
+    }
+    type Read = { parent?: Read; tag?: Segment };
+    // Writes a segment as its id, and reads it back as a record that points to itself.
+    const encode = (state: Record<string, unknown>) =>
+      state.segment === undefined
+        ? state
+        : { ...state, segment: (state.segment as Segment).id };
+    const decode = (state: Record<string, unknown>) => {
+      if (state.segment === undefined) return state;
+      const segment: Read = {};
+      segment.parent = segment;
+      segment.tag = new Segment(state.segment as string);
+      return { ...state, segment };
+    };
+    const create = (url: string) =>
+      createStore<{ segment: string; page: number }>()(
+        querystring(() => ({ segment: 'all', page: 1 }), {
+          url,
+          format: {
+            ...json,
+            stringifyStandalone: state =>
+              json.stringifyStandalone(encode(state)),
+            parseStandalone: (params, ctx) =>
+              decode(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ segment, page }) => ({
+              segment: new Segment(segment),
+              page,
+            }),
+            from: ({ segment, page }) => ({
+              ...(segment === undefined
+                ? {}
+                : { segment: (segment as Read).tag!.id }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+    const store = create('/catalog');
+    store.setState({ segment: 'retail' });
+
+    const href = store.href('/catalog', { page: 2 });
+    expect(href).toBe('/catalog?page=2');
+    expect(create(href).getState()).toStrictEqual({ segment: 'all', page: 2 });
+  });
+
+  it("with a map that returns new class instances, leaves out a current value in a param of its own when the format's reader rejects the current state", () => {
+    class Search {
+      constructor(public id: string) {}
+    }
+    // Page 1 is the default, which the store never writes.
+    const create = (url: string) =>
+      createStore<{ search: string; page: number }>()(
+        querystring(() => ({ search: '', page: 1 }), {
+          url,
+          format: {
+            ...json,
+            parseStandalone: (params, ctx) => {
+              const state = json.parseStandalone(params, ctx);
+              if (state.page === 1) throw new Error('page 1 is implicit');
+              return state;
+            },
+          },
+          map: {
+            to: ({ search, page }) => ({ search: new Search(search), page }),
+            from: ({ search, page }) => ({
+              ...(search === undefined
+                ? {}
+                : { search: (search as Search).id }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+    const store = create('/search');
+    store.setState({ search: 'private search' });
+
+    const href = store.href('/search', { page: 2 });
+    expect(href).toBe('/search?page=2');
+    expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+  });
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {
@@ -1813,7 +1975,7 @@ describe('href', () => {
     [false, '/list?color=.value=red&size=.value=red&page=:3'],
     ['view', '/list?view=color.value=red~,size.value=red~,page:3'],
   ] as const)(
-    "with key %s and a map that returns new class instances, reads each URL the format's reader rejects once per link",
+    "with key %s and a map that returns new class instances, writes a link without reading a URL the format's reader rejects",
     (key, link) => {
       class Facet {
         constructor(public value: string) {}
@@ -1862,8 +2024,7 @@ describe('href', () => {
           store.href('/list', { ...store.getState(), page: 3 }),
         ),
       ).toBe(link);
-      // The current state's URL and the start state's URL each carry page 1.
-      expect(rejected).toBe(2);
+      expect(rejected).toBe(0);
     },
   );
 

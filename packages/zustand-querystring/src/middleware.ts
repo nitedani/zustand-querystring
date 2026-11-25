@@ -298,6 +298,28 @@ const getIn = (state: unknown, path: string[]) =>
     state,
   );
 
+// A copy of state with value at a path of own keys, copying the objects along it.
+const setIn = (
+  state: Record<string, any>,
+  [key, ...rest]: string[],
+  value: unknown,
+): object => {
+  const copy = { ...state };
+  setOwn(
+    copy,
+    key,
+    rest.length ? setIn(getOwn(state, key), rest, value) : value,
+  );
+  return copy;
+};
+
+// Deletes the field at a path of own keys, and each object that leaves empty.
+const deleteIn = (state: Record<string, any>, [key, ...rest]: string[]) => {
+  const inner = getOwn(state, key);
+  if (rest.length) deleteIn(inner, rest);
+  if (!rest.length || isEmpty(inner)) delete state[key];
+};
+
 // The object without the fields a selection syncs; its other fields and its actions stay.
 const clearSelected = (state: object, selection: object) => {
   const cleared = { ...state };
@@ -699,66 +721,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (!url) written.set(urlState, (url = writeLinkUrl(urlState)));
       return url;
     };
-    // Two class values are alike when the format writes them alike as the one field of a state, and not where it can't write one alone.
-    const writesAlike = (path: string[], a: unknown, b: unknown) => {
-      const alone = (value: unknown) =>
-        writeLinkUrl(
-          path.reduceRight((field, key) => ({ [key]: field }), value) as object,
-        );
-      try {
-        return alone(a) === alone(b);
-      } catch {
-        return false;
-      }
-    };
-    // Two read values are alike when equal as data, where two class instances, or two arrays equal but for theirs, may also be written alike whole.
-    const readAlike = (path: string[], p: unknown, q: unknown): boolean => {
-      if (isSameState(p, q)) return true;
-      if (isInstance(p) && isInstance(q)) return writesAlike(path, p, q);
-      if (Array.isArray(p) && Array.isArray(q)) {
-        let instances = false;
-        const equal = isEqualWith(p, q, (a, b) => {
-          if (!isInstance(a) && !isInstance(b)) return undefined;
-          instances = true;
-          return true;
-        });
-        return equal && instances && writesAlike(path, p, q);
-      }
-      if (!isPlainObject(p) || !isPlainObject(q)) return false;
-      const [a, b] = [p, q] as Record<string, unknown>[];
-      const keys = Object.keys(a);
-      return (
-        keys.length === Object.keys(b).length &&
-        keys.every(
-          key =>
-            Object.prototype.hasOwnProperty.call(b, key) &&
-            readAlike([...path, key], a[key], b[key]),
-        )
-      );
-    };
-    // What a store at pathname reads from each URL this link compares, or undefined where creation reads nothing from it.
-    const reads = new Map<string, object | undefined>();
-    const read = (search: string) => {
-      if (reads.has(search)) return reads.get(search);
-      const params = parseSearchString(search);
-      let value: object | undefined;
-      try {
-        value = isEmpty(params)
-          ? {}
-          : (fromParams(params, urlDefaults(pathname)) ?? undefined);
-      } catch {
-        value = undefined;
-      }
-      reads.set(search, value);
-      return value;
-    };
-    // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
-    const alike = (a: string, b: string, path: string[]) => {
-      if (a === b) return true;
-      const [x, y] = [read(a), read(b)];
-      if (!x || !y) return false;
-      return readAlike(path, getIn(x, path), getIn(y, path));
-    };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
     const changes = (base: object, followed: object, next: () => object) => {
@@ -773,8 +735,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return {};
       const known = urlStateOf(base, pathname);
       const urlState = next();
-      let nextUrl: string | undefined;
-      // A class instance can hide its data, so two of them are alike when a store reads them alike from the two whole states' URLs.
+      // The paths where the two differ and hold distinct class instances.
+      const swaps: string[][] = [];
       const sameObject = (path: string[], value: object, before: object) => {
         let instances = false;
         const equal = isEqualWith(value, before, (a, b) => {
@@ -782,13 +744,33 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           if (a !== b) instances = true;
           return a === b;
         });
-        if (equal || !instances) return equal;
-        nextUrl ??= writtenOf(
-          byField ? urlStateOf(follow(base, false), pathname) : urlState,
-        );
-        return alike(nextUrl, writtenOf(known), path);
+        if (!equal && instances) swaps.push(path);
+        return equal;
       };
-      return changedFields(urlState, known, byField, sameObject);
+      const changed = changedFields(urlState, known, byField, sameObject);
+      if (!swaps.length) return changed;
+      // A class instance can hide its data, so it is alike when the follower written whole with the base's value in its place writes the same search.
+      const whole = byField
+        ? urlStateOf(follow(base, false), pathname)
+        : urlState;
+      const search = writtenOf(whole);
+      const writesAlike = (paths: string[][]) => {
+        try {
+          const swapped = paths.reduce(
+            (state, path) => setIn(state, path, getIn(known, path)),
+            whole,
+          );
+          return writeLinkUrl(swapped) === search;
+        } catch {
+          return false;
+        }
+      };
+      const alike =
+        swaps.length > 1 && writesAlike(swaps)
+          ? swaps
+          : swaps.filter(path => writesAlike([path]));
+      for (const path of alike) deleteIn(changed, path);
+      return changed;
     };
     const clicked = follow(live);
     let values: object | undefined;
