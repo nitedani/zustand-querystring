@@ -2462,6 +2462,29 @@ describe('navigation', () => {
     expect(panel.label()).toBe('Panel:0');
   });
 
+  it('sets a plain object from another realm, as from an iframe', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const defaults = (frame.contentWindow as typeof window).eval(
+      '({ status: "all" })',
+    );
+    const useStore = create<{ filter: { status: string } }>()(
+      querystring(() => ({ filter: defaults })),
+    );
+    const statuses: string[] = [];
+    const unsubscribe = useStore.subscribe(state =>
+      statuses.push(state.filter.status),
+    );
+
+    window.history.pushState({}, '', '/list?filter=.status=paid');
+    await settle();
+    unsubscribe();
+    frame.remove();
+
+    expect(statuses).toStrictEqual(['paid']);
+    expect(defaults.status).toBe('all');
+  });
+
   it('sets the class instance map.from returns', async () => {
     class Panel {
       #id: number;

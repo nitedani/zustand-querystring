@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createContext, runInContext } from 'node:vm';
 import { createStore } from 'zustand/vanilla';
 import {
   compact,
@@ -707,6 +708,29 @@ describe('url option', () => {
     );
 
     expect(store.getState().filter).toBe(filter);
+  });
+
+  it('reads a plain object from another realm, as from an iframe, as a plain object', () => {
+    const realm = createContext();
+    const defaults = runInContext('({ status: "all" })', realm);
+    const filtered = createStore<{ filter: { status: string } }>()(
+      querystring(() => ({ filter: defaults }), {
+        url: '/list?filter=.status=paid',
+      }),
+    );
+    const selected = createStore<{
+      filters: { search?: string; localSort: string };
+    }>()(
+      querystring(() => ({ filters: { search: 'acme', localSort: 'name' } }), {
+        url: '/list?filters=.',
+        select: () => runInContext('({ filters: { search: true } })', realm),
+      }),
+    );
+
+    expect(filtered.getState().filter.status).toBe('paid');
+    expect(filtered.getState().filter).not.toBe(defaults);
+    expect(defaults.status).toBe('all');
+    expect(selected.getState().filters).toStrictEqual({ localSort: 'name' });
   });
 });
 

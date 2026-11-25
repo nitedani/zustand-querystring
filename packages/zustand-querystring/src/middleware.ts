@@ -5,6 +5,7 @@ import {
   isEqualWith,
   isMap,
   isObjectLike,
+  isPlainObject,
   isRegExp,
   isSet,
   isTypedArray,
@@ -18,7 +19,7 @@ import type {
   QueryStringFormatFor,
   QueryStringParams,
 } from './format/types.js';
-import { getOwn, isPlainObject, setOwn } from './own.js';
+import { getOwn, setOwn } from './own.js';
 
 export type {
   ParseContext,
@@ -127,7 +128,14 @@ export const compact = (
       (syncNull || newValue !== null) &&
       (syncUndefined || newValue !== undefined)
     ) {
-      if (isPlainObject(newValue) && isForced) {
+      const isPlainObject =
+        typeof newValue === 'object' &&
+        newValue !== null &&
+        newValue !== undefined &&
+        !Array.isArray(newValue) &&
+        newValue.constructor === Object;
+
+      if (isPlainObject && isForced) {
         const fields = compact(
           newValue,
           {},
@@ -140,7 +148,7 @@ export const compact = (
           output[key] = fields;
         }
       } else if (
-        isPlainObject(newValue) &&
+        isPlainObject &&
         initialValue &&
         typeof initialValue === 'object'
       ) {
