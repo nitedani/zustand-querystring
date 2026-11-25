@@ -685,17 +685,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // Inside the initializer there is no state yet, so a link starts from none.
     const live = (get() ?? {}) as object;
     const start = startState ?? live;
+    // Without a map the store reads a plain object field by field, so only the passed fields can reach the link; a map reads a URL key whole.
+    const byField = !map;
     // The state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
-    const follow = (base: object, delta: boolean) =>
+    const follow = (base: object, delta = byField) =>
       applyState(base, passed, pathname, { instances: 'read', delta });
     // A whole URL state as the format reads it back from the params it writes for it.
     const readBack = (urlState: object): object =>
       fromParams(toParams(synced(urlState)), urlDefaults(pathname)) ?? {};
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
-    // The URL state after a store at base follows the link, and what it changes there. Without a map the store reads a plain object field by field; a map reads a URL key whole.
-    const changes = (base: object) => {
-      // Without a map only the passed fields can reach the link.
-      const followed = follow(base, !map);
+    // What a store at base sees change in its URL state when following the link takes it to followed.
+    const changes = (base: object, followed: object) => {
       // A state whose fields all stay alike projects alike, so it changes nothing.
       if (
         Object.keys(followed).every(
@@ -704,7 +704,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
             isSameState(followed[key], base[key]),
         )
       )
-        return [undefined, {}] as const;
+        return {};
       const next = urlStateOf(followed, pathname);
       const prev = urlStateOf(base, pathname);
       // A class instance can hide its data, so two of them are alike when the format reads them back alike from the two whole states.
@@ -718,24 +718,22 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         });
         if (equal || !instances) return equal;
         read ??= [
-          map ? next : urlStateOf(follow(base, false), pathname),
+          byField ? urlStateOf(follow(base, false), pathname) : next,
           prev,
         ].map(readBack);
         const [a, b] = read.map(state => getIn(state, path));
         return a !== undefined && isSameState(a, b);
       };
-      return [next, changedFields(next, prev, !map, sameObject)] as const;
+      return changedFields(next, prev, byField, sameObject);
     };
-    const [target, clicked] = changes(live);
-    const changed = [clicked];
-    if (start !== live) changed.push(changes(start)[1]);
+    const clicked = follow(live);
+    const changed = [changes(live, clicked)];
+    if (start !== live) changed.push(changes(start, follow(start)));
     // A key a URL set inside a class instance is written whenever it is passed.
-    if (!map)
+    if (byField)
       changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
     // Written with the click's values: a map packing fields into one param keeps those not passed.
-    const values =
-      target ??
-      (changed.every(isEmpty) ? {} : urlStateOf(follow(live, !map), pathname));
+    const values = changed.every(isEmpty) ? {} : urlStateOf(clicked, pathname);
     return pathname + urlOf(synced(pickFields(values, changed))).search;
   };
 
