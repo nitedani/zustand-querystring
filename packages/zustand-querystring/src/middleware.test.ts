@@ -778,13 +778,19 @@ describe('href', () => {
         url: '/results?n=:2',
         select: pathname => ({ count: true, hidden: pathname === '/admin' }),
         map: {
-          to: state => ({ n: state.count }),
-          from: urlState => ({ count: urlState.n as number }),
+          to: state => ({ n: state.count, hidden: state.hidden }),
+          from: ({ n, hidden }) => ({
+            ...(n === undefined ? {} : { count: n as number }),
+            ...(hidden === undefined ? {} : { hidden: hidden as number }),
+          }),
         },
       }),
     );
 
     expect(store.href('/results', { hidden: 7 })).toBe('/results');
+    expect(decodeURIComponent(store.href('/admin', { hidden: 7 }))).toBe(
+      '/admin?hidden=:7',
+    );
     expect(decodeURIComponent(store.href('/results', { count: 0 }))).toBe(
       '/results?n=:0',
     );
