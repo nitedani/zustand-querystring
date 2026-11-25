@@ -288,19 +288,6 @@ const isSameState = (a: unknown, b: unknown) =>
     isInstance(x) || isInstance(y) ? x === y : undefined,
   );
 
-// Deep equality where two instances of one class compare by their own data, and any other pair holding an instance is alike.
-const sameData = (a: unknown, b: unknown) =>
-  isEqualWith(a, b, (x, y) =>
-    (isInstance(x) || isInstance(y)) &&
-    !(
-      isInstance(x) &&
-      isInstance(y) &&
-      Object.getPrototypeOf(x) === Object.getPrototypeOf(y)
-    )
-      ? true
-      : undefined,
-  );
-
 // The value at a path of own keys, or undefined where the path leaves the objects.
 const getIn = (state: unknown, path: string[]) =>
   path.reduce<unknown>(
@@ -746,7 +733,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return {};
       const known = urlStateOf(base, pathname);
       const urlState = next();
-      // The paths where the two differ only by distinct class instances, as far as their own data tell.
+      // The paths where the two differ and hold distinct class instances.
       const swaps: string[][] = [];
       const sameObject = (path: string[], value: object, before: object) => {
         let instances = false;
@@ -755,7 +742,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           if (a !== b) instances = true;
           return a === b;
         });
-        if (!equal && instances && sameData(value, before)) swaps.push(path);
+        if (!equal && instances) swaps.push(path);
         return equal;
       };
       const changed = changedFields(urlState, known, byField, sameObject);

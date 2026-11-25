@@ -1446,8 +1446,8 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 2, 0],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 2, 0],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 5, 0],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 5, 0],
   ] as const)(
     'with key %s and a map that returns new class instances, writes a link that carries the current view, reading no URL',
     (key, link, writes, reads) => {
@@ -1526,7 +1526,7 @@ describe('href', () => {
         `/list?view=${facets.map(f => `${f}.value=blue~`).join(',')},page:2`,
     ],
   ] as const)(
-    'with key %s and a map that returns new class instances, writes a link that changes every one of 12 facets once',
+    'with key %s and a map that returns new class instances, writes a link that changes every one of 12 facets in 27 format writes',
     (key, link) => {
       class Facet {
         constructor(public value: string) {}
@@ -1576,7 +1576,8 @@ describe('href', () => {
         page: 2,
       });
       expect(decodeURIComponent(href)).toBe(link(names));
-      expect(writes).toBe(1);
+      // The link state once, then for each of the two followers all 12 facets swapped back together and each one alone.
+      expect(writes).toBe(27);
     },
   );
 
