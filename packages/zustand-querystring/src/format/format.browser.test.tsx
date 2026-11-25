@@ -3025,6 +3025,26 @@ describe('href', () => {
     }
   });
 
+  it('links a value a navigation set in a class instance state', async () => {
+    class Filter {
+      rating = 0;
+    }
+    const createFilterStore = () =>
+      create<Filter>()(querystring(() => new Filter()));
+    window.history.replaceState({}, '', '/list');
+    const useStore = createFilterStore();
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/list?rating=:4');
+    await expect.poll(() => useStore.getState().rating).toBe(4);
+    const href = useStore.href('/list', { rating: useStore.getState().rating });
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?rating=:4');
+    window.history.replaceState({}, '', href);
+    expect(createFilterStore().getState().rating).toBe(4);
+  });
+
   it('clears an object filter whose initial value is empty', async () => {
     const useStore = create<{ filters: { query?: string } }>()(
       querystring(() => ({ filters: {} })),

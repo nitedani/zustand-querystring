@@ -587,7 +587,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       },
     );
 
-  // The URL keys under which creation's URL was written into a class instance: their value from before is gone, so they never count as unchanged.
+  // The URL keys under which a URL was written into a class instance, at creation or into the state by a navigation: their value from before is gone, so they never count as unchanged.
   let urlSetKeys: string[] = [];
 
   const initialize = (url: URL, state, instances: 'merge' | 'keep') => {
@@ -606,8 +606,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         inPlace,
       });
       // With a map the URL keys behind an instance aren't known, so all the URL's keys count.
-      if (instances === 'merge' && inPlace.size > 0) {
-        urlSetKeys = map ? Object.keys(stateFromUrl) : Array.from(inPlace);
+      if (inPlace.size > 0) {
+        urlSetKeys = Array.from(
+          new Set([
+            ...urlSetKeys,
+            ...(map ? Object.keys(stateFromUrl) : Array.from(inPlace)),
+          ]),
+        );
       }
       return merged;
     } catch (error) {
@@ -725,7 +730,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       link = pickFields(target, changed);
       changed = diff();
     }
-    // A key the creation URL set inside a class instance is written whenever it is passed.
+    // A key a URL set inside a class instance is written whenever it is passed.
     if (!map)
       changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
     // Written with the click's values: a map packing fields into one param keeps those not passed.
