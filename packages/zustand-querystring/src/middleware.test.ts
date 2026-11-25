@@ -1573,6 +1573,33 @@ describe('href', () => {
     expect(store.getState().paidHref).toBe('/list?status=paid');
   });
 
+  it.each([
+    ['marked', false, marked],
+    ['marked', 'view', marked],
+    ['plain', false, plain],
+    ['plain', 'view', plain],
+  ] as const)(
+    '%s with key %s: leaves out an object whose passed fields are all undefined, without syncUndefined',
+    (_, key, format) => {
+      const create = (url: string) =>
+        createStore<{ filter: { search?: string; sort: string } }>()(
+          querystring(() => ({ filter: { search: 'all', sort: 'date' } }), {
+            url,
+            key,
+            format,
+          }),
+        );
+      const store = create('/list');
+      store.setState({ filter: { search: 'paid', sort: 'name' } });
+
+      expect(store.href('/target', { filter: { search: undefined } })).toBe(
+        '/target',
+      );
+      const cleared = store.href('/target', { filter: {} });
+      expect(create(cleared).getState().filter).toStrictEqual({});
+    },
+  );
+
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
       querystring(() => ({ inner: { v: 'x', w: 'x' } }), { url: '/a' }),

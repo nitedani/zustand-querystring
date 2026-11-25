@@ -470,16 +470,16 @@ const mergeUrlState = (
           ? current
           : {};
       if (instances === 'keep' && !isPlainObject(into)) continue;
-      write(
-        key,
-        merge(
-          into,
-          value,
-          isPlainObject(selected) ? selected : true,
-          valueKeys!,
-          top ?? key,
-        ),
+      const fields = merge(
+        into,
+        value,
+        isPlainObject(selected) ? selected : true,
+        valueKeys!,
+        top ?? key,
       );
+      // An object none of whose fields is applied carries nothing, unless it is empty.
+      if (delta && isEmpty(fields) && !isEmptyObject) continue;
+      write(key, fields);
     }
     return merged;
   };
