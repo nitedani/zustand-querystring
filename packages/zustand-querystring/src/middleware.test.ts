@@ -1193,6 +1193,52 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns new class instances, leaves out a current value the format reads back as a new class instance',
+    (key, link) => {
+      class Phrase {
+        constructor(public value: string) {}
+      }
+      const typed = (state: object) =>
+        'search' in state
+          ? { ...state, search: new Phrase((state.search as Phrase).value) }
+          : state;
+      const format = {
+        ...json,
+        parse: (value: string, ctx?: ParseContext) =>
+          typed(json.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => typed(json.parseStandalone(params, ctx)),
+      };
+      const create = (url: string) =>
+        createStore<{ search: string; page: number }>()(
+          querystring(() => ({ search: '', page: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: state => ({ ...state, search: new Phrase(state.search) }),
+              from: ({ search, ...state }) => ({
+                ...state,
+                ...(search ? { search: (search as Phrase).value } : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ search: 'acme' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+    },
+  );
+
   it('leaves out a passed class value in a nested field that equals the current and the initial one', () => {
     class Range {
       constructor(public max: number) {}

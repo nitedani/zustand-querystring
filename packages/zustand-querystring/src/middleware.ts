@@ -764,12 +764,28 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       known.set(b, reads);
       return reads;
     };
+    // Two class values are alike when the format writes them alike as the one field of a state, and not where it can't write one alone.
+    const writesAlike = (path: string[], a: unknown, b: unknown) => {
+      const alone = (value: unknown) =>
+        writeUrl(
+          path.reduceRight((field, key) => ({ [key]: field }), value) as object,
+        ).search;
+      try {
+        return alone(a) === alone(b);
+      } catch {
+        return false;
+      }
+    };
     // Whether a store reads the field at path alike from two URLs, or from neither; a URL it reads nothing from changes it.
     const alike = (a: Written, b: Written, path: string[]) => {
       const [x, y] = readBoth(a, b);
       if (!x || !y) return false;
       const [p, q] = [getIn(x, path), getIn(y, path)];
-      return p === undefined ? q === undefined : isSameState(p, q);
+      if (p === undefined || q === undefined) return p === q;
+      return (
+        isSameState(p, q) ||
+        (isInstance(p) && isInstance(q) && writesAlike(path, p, q))
+      );
     };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
