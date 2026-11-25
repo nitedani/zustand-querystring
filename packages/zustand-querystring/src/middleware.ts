@@ -563,11 +563,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     state,
     storeState,
     pathname: string,
-    {
-      instances = 'merge' as Instances,
-      inPlace = undefined as Set<string> | undefined,
-      delta = false,
-    } = {},
+    options: { instances: Instances; inPlace?: Set<string>; delta?: boolean },
   ) =>
     mergeUrlState(
       state,
@@ -575,12 +571,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       defaultedOptions.select
         ? (defaultedOptions.select(pathname) as object)
         : true,
-      {
-        instances,
-        inPlace,
-        delta,
-        syncUndefined: defaultedOptions.syncUndefined,
-      },
+      { ...options, syncUndefined: defaultedOptions.syncUndefined },
     );
 
   // The URL keys under which a URL was written into a class instance, at creation or into the state by a navigation: their value from before is gone, so they never count as unchanged.
