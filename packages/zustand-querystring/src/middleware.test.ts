@@ -1637,6 +1637,60 @@ describe('href', () => {
     expect(writes).toBe(1);
   });
 
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns an array of class instances, leaves out the array a link does not change',
+    (key, link) => {
+      class Tag {
+        constructor(public name: string) {}
+        toJSON() {
+          return this.name;
+        }
+      }
+      // Writes the tags as their names, which it reads back as new tags.
+      const encode = (state: object) =>
+        'tags' in state
+          ? { ...state, tags: (state.tags as Tag[]).map(tag => tag.toJSON()) }
+          : state;
+      const decode = (state: object) =>
+        'tags' in state
+          ? {
+              ...state,
+              tags: (state.tags as string[]).map(name => new Tag(name)),
+            }
+          : state;
+      const store = createStore<{ tags: string[]; page: number }>()(
+        querystring(() => ({ tags: [], page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            stringify: state => json.stringify(encode(state)),
+            parse: (value, ctx) => decode(json.parse(value, ctx)),
+            stringifyStandalone: state =>
+              json.stringifyStandalone(encode(state)),
+            parseStandalone: (params, ctx) =>
+              decode(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ tags, page }) => ({
+              tags: tags.map(name => new Tag(name)),
+              page,
+            }),
+            from: ({ tags, page }) => ({
+              ...(tags ? { tags: (tags as Tag[]).map(tag => tag.name) } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ tags: ['private'] });
+
+      expect(decodeURIComponent(store.href('/list', { page: 2 }))).toBe(link);
+    },
+  );
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {
