@@ -38,7 +38,8 @@ type WithQueryString<S, T> = Write<
   {
     setDefaults: (partial: Partial<T>) => void;
     /**
-     * A URL for `pathname` with the initial state plus the fields of `state` that `select` syncs there. It leaves out the rest of the current state, though a custom `map` can write current values of fields you didn't pass.
+     * A URL for `pathname` with the initial state plus the fields of `state` that `select` syncs there. It leaves out the rest of the current state, though a custom `map` can write current values of fields you didn't pass in a param the link changes.
+     * A passed value equal to the initial state is written only when the current value differs.
      * Following the link applies the values in its query. To carry the current view, spread the current state: `href(pathname, { ...state, page: 2 })`.
      */
     href: (pathname: string, state?: Partial<T>) => string;
@@ -643,7 +644,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     initialState = withDefaults(initialState, partial);
   };
 
-  // What the store starts with on a URL that carries none of its params.
+  // What the store starts with on a URL that carries none of its params, except inside a class instance a URL wrote into (urlSetKeys).
   let startState: ReturnType<typeof fn>;
 
   // A setDefaults call inside the initializer applies to the state it returns.

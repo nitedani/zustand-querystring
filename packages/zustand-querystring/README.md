@@ -214,13 +214,13 @@ const paid = useStore(() => useStore.href('/customers', { status: 'paid' }));
 // paid: /customers?status=paid
 ```
 
-A click sets `status` to `'paid'` and keeps `page: 3` and `search: 'acme'`. A new tab opens `/customers?status=paid` with `status: 'paid'`, `page: 1` and an empty search. To clear a filter on a click, pass its initial value: `useStore.href('/customers', { status: 'all' })` gives `/customers?status=all`.
+A click sets `status` to `'paid'` and keeps `page: 3` and `search: 'acme'`. A new tab opens `/customers?status=paid` with `status: 'paid'`, `page: 1` and an empty search. To clear a filter on a click, pass its initial value: `useStore.href('/customers', { status: 'all' })` gives `/customers?status=all`. A passed initial value is written only when the current value differs: while `status` is `'all'`, the same call gives `/customers`.
 
 `href` uses [`select`](#select) for the target pathname. If `search` is enabled only on `/search`, a link to `/customers` leaves it out.
 
 ### Links with a packing map
 
-A `map` that packs `status` and `page` into one param `q` makes the link write the whole param, so it carries the current `page` you didn't pass:
+A `map` that packs `status` and `page` into one param `q` makes the link write the whole param when it changes, so it carries the current `page` you didn't pass. A param the link doesn't change, like `search`, stays out:
 
 ```ts
 const useStore = create<{ status: string; page: number; search: string }>()(
