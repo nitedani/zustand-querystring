@@ -1239,6 +1239,70 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns a class instance inside an object, leaves out a current value the format reads back as a new class instance',
+    (key, link) => {
+      class Phrase {
+        #text;
+        constructor(text: string) {
+          this.#text = text;
+        }
+        toJSON() {
+          return this.#text;
+        }
+      }
+      type Filter = { query: Phrase };
+      const typed = (state: { filter?: Filter }) =>
+        state.filter
+          ? {
+              ...state,
+              filter: {
+                ...state.filter,
+                query: new Phrase(state.filter.query as unknown as string),
+              },
+            }
+          : state;
+      const format = {
+        ...json,
+        parse: (value: string, ctx?: ParseContext) =>
+          typed(json.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => typed(json.parseStandalone(params, ctx)),
+      };
+      const create = (url: string) =>
+        createStore<{ search: string; page: number }>()(
+          querystring(() => ({ search: '', page: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ search, page }) => ({
+                filter: { query: new Phrase(search) },
+                page,
+              }),
+              from: ({ filter, ...state }) => ({
+                ...state,
+                ...(filter
+                  ? { search: (filter as Filter).query.toJSON() }
+                  : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ search: 'acme' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+    },
+  );
+
   it('leaves out a passed class value in a nested field that equals the current and the initial one', () => {
     class Range {
       constructor(public max: number) {}

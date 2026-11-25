@@ -747,17 +747,33 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return false;
       }
     };
+    // Two read values are alike when equal as data, where a pair of class instances at any depth may also be written alike.
+    const readAlike = (path: string[], p: unknown, q: unknown): boolean => {
+      if (isSameState(p, q)) return true;
+      if (isInstance(p) && isInstance(q)) return writesAlike(path, p, q);
+      if (
+        !(Array.isArray(p)
+          ? Array.isArray(q)
+          : isPlainObject(p) && isPlainObject(q))
+      )
+        return false;
+      const [a, b] = [p, q] as Record<string, unknown>[];
+      const keys = Object.keys(a);
+      return (
+        keys.length === Object.keys(b).length &&
+        keys.every(
+          key =>
+            Object.prototype.hasOwnProperty.call(b, key) &&
+            readAlike([...path, key], a[key], b[key]),
+        )
+      );
+    };
     // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
     const alike = (a: Written, b: Written, path: string[]) => {
       if (a.search === b.search) return true;
       const [x, y] = [readAll(a), readAll(b)];
       if (!x || !y) return false;
-      const [p, q] = [getIn(x, path), getIn(y, path)];
-      if (p === undefined || q === undefined) return p === q;
-      return (
-        isSameState(p, q) ||
-        (isInstance(p) && isInstance(q) && writesAlike(path, p, q))
-      );
+      return readAlike(path, getIn(x, path), getIn(y, path));
     };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
