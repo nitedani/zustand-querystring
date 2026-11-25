@@ -799,12 +799,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
     // The defaults a store at pathname reads with, and what a format sees in them, as the app may have edited them in place.
     let defaults: [object, string] | undefined;
+    // A URL the store reads nothing from reads so for the rest of this link.
+    const unread = new Set<string>();
     const read = (search: string) => {
+      if (unread.has(search)) return undefined;
       if (!defaults) {
         const urlState = urlDefaults(pathname);
         defaults = [urlState, JSON.stringify(hintsOf(urlState))];
       }
-      return readLinkUrl(search, defaults);
+      const value = readLinkUrl(search, defaults);
+      if (!value) unread.add(search);
+      return value;
     };
     // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
     const alike = (a: string, b: string, path: string[]) => {

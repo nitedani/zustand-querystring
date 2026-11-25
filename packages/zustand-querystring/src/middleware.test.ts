@@ -1810,6 +1810,64 @@ describe('href', () => {
   });
 
   it.each([
+    [false, '/list?color=.value=red&size=.value=red&page=:3'],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3'],
+  ] as const)(
+    "with key %s and a map that returns new class instances, reads each URL the format's reader rejects once per link",
+    (key, link) => {
+      class Facet {
+        constructor(public value: string) {}
+      }
+      let rejected = 0;
+      // Page 1 is the default, which the store never writes.
+      const check = (state: Record<string, unknown>) => {
+        if (state.page !== 1) return state;
+        rejected++;
+        throw new Error('page 1 is implicit');
+      };
+      const store = createStore<{
+        color: string;
+        size: string;
+        page: number;
+      }>()(
+        querystring(() => ({ color: 'all', size: 'all', page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            ...marked,
+            parse: (value, ctx) => check(marked.parse(value, ctx)),
+            parseStandalone: (params, ctx) =>
+              check(marked.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ color, size, page }) => ({
+              color: new Facet(color),
+              size: new Facet(size),
+              page,
+            }),
+            from: ({ color, size, page }) => ({
+              ...(color ? { color: (color as Facet).value } : {}),
+              ...(size ? { size: (size as Facet).value } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ color: 'red', size: 'red' });
+      store.href('/list', { ...store.getState(), page: 2 });
+      rejected = 0;
+
+      expect(
+        decodeURIComponent(
+          store.href('/list', { ...store.getState(), page: 3 }),
+        ),
+      ).toBe(link);
+      // The current state's URL and the start state's URL each carry page 1.
+      expect(rejected).toBe(2);
+    },
+  );
+
+  it.each([
     [false, 1, '1', '01', '/list?id.value=01'],
     ['view', 1, '1', '01', '/list?view=id.value=01'],
     [
