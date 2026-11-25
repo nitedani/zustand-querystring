@@ -1446,8 +1446,8 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 5, 0],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 5, 0],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 2, 0],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 2, 0],
   ] as const)(
     'with key %s and a map that returns new class instances, writes a link that carries the current view, reading no URL',
     (key, link, writes, reads) => {
@@ -1511,6 +1511,72 @@ describe('href', () => {
         ),
       ).toBe(link);
       expect(counts).toStrictEqual({ writes, reads });
+    },
+  );
+
+  it.each([
+    [
+      false,
+      (facets: string[]) =>
+        `/list?${facets.map(f => `${f}=.value=blue`).join('&')}&page=:2`,
+    ],
+    [
+      'view',
+      (facets: string[]) =>
+        `/list?view=${facets.map(f => `${f}.value=blue~`).join(',')},page:2`,
+    ],
+  ] as const)(
+    'with key %s and a map that returns new class instances, writes a link that changes every one of 12 facets once',
+    (key, link) => {
+      class Facet {
+        constructor(public value: string) {}
+      }
+      const names = Array.from({ length: 12 }, (_, i) => `facet${i}`);
+      let writes = 0;
+      const store = createStore<Record<string, string | number>>()(
+        querystring(
+          () => ({
+            ...Object.fromEntries(names.map(name => [name, 'all'])),
+            page: 1,
+          }),
+          {
+            url: '/list',
+            key,
+            format: {
+              ...marked,
+              stringify: state => (writes++, marked.stringify(state)),
+              stringifyStandalone: state => (
+                writes++, marked.stringifyStandalone(state)
+              ),
+            },
+            map: {
+              to: state =>
+                Object.fromEntries(
+                  Object.entries(state).map(([name, value]) => [
+                    name,
+                    name === 'page' ? value : new Facet(value as string),
+                  ]),
+                ),
+              from: urlState =>
+                Object.fromEntries(
+                  Object.entries(urlState).map(([name, value]) => [
+                    name,
+                    name === 'page' ? value : (value as Facet).value,
+                  ]),
+                ),
+            },
+          },
+        ),
+      );
+      store.setState(Object.fromEntries(names.map(name => [name, 'red'])));
+      writes = 0;
+
+      const href = store.href('/list', {
+        ...Object.fromEntries(names.map(name => [name, 'blue'])),
+        page: 2,
+      });
+      expect(decodeURIComponent(href)).toBe(link(names));
+      expect(writes).toBe(1);
     },
   );
 
