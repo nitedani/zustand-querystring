@@ -193,7 +193,7 @@ Type handling:
 
 `useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still write them ([below](#links-with-a-packing-map)).
 
-Navigate to the link on the client, with your router's `Link` or `router.push(href)`: the store follows the navigation while something subscribes to it, like a component that uses it (see [How State Syncs](#how-state-syncs)). Call `href` in a selector, so the link updates when the state changes. To carry the current view, spread the current state into `state` and override the fields that change:
+Call `href` in a selector so the link updates with the store, then pass it to your router's `Link` or `router.push` ([How State Syncs](#how-state-syncs)). To carry the current view, spread it and override the fields that change:
 
 ```tsx
 const useStore = create<{ status: string; page: number; search: string }>()(
