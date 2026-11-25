@@ -2013,6 +2013,39 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?category=color&color=:2'],
+    ['view', '/list?view=category=color,color:2'],
+  ] as const)(
+    'with key %s and a map whose reader takes a param name from another param, writes that param with a passed value',
+    (key, link) => {
+      // Writes the amount under the name of its category, which it reads first.
+      const create = (url: string) =>
+        createStore<{ category: string; amount: number }>()(
+          querystring(() => ({ category: 'color', amount: 1 }), {
+            url,
+            key,
+            map: {
+              to: ({ category, amount }) => ({ category, [category]: amount }),
+              from: urlState => {
+                const category = urlState.category as string | undefined;
+                return category !== undefined && category in urlState
+                  ? { category, amount: urlState[category] as number }
+                  : {};
+              },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { amount: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        category: 'color',
+        amount: 2,
+      });
+    },
+  );
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {

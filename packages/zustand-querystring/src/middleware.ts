@@ -800,9 +800,12 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     let values: object | undefined;
     // The click's URL state, which a new tab shares when it follows the link to the same state.
     const clickedUrlState = () => (values ??= urlStateOf(clicked, pathname));
+    // Each store that can follow the link, and the state it follows to.
+    const followers = [[live, clicked]];
     const changed = [changes(live, clicked, clickedUrlState)];
     if (start !== live) {
       const followed = follow(start);
+      followers.push([start, followed]);
       // Following to the click's state, a new tab compares the click's URL state.
       changed.push(
         !byField && isSameState(followed, clicked)
@@ -817,7 +820,80 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const link = changed.every(isEmpty)
       ? {}
       : pickFields(clickedUrlState(), changed);
-    return pathname + writtenOf(link);
+    if (byField || isEmpty(link) || link === clickedUrlState())
+      return pathname + writtenOf(link);
+    // How many followers a URL state's link takes where they follow to, read as a store reads it; it throws where the format's reader does. needs collects the keys map.from looks for.
+    const landing = (urlState: object, needs?: Set<PropertyKey>) => {
+      const read = fromParams(
+        parseSearchString(writtenOf(urlState)),
+        urlDefaults(pathname),
+      );
+      try {
+        const seen =
+          read && needs
+            ? new Proxy(read, {
+                get: (target, key, receiver) => {
+                  needs.add(key);
+                  return Reflect.get(target, key, receiver);
+                },
+                has: (target, key) => {
+                  needs.add(key);
+                  return Reflect.has(target, key);
+                },
+              })
+            : read;
+        const storeState = seen ? map!.from(seen, pathname) : {};
+        return followers.filter(([base, target]) => {
+          const landed = applyState(base, storeState, pathname, {
+            instances: 'read',
+          });
+          return (
+            isSameState(landed, target) ||
+            writeLinkUrl(urlStateOf(landed, pathname)) ===
+              writeLinkUrl(urlStateOf(target, pathname))
+          );
+        }).length;
+      } catch {
+        return 0;
+      }
+    };
+    // A map may read a value through another param: a link the format reads then also takes the click's keys map.from looks for, else each other key, else all of them.
+    const needs = new Set<PropertyKey>();
+    let most: number;
+    try {
+      most = landing(link, needs);
+    } catch {
+      return pathname + writtenOf(link);
+    }
+    let best = link;
+    let tried = link;
+    const has = (urlState: object, key: string) =>
+      Object.prototype.hasOwnProperty.call(urlState, key);
+    const missing = Object.keys(clickedUrlState()).filter(
+      key => !has(link, key),
+    );
+    const needed = missing.filter(key => needs.has(key));
+    const plus = (keys: string[]) =>
+      pickBy(
+        clickedUrlState(),
+        (_value, key) => has(link, key) || keys.includes(key),
+      );
+    for (const candidate of [
+      ...(needed.length ? [plus(needed)] : missing.map(key => plus([key]))),
+      clickedUrlState(),
+    ]) {
+      if (most === followers.length) break;
+      if (Object.keys(candidate).length === Object.keys(tried).length) continue;
+      tried = candidate;
+      let lands = 0;
+      try {
+        lands = landing(candidate);
+      } catch {
+        // A candidate the format's reader rejects takes no follower there.
+      }
+      if (lands > most) [best, most] = [candidate, lands];
+    }
+    return pathname + writtenOf(best);
   };
 
   if (typeof window !== 'undefined') {

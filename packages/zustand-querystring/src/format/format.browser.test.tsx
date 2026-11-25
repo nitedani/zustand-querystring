@@ -2880,6 +2880,32 @@ describe('href', () => {
     expect(useStore.getState()).toMatchObject({ mode: 'advanced', page: 2 });
   });
 
+  it('with a map whose reader takes a param name from another param, a click applies the passed value', async () => {
+    const useStore = create<{ category: string; amount: number }>()(
+      querystring(() => ({ category: 'color', amount: 1 }), {
+        map: {
+          to: ({ category, amount }) => ({ category, [category]: amount }),
+          from: urlState => {
+            const category = urlState.category as string | undefined;
+            return category !== undefined && category in urlState
+              ? { category, amount: urlState[category] as number }
+              : {};
+          },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ category: 'size', amount: 3 });
+
+    const href = useStore.href('/list', { amount: 2 });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?category=size&size=:2');
+    expect(useStore.getState()).toMatchObject({ category: 'size', amount: 2 });
+  });
+
   it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
     const useStore = createCustomersStore({
       map: {
