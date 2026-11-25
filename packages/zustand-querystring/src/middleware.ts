@@ -402,6 +402,13 @@ const rewriteSearch = (
 
 type Instances = 'merge' | 'keep' | 'read';
 
+type MergeOptions = {
+  instances: Instances;
+  inPlace?: Set<string>;
+  delta?: boolean;
+  syncUndefined?: boolean;
+};
+
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
 // and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
@@ -410,12 +417,7 @@ const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
-  {
-    instances = 'merge' as Instances,
-    inPlace = undefined as Set<string> | undefined,
-    delta = false,
-    syncUndefined = false,
-  } = {},
+  { instances, inPlace, delta = false, syncUndefined = false }: MergeOptions,
 ) => {
   // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
   const merges = new Map<object, object>();
@@ -458,10 +460,10 @@ const mergeUrlState = (
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         typeof current === 'function' ||
-        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
+        ((valueKeys === undefined || isEmptyObject) && holdsFunction(current))
       )
         continue;
-      if (!isPlainObject(value)) {
+      if (valueKeys === undefined) {
         write(key, value);
         continue;
       }
@@ -481,7 +483,7 @@ const mergeUrlState = (
         into,
         value,
         isPlainObject(selected) ? selected : true,
-        valueKeys!,
+        valueKeys,
         top ?? key,
       );
       // An object none of whose fields is applied carries nothing, unless it is empty.
@@ -589,12 +591,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     state,
     storeState,
     pathname: string,
-    options: {
-      instances: Instances;
-      inPlace?: Set<string>;
-      delta?: boolean;
-      syncUndefined?: boolean;
-    },
+    options: MergeOptions,
   ) =>
     mergeUrlState(
       state,
