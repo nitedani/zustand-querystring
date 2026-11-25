@@ -1180,6 +1180,40 @@ describe('href', () => {
     ).toBe('/list?filters=.page:2');
   });
 
+  it('with a map that returns new class instances, reads back the current and the initial state once', () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    let reads = 0;
+    const store = createStore<{ search: string; page: number }>()(
+      querystring(() => ({ search: '', page: 1 }), {
+        url: '/list',
+        format: {
+          ...marked,
+          parseStandalone: (params, ctx) => {
+            reads++;
+            return marked.parseStandalone(params, ctx);
+          },
+        },
+        map: {
+          to: ({ search, page }) => ({ search: new Box(search), page }),
+          from: ({ search, page }) => ({
+            ...(search ? { search: (search as Box).value } : {}),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ search: 'acme' });
+
+    const counts = [2, 3].map(page => {
+      reads = 0;
+      expect(store.href('/list', { page })).toBe(`/list?page=:${page}`);
+      return reads;
+    });
+    expect(counts).toStrictEqual([4, 2]);
+  });
+
   it('with a map that returns new class instances, writes a link that passes nothing once', () => {
     class Facet {
       constructor(public value: string) {}

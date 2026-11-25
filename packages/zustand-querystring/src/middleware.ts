@@ -672,6 +672,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       Object.keys(urlState),
     ).output;
 
+  // What the format reads back for a state's URL state, per pathname and the defaults it read with. A plain state is never written into, so its object stands for its data.
+  const readBacks = new WeakMap<object, Map<string, [object, object]>>();
+
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
@@ -685,6 +688,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // A whole URL state as the format reads it back from the params it writes for it.
     const readBack = (urlState: object): object =>
       fromParams(toParams(synced(urlState)), urlDefaults(pathname)) ?? {};
+    // The read back of a base state's URL state, remembered for a plain state.
+    const readBackOf = (base: object, urlState: object) => {
+      if (!isPlainObject(base)) return readBack(urlState);
+      let reads = readBacks.get(base);
+      if (!reads) readBacks.set(base, (reads = new Map()));
+      const known = reads.get(pathname);
+      if (known?.[0] === initialState) return known[1];
+      const read = readBack(urlState);
+      reads.set(pathname, [initialState as object, read]);
+      return read;
+    };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed.
     const changes = (base: object, followed: object) => {
@@ -710,9 +724,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         });
         if (equal || !instances) return equal;
         read ??= [
-          byField ? urlStateOf(follow(base, false), pathname) : next,
-          prev,
-        ].map(readBack);
+          readBack(byField ? urlStateOf(follow(base, false), pathname) : next),
+          readBackOf(base, prev),
+        ];
         const [a, b] = read.map(state => getIn(state, path));
         return a !== undefined && isSameState(a, b);
       };
