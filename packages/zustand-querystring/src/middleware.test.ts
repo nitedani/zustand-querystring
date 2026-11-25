@@ -1916,6 +1916,37 @@ describe('href', () => {
     expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
   });
 
+  it.each([
+    [
+      'a Date',
+      () => ({ date: new Date('2026-01-01T00:00:00.000Z') }),
+      (state: { date: Date }) => state.date.setUTCDate(2),
+      (state: { date: Date }) => ({ date: state.date }),
+      '/calendar?date=D1767312000000',
+    ],
+    [
+      'an object',
+      () => ({ filter: { search: '' } }),
+      (state: { filter: { search: string } }) => (state.filter.search = 'acme'),
+      (state: { filter: { search: string } }) => ({ filter: state.filter }),
+      '/calendar?filter=.search=acme',
+    ],
+  ] as const)(
+    'writes %s the app edited in place in the initial state, when it is passed',
+    (_, init, edit, pass, link) => {
+      const create = (url: string) =>
+        createStore<object>()(querystring(init as () => object, { url }));
+      const store = create('/calendar');
+      const edited = init();
+      edit(edited as never);
+      edit(store.getState() as never);
+
+      const href = store.href('/calendar', pass(store.getState() as never));
+      expect(href).toBe(link);
+      expect(create(href).getState()).toStrictEqual(edited);
+    },
+  );
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {
