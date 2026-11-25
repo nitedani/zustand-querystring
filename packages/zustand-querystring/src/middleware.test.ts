@@ -1166,6 +1166,33 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?filter=.rating:0'],
+    ['view', '/list?view=filter.rating:0'],
+  ] as const)(
+    'with key %s, writes a passed class value that another store changed in the instance this one holds',
+    (key, link) => {
+      class Filter {
+        constructor(public rating = 0) {}
+      }
+      const shared = new Filter();
+      const create = (filter: Filter, url = '/list') =>
+        createStore<{ filter: Filter }>()(
+          querystring(() => ({ filter }), { url, key }),
+        );
+      const store = create(shared);
+      store.href('/list', { filter: new Filter(1) });
+      create(
+        shared,
+        key ? '/list?view=filter.rating:4' : '/list?filter=.rating:4',
+      );
+
+      const href = store.href('/list', { filter: new Filter(0) });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(new Filter(8), href).getState().filter.rating).toBe(0);
+    },
+  );
+
   it('leaves out a passed class value in a nested field that equals the current and the initial one', () => {
     class Range {
       constructor(public max: number) {}

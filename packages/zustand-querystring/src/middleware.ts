@@ -3,6 +3,7 @@ import {
   isEmpty,
   isEqual,
   isEqualWith,
+  isFunction,
   isMap,
   isObjectLike,
   isPlainObject,
@@ -260,12 +261,16 @@ const translateSelectionToState = <T>(
   }, {} as T);
 };
 
-// A function, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
-const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
-  if (typeof value === 'function') return true;
+// A value test accepts, or a plain object holding one at any depth; an object it already saw, as in a cycle, holds none.
+const holds = (
+  value: unknown,
+  test: (value: unknown) => boolean,
+  seen = new Set<unknown>(),
+): boolean => {
+  if (test(value)) return true;
   if (!isPlainObject(value) || seen.has(value)) return false;
   seen.add(value);
-  return Object.values(value as object).some(v => holdsFunction(v, seen));
+  return Object.values(value as object).some(v => holds(v, test, seen));
 };
 
 // An instance of a user class, which isEqual compares by its visible fields only, missing private ones.
@@ -308,7 +313,7 @@ const clearSelected = (state: object, selection: object) => {
       if (isPlainObject(cleared[key])) {
         cleared[key] = clearSelected(cleared[key], selected);
       }
-    } else if (selected && !holdsFunction(cleared[key])) {
+    } else if (selected && !holds(cleared[key], isFunction)) {
       delete cleared[key];
     }
   }
@@ -446,7 +451,7 @@ const mergeUrlState = (
       // A URL never replaces a function, like an action, nor an object holding one at any depth with anything but a non-empty plain object.
       if (
         typeof current === 'function' ||
-        ((!isPlainObject(value) || isEmptyObject) && holdsFunction(current))
+        ((!isPlainObject(value) || isEmptyObject) && holds(current, isFunction))
       )
         continue;
       if (!isPlainObject(value)) {
@@ -685,7 +690,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       Object.keys(urlState),
     ).output;
 
-  // A state's URL state and the URL a store writes for it, per pathname and the defaults it wrote with. A plain state is never written into, so its object stands for its data.
+  // A state's URL state and the URL a store writes for it, per pathname and the defaults it wrote with. A store never writes into a plain object, so one that holds no class instance stands for its data.
   const bases = new WeakMap<object, Map<string, [object, Base]> | null>();
   // What a store reads from two URLs, for the params one writes unlike the other.
   const readsOf = new WeakMap<Written, WeakMap<Written, Reads>>();
@@ -724,11 +729,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (!url) written.set(urlState, (url = writeUrl(urlState)));
       return url;
     };
-    // A base state's URL state, remembered for a plain state with the URL written for it.
+    // A base state's URL state, remembered with the URL written for it for a plain state that holds no class instance.
     const baseOf = (base: object): Base => {
       let known = bases.get(base);
       if (known === undefined)
-        bases.set(base, (known = isPlainObject(base) ? new Map() : null));
+        bases.set(base, (known = holds(base, isInstance) ? null : new Map()));
       const remembered = known?.get(pathname);
       if (remembered && remembered[0] === initialState) return remembered[1];
       const found = { urlState: urlStateOf(base, pathname) };
