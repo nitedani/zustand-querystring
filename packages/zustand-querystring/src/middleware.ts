@@ -693,7 +693,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // The URL state after a store at base follows the link, and what it changes there. Without a map the store reads a plain object field by field; a map reads a URL key whole.
     const changes = (base: object) => {
       // Without a map only the passed fields can reach the link.
-      const next = urlStateOf(follow(base, !map), pathname);
+      const followed = follow(base, !map);
+      // A state whose fields all stay alike projects alike, so it changes nothing.
+      if (
+        Object.keys(followed).every(
+          key =>
+            Object.prototype.hasOwnProperty.call(base, key) &&
+            isSameState(followed[key], base[key]),
+        )
+      )
+        return [undefined, {}] as const;
+      const next = urlStateOf(followed, pathname);
       const prev = urlStateOf(base, pathname);
       // A class instance can hide its data, so the params the two whole states write decide; the format gets no state a store wouldn't hold.
       let params: QueryStringParams[] | undefined;
@@ -720,7 +730,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     if (!map)
       changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
     // Written with the click's values: a map packing fields into one param keeps those not passed.
-    return pathname + urlOf(synced(pickFields(target, changed))).search;
+    const values =
+      target ??
+      (changed.every(isEmpty) ? {} : urlStateOf(follow(live, !map), pathname));
+    return pathname + urlOf(synced(pickFields(values, changed))).search;
   };
 
   if (typeof window !== 'undefined') {

@@ -1084,6 +1084,54 @@ describe('href', () => {
     },
   );
 
+  it('with a map that returns new class instances, writes a link that passes nothing once', () => {
+    class Facet {
+      constructor(public value: string) {}
+    }
+    const names = ['color', 'size', 'brand', 'price'];
+    let writes = 0;
+    const store = createStore<{
+      values: Record<string, string>;
+      open: boolean;
+    }>()(
+      querystring(
+        () => ({
+          values: Object.fromEntries(names.map(name => [name, 'all'])),
+          open: false,
+        }),
+        {
+          url: '/collection',
+          format: {
+            ...marked,
+            stringifyStandalone: (state: object) => {
+              writes++;
+              return marked.stringifyStandalone(state);
+            },
+          },
+          map: {
+            to: ({ values }) =>
+              Object.fromEntries(
+                names.map(name => [name, new Facet(values[name])]),
+              ),
+            from: urlState => ({
+              values: Object.fromEntries(
+                Object.entries(urlState).map(([name, facet]) => [
+                  name,
+                  (facet as Facet).value,
+                ]),
+              ),
+            }),
+          },
+        },
+      ),
+    );
+    store.setState({ open: true });
+    writes = 0;
+
+    expect(store.href('/collection/1')).toBe('/collection/1');
+    expect(writes).toBe(1);
+  });
+
   it.each([
     [false, '/list?date=2026-02-01T00:00:00.000Z'],
     ['view', '/list?view=date=2026-02-01T00:00:00.000Z'],
