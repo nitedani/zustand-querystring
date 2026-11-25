@@ -1034,6 +1034,57 @@ describe('href', () => {
   );
 
   it.each([
+    [false, '/list?mode=paid&status=paid'],
+    ['view', '/list?view=mode=paid,status=paid'],
+  ] as const)(
+    'with key %s, writes a passed class value and the field a format needs to agree with it',
+    (key, link) => {
+      class Status {
+        #mode: string;
+        constructor(mode: string) {
+          this.#mode = mode;
+        }
+        mode() {
+          return this.#mode;
+        }
+      }
+      const encode = ({ status, ...state }: { status?: Status }) => {
+        if (status && status.mode() !== (state as { mode?: string }).mode)
+          throw Error('status needs matching mode');
+        return status ? { ...state, status: status.mode() } : state;
+      };
+      const format = {
+        ...marked,
+        stringify: (state: object) => marked.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(encode(state)),
+      };
+      const create = (url?: string) =>
+        createStore<{ mode: string; status: Status }>()(
+          querystring(() => ({ mode: 'all', status: new Status('all') }), {
+            url,
+            key,
+            format,
+            map: {
+              to: state => state,
+              from: ({ mode, status }) => ({
+                ...(mode ? { mode: mode as string } : {}),
+                ...(status ? { status: new Status(status as string) } : {}),
+              }),
+            },
+          }),
+        );
+
+      const href = create().href('/list', {
+        mode: 'paid',
+        status: new Status('paid'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().status.mode()).toBe('paid');
+    },
+  );
+
+  it.each([
     [false, '/list?date=2026-02-01T00:00:00.000Z'],
     ['view', '/list?view=date=2026-02-01T00:00:00.000Z'],
   ] as const)(

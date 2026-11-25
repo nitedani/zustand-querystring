@@ -186,19 +186,6 @@ const pickFields = (source: object, masks: object[]) => {
   return picked;
 };
 
-// The object with the value at a path of keys, in copies of the objects on the way.
-const setAt = (object: object, [key, ...rest]: string[], value: unknown) => {
-  const copy = { ...object };
-  setOwn(
-    copy,
-    key,
-    rest.length
-      ? setAt(isPlainObject(copy[key]) ? copy[key] : {}, rest, value)
-      : value,
-  );
-  return copy;
-};
-
 // The fields of next that prev lacks or holds another value for: with deep, down to the fields of a plain object.
 // Two objects that aren't the same one are another value unless sameObject says they are alike.
 const changedFields = (
@@ -681,55 +668,54 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       Object.keys(urlState),
     ).output;
 
-  // The params a URL state writes, as one text.
-  const textOf = (urlState: object) =>
-    JSON.stringify(toParams(synced(urlState)));
+  // Whether two states' params write a URL key alike: in namespaced mode the one param, else every param whose name starts with the key, as a nested field's can.
+  const writeAlike = ([a, b]: QueryStringParams[], key: string) => {
+    const names = standalone
+      ? Object.keys({ ...a, ...b }).filter(name =>
+          name.startsWith(defaultedOptions.prefix + key),
+        )
+      : [namespaceKey];
+    return (
+      names.length > 0 &&
+      names.every(name => isEqual(getOwn(a, name), getOwn(b, name)))
+    );
+  };
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
     const live = (get() ?? {}) as object;
     const start = startState ?? live;
-    // The URL state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
-    const follow = (base: object) =>
-      urlStateOf(
-        applyState(base, passed, pathname, {
-          instances: 'read',
-          // Without a map only the passed fields can reach the link.
-          delta: !map,
-        }),
-        pathname,
-      );
-    // What a click and a new tab change. Without a map the store reads a plain object field by field; a map reads a URL key whole.
-    const target = follow(live);
-    const sides = [[target, urlStateOf(live, pathname)]];
-    if (start !== live)
-      sides.push([follow(start), urlStateOf(start, pathname)]);
-    const diff = () =>
-      sides.map(([next, prev]) => changedFields(next, prev, !map, sameObject));
-    // Objects are alike when equal as data. A class instance can hide its data, so the text of the link with either object in it decides.
-    let link: object | undefined;
-    let hidden = false;
-    const sameObject = (path: string[], value: object, before: object) => {
-      let instances = false;
-      const equal = isEqualWith(value, before, (a, b) => {
-        if (!isInstance(a) && !isInstance(b)) return undefined;
-        if (a !== b) instances = true;
-        return a === b;
-      });
-      if (equal || !instances) return equal;
-      hidden = true;
-      return (
-        link !== undefined &&
-        textOf(setAt(link, path, value)) === textOf(setAt(link, path, before))
-      );
+    // The state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
+    const follow = (base: object, delta: boolean) =>
+      applyState(base, passed, pathname, { instances: 'read', delta });
+    // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
+    // The URL state after a store at base follows the link, and what it changes there. Without a map the store reads a plain object field by field; a map reads a URL key whole.
+    const changes = (base: object) => {
+      // Without a map only the passed fields can reach the link.
+      const next = urlStateOf(follow(base, !map), pathname);
+      const prev = urlStateOf(base, pathname);
+      // A class instance can hide its data, so the params the two whole states write decide; the format gets no state a store wouldn't hold.
+      let params: QueryStringParams[] | undefined;
+      const sameObject = (path: string[], value: object, before: object) => {
+        let instances = false;
+        const equal = isEqualWith(value, before, (a, b) => {
+          if (!isInstance(a) && !isInstance(b)) return undefined;
+          if (a !== b) instances = true;
+          return a === b;
+        });
+        if (equal || !instances) return equal;
+        params ??= [
+          synced(map ? next : urlStateOf(follow(base, false), pathname)),
+          synced(prev),
+        ].map(toParams);
+        return writeAlike(params, path[0]);
+      };
+      return [next, changedFields(next, prev, !map, sameObject)] as const;
     };
-    let changed = diff();
-    // The first diff counts such a pair as changed, so the link it gives holds every field the text can need.
-    if (hidden) {
-      link = pickFields(target, changed);
-      changed = diff();
-    }
+    const [target, clicked] = changes(live);
+    const changed = [clicked];
+    if (start !== live) changed.push(changes(start)[1]);
     // A key a URL set inside a class instance is written whenever it is passed.
     if (!map)
       changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
