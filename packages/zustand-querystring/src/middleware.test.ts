@@ -1084,6 +1084,102 @@ describe('href', () => {
     },
   );
 
+  describe.each([
+    [
+      'marked',
+      marked,
+      ['/list?page=:2', '/list?view=page:2'],
+      '/list?pageSize=:50',
+    ],
+    [
+      'plain',
+      plain,
+      ['/list?page=2', '/list?view=page=2'],
+      '/list?pageSize=50',
+    ],
+    [
+      'json',
+      json,
+      ['/list?page=2', '/list?view={"page":2}'],
+      '/list?pageSize=50',
+    ],
+  ] as const)(
+    'with %s and a map that returns new class instances',
+    (_, format, links, pageSizeLink) => {
+      class Box {
+        constructor(public value: unknown) {}
+      }
+      const create = <T extends object>(
+        init: T,
+        boxed: string,
+        key: false | 'view',
+      ) =>
+        createStore<T>()(
+          querystring(() => init, {
+            url: '/list',
+            key,
+            format,
+            map: {
+              to: state => ({ ...state, [boxed]: new Box(state[boxed]) }),
+              from: urlState =>
+                Object.fromEntries(
+                  Object.entries(urlState)
+                    .filter(([, value]) => value !== undefined)
+                    .map(([name, value]) => [
+                      name,
+                      name === boxed ? (value as Box).value : value,
+                    ]),
+                ) as Partial<T>,
+            },
+          }),
+        );
+
+      it.each([
+        [false, links[0]],
+        ['view', links[1]],
+      ] as const)(
+        'with key %s, leaves out a current value the link leaves as it is',
+        (key, link) => {
+          const store = create({ search: '', page: 1 }, 'search', key);
+          store.setState({ search: 'acme' });
+
+          expect(decodeURIComponent(store.href('/list', { page: 2 }))).toBe(
+            link,
+          );
+        },
+      );
+
+      it('leaves out a key whose name starts the changed key', () => {
+        const store = create({ page: 1, pageSize: 20 }, 'page', false);
+        store.setState({ page: 3 });
+
+        expect(store.href('/list', { pageSize: 50 })).toBe(pageSizeLink);
+      });
+
+      it('leaves out a key the format encodes in its param name', () => {
+        const store = create({ 'my search': '', page: 1 }, 'my search', false);
+        store.setState({ 'my search': 'acme' });
+
+        expect(store.href('/list', { page: 2 })).toBe(links[0]);
+      });
+    },
+  );
+
+  it('leaves out a passed class value in a nested field that equals the current and the initial one', () => {
+    class Range {
+      constructor(public max: number) {}
+    }
+    const store = createStore<{ filters: { price: Range; page: number } }>()(
+      querystring(() => ({ filters: { price: new Range(100), page: 1 } }), {
+        url: '/list',
+      }),
+    );
+
+    expect(
+      store.href('/list', { filters: { price: new Range(100), page: 2 } }),
+    ).toBe('/list?filters=.page:2');
+  });
+
   it('with a map that returns new class instances, writes a link that passes nothing once', () => {
     class Facet {
       constructor(public value: string) {}
