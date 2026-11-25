@@ -12,7 +12,6 @@ import {
   isTypedArray,
   mergeWith,
   pickBy,
-  size,
 } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
@@ -392,9 +391,6 @@ type Written = { search: string; read?: [object | undefined] };
 // A base state's URL state and, once written, its URL.
 type Base = { urlState: object; url?: Written };
 
-// What a store reads from two URLs, each undefined where it reads nothing.
-type Reads = (object | undefined)[];
-
 // URL state replaces what it carries; a plain object merges key by key. The selection is the one of the URL's pathname, or true where all of it is selected.
 // A class instance is merged into itself at creation ('merge'), left as it is by a navigation unless it is the state ('keep'),
 // and read as a plain object of its own fields for a link ('read'). inPlace collects the top-level keys under which a class instance was written into.
@@ -692,8 +688,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   // A state's URL state and the URL a store writes for it, per pathname and the defaults it wrote with. A store never writes into a plain object, so one that holds no class instance stands for its data.
   const bases = new WeakMap<object, Map<string, [object, Base]> | null>();
-  // What a store reads from two URLs, for the params one writes unlike the other.
-  const readsOf = new WeakMap<Written, WeakMap<Written, Reads>>();
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
@@ -741,29 +735,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return found;
     };
     const urlOfBase = (base: Base) => (base.url ??= writeUrl(base.urlState));
-    // What a store reads from two URLs, leaving out the params they write alike; both whole where the reader rejects a part.
-    const readBoth = (a: Written, b: Written) => {
-      let known = readsOf.get(a);
-      if (!known) readsOf.set(a, (known = new WeakMap()));
-      let reads = known.get(b);
-      if (reads) return reads;
-      const [x, y] = [parseSearchString(a.search), parseSearchString(b.search)];
-      const differ = (p: QueryStringParams, q: QueryStringParams) =>
-        pickBy(p, (values, name) => {
-          const other = getOwn(q, name);
-          return (
-            other?.length !== values.length ||
-            values.some((value, i) => value !== other[i])
-          );
-        });
-      const [dx, dy] = [differ(x, y), differ(y, x)];
-      const part = (url: Written, all: object, differing: QueryStringParams) =>
-        size(differing) === size(all) ? readAll(url) : read(differing);
-      reads = [part(a, x, dx), part(b, y, dy)];
-      if (reads.includes(undefined)) reads = [readAll(a), readAll(b)];
-      known.set(b, reads);
-      return reads;
-    };
     // Two class values are alike when the format writes them alike as the one field of a state, and not where it can't write one alone.
     const writesAlike = (path: string[], a: unknown, b: unknown) => {
       const alone = (value: unknown) =>
@@ -776,9 +747,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return false;
       }
     };
-    // Whether a store reads the field at path alike from two URLs, or from neither; a URL it reads nothing from changes it.
+    // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.
     const alike = (a: Written, b: Written, path: string[]) => {
-      const [x, y] = readBoth(a, b);
+      if (a.search === b.search) return true;
+      const [x, y] = [readAll(a), readAll(b)];
       if (!x || !y) return false;
       const [p, q] = [getIn(x, path), getIn(y, path)];
       if (p === undefined || q === undefined) return p === q;
@@ -789,13 +761,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
-    // A key whose params next writes as the URL via does reads as from that URL.
-    const changes = (
-      base: object,
-      followed: object,
-      next: () => object,
-      via?: () => Written,
-    ) => {
+    const changes = (base: object, followed: object, next: () => object) => {
       // A state whose fields all stay alike projects alike, so it changes nothing.
       if (
         Object.keys(followed).every(
@@ -820,15 +786,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         nextUrl ??= writtenOf(
           byField ? urlStateOf(follow(base, false), pathname) : urlState,
         );
-        const shared = via?.();
-        const [x, y] = shared ? readBoth(nextUrl, shared) : [];
-        const own = (state: object) =>
-          Object.prototype.hasOwnProperty.call(state, path[0]);
-        return alike(
-          x && y && !own(x) && !own(y) ? shared! : nextUrl,
-          urlOfBase(known),
-          path,
-        );
+        return alike(nextUrl, urlOfBase(known), path);
       };
       return changedFields(urlState, known.urlState, byField, sameObject);
     };
@@ -839,12 +797,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const changed = [changes(live, clicked, clickedUrlState)];
     if (start !== live) {
       const followed = follow(start);
-      // Following to the click's state, a new tab compares the click's URL state, partly through the live state's URL.
+      // Following to the click's state, a new tab compares the click's URL state.
       changed.push(
         !byField && isSameState(followed, clicked)
-          ? changes(start, clicked, clickedUrlState, () =>
-              urlOfBase(baseOf(live)),
-            )
+          ? changes(start, clicked, clickedUrlState)
           : changes(start, followed, () => urlStateOf(followed, pathname)),
       );
     }

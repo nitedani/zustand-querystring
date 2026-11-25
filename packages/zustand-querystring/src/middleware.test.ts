@@ -1376,10 +1376,10 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 1, 2],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 1, 3],
     ['view', '/list?view=color.value=red~,size.value=red~,page:3', 1, 1],
   ] as const)(
-    'with key %s and a map that returns new class instances, writes a link that carries the current view once and reads only the params it changes',
+    'with key %s and a map that returns new class instances, writes a link that carries the current view once and reads it once',
     (key, link, writes, reads) => {
       class Facet {
         constructor(public value: string) {}
@@ -1444,7 +1444,7 @@ describe('href', () => {
     },
   );
 
-  it("with a map that returns new class instances, leaves out a current value when the format's reader rejects the changed param alone", () => {
+  it("with a map that returns new class instances, leaves out a current value when the format's reader needs the changed param with another", () => {
     class Box {
       constructor(public value: string) {}
     }
@@ -1477,6 +1477,53 @@ describe('href', () => {
       '/list?date=D1769904000000',
     );
   });
+
+  it.each([
+    ['', '/list?price=1.75&fractional=1'],
+    ['shop_', '/list?shop_price=1.75&shop_fractional=1'],
+  ])(
+    "with prefix '%s' and a map that returns new class instances, writes a passed value whose reading depends on a param the current URL writes alike",
+    (prefix, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Reads a price without the fractional marker as a whole number, as links from before the marker do.
+      const format = {
+        ...marked,
+        stringifyStandalone: (state: object) =>
+          'price' in state
+            ? {
+                price: [String((state.price as Price).amount)],
+                fractional: ['1'],
+              }
+            : {},
+        parseStandalone: (params: Record<string, string[]>) => {
+          const [raw] = params.price ?? [];
+          if (raw === undefined) return {};
+          return {
+            price:
+              params.fractional?.[0] === '1' ? Number(raw) : parseInt(raw, 10),
+          };
+        },
+      };
+      const create = (url: string) =>
+        createStore<{ price: number }>()(
+          querystring(() => ({ price: 1.25 }), {
+            url,
+            prefix,
+            format,
+            map: {
+              to: ({ price }) => ({ price: new Price(price) }),
+              from: ({ price }) => ({ price: price as number }),
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { price: 1.75 });
+      expect(href).toBe(link);
+      expect(create(href).getState().price).toBe(1.75);
+    },
+  );
 
   it('with a map that returns new class instances, writes a link that passes nothing once', () => {
     class Facet {
