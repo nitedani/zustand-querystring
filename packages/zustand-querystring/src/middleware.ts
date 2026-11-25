@@ -672,8 +672,11 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       Object.keys(urlState),
     ).output;
 
-  // What the format reads back for a state's URL state, per pathname and the defaults it read with. A plain state is never written into, so its object stands for its data.
-  const readBacks = new WeakMap<object, Map<string, [object, object]>>();
+  // What a store reads back for a state's URL state, per pathname and the defaults it read with. A plain state is never written into, so its object stands for its data.
+  const readBacks = new WeakMap<
+    object,
+    Map<string, [object, object | undefined]>
+  >();
 
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
@@ -685,9 +688,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // The state after a store at base follows the link; a class instance reads as its own fields, so none is written into.
     const follow = (base: object, delta = byField) =>
       applyState(base, passed, pathname, { instances: 'read', delta });
-    // A whole URL state as the format reads it back from the params it writes for it.
-    const readBack = (urlState: object): object =>
-      fromParams(toParams(synced(urlState)), urlDefaults(pathname)) ?? {};
+    // A whole URL state as a store reads it back from the URL written for it, or undefined where creation reads nothing from that URL.
+    const readBack = (urlState: object) => {
+      try {
+        return (
+          fromParams(
+            parseSearchString(urlOf(synced(urlState)).search),
+            urlDefaults(pathname),
+          ) ?? undefined
+        );
+      } catch {
+        return undefined;
+      }
+    };
     // The read back of a base state's URL state, remembered for a plain state.
     const readBackOf = (base: object, urlState: object) => {
       if (!isPlainObject(base)) return readBack(urlState);
@@ -713,8 +726,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return {};
       const next = urlStateOf(followed, pathname);
       const prev = urlStateOf(base, pathname);
-      // A class instance can hide its data, so two of them are alike when the format reads them back alike from the two whole states.
-      let read: object[] | undefined;
+      // A class instance can hide its data, so two of them are alike when a store reads them back alike from the two whole states, or reads neither.
+      let read: (object | undefined)[] | undefined;
       const sameObject = (path: string[], value: object, before: object) => {
         let instances = false;
         const equal = isEqualWith(value, before, (a, b) => {
@@ -727,8 +740,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           readBack(byField ? urlStateOf(follow(base, false), pathname) : next),
           readBackOf(base, prev),
         ];
+        if (!read[0] || !read[1]) return false;
         const [a, b] = read.map(state => getIn(state, path));
-        return a !== undefined && isSameState(a, b);
+        return a === undefined ? b === undefined : isSameState(a, b);
       };
       return changedFields(next, prev, byField, sameObject);
     };

@@ -6,6 +6,7 @@ import {
   createMap,
   querystring,
   type ParseContext,
+  type QueryStringFormat,
 } from './middleware';
 import { marked } from './format/marked';
 import { plain, createFormat as createPlainFormat } from './format/plain';
@@ -1178,6 +1179,93 @@ describe('href', () => {
     expect(
       store.href('/list', { filters: { price: new Range(100), page: 2 } }),
     ).toBe('/list?filters=.page:2');
+  });
+
+  describe('with a class value a format writes from a private field', () => {
+    class Id {
+      #value: string;
+      constructor(value: string) {
+        this.#value = value;
+      }
+      toJSON() {
+        return this.#value;
+      }
+    }
+    const idOf = (state: object) => (state as { id?: Id }).id;
+    const create = (format: QueryStringFormat, url?: string) =>
+      createStore<{ id: Id }>()(
+        querystring(() => ({ id: new Id('start') }), { url, format }),
+      );
+
+    it('writes a passed value to a format whose reader takes the values out of the params it gets', () => {
+      // Writes the text of an id once and hands out the same array for it.
+      const written = new Map<string, string[]>();
+      const format = {
+        ...json,
+        stringifyStandalone: (state: object) => {
+          const id = idOf(state);
+          if (!id) return {};
+          const text = encodeURIComponent(JSON.stringify(id));
+          if (!written.has(text)) written.set(text, [text]);
+          return { id: written.get(text)! };
+        },
+        parseStandalone: (params: Record<string, string[]>) => {
+          const text = params.id?.shift();
+          return text
+            ? { id: new Id(JSON.parse(decodeURIComponent(text))) }
+            : {};
+        },
+      };
+
+      const href = create(format).href('/list', { id: new Id('next') });
+      expect(href).toBe('/list?id=%22next%22');
+      expect(create(format, href).getState().id.toJSON()).toBe('next');
+    });
+
+    it("writes a passed value when the current ones are values the format's reader rejects", () => {
+      const format = {
+        ...json,
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => {
+          const state = json.parseStandalone(params, ctx);
+          if (Object.values(state).includes('')) throw Error('empty id');
+          return state;
+        },
+      };
+      const create = (url?: string) =>
+        createStore<{ id: Id; parent: Id }>()(
+          querystring(() => ({ id: new Id(''), parent: new Id('') }), {
+            url,
+            format,
+          }),
+        );
+
+      const href = create().href('/list', { id: new Id('42') });
+      expect(href).toBe('/list?id=%2242%22');
+      expect(create(href).getState().id).toBe('42');
+    });
+
+    it('writes a passed value with a #, which the URL escapes for the reader', () => {
+      const format = {
+        ...json,
+        stringifyStandalone: (state: object) => {
+          const id = idOf(state);
+          return id ? { id: [JSON.stringify(id)] } : {};
+        },
+        parseStandalone: (params: Record<string, string[]>) => {
+          const [text] = params.id ?? [];
+          if (text === undefined) return {};
+          if (text.includes('#')) throw Error('expected an escaped #');
+          return { id: new Id(JSON.parse(decodeURIComponent(text))) };
+        },
+      };
+
+      const href = create(format).href('/list', { id: new Id('a#b') });
+      expect(href).toBe('/list?id=%22a%23b%22');
+      expect(create(format, href).getState().id.toJSON()).toBe('a#b');
+    });
   });
 
   it('with a map that returns new class instances, reads back the current and the initial state once', () => {
