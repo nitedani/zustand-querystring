@@ -2016,6 +2016,143 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?mode="advanced"&advancedPage=2'],
+    ['view', '/list?view={"mode":"advanced","advancedPage":2}'],
+  ] as const)(
+    'with key %s and a map whose reader copies the params and takes a param name from another, writes that param and leaves out a current value',
+    (key, link) => {
+      type State = {
+        layout: string;
+        mode: string;
+        page: number;
+        search: string;
+      };
+      // Writes the page under advancedPage in advanced mode, which it reads from a copy of the params.
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({ layout: 'grid', mode: 'simple', page: 1, search: '' }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ layout, mode, page, search }) => ({
+                  layout,
+                  mode,
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                  search,
+                }),
+                from: urlState => {
+                  const { mode, page, advancedPage, ...rest } = {
+                    ...urlState,
+                  } as Partial<Record<string, unknown>>;
+                  const read = mode === 'advanced' ? advancedPage : page;
+                  return {
+                    ...rest,
+                    ...(mode === undefined ? {} : { mode }),
+                    ...(read === undefined ? {} : { page: read }),
+                  } as Partial<State>;
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', search: 'private search', page: 3 });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        layout: 'grid',
+        mode: 'advanced',
+        page: 2,
+        search: '',
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?region="US"&price=3'],
+    ['view', '/list?view={"region":"US","price":3}'],
+  ] as const)(
+    "with key %s and a map, writes the current value a passed one needs when the format's reader rejects the passed one alone",
+    (key, link) => {
+      const read = <T extends object>(state: T) => {
+        if ('price' in state && !('region' in state))
+          throw Error('region required for price');
+        return state;
+      };
+      const create = (url: string) =>
+        createStore<{ region: string; price: number; search: string }>()(
+          querystring(() => ({ region: 'EU', price: 1, search: '' }), {
+            url,
+            key,
+            format: {
+              ...json,
+              parse: (value, ctx) => read(json.parse(value, ctx)),
+              parseStandalone: (params, ctx) =>
+                read(json.parseStandalone(params, ctx)),
+            },
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ region: 'US' });
+
+      const href = store.href('/list', { price: 3 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        region: 'US',
+        price: 3,
+        search: '',
+      });
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s and a map flattening 250 answers, a page-only link that lands enumerates the URL state twice',
+    key => {
+      const answers = Object.fromEntries(
+        Array.from({ length: 250 }, (_, i) => [`q${i}`, 0]),
+      );
+      let enumerations = 0;
+      const store = createStore<{
+        page: number;
+        answers: Record<string, number>;
+      }>()(
+        querystring(() => ({ page: 1, answers }), {
+          url: '/survey',
+          key,
+          format: json,
+          map: {
+            to: ({ page, answers }) =>
+              new Proxy(
+                { p: page, ...answers },
+                {
+                  ownKeys: target => (enumerations++, Reflect.ownKeys(target)),
+                },
+              ),
+            from: ({ p, ...fields }) => ({
+              ...(p === undefined ? {} : { page: p as number }),
+              ...(Object.keys(fields).length
+                ? { answers: fields as Record<string, number> }
+                : {}),
+            }),
+          },
+        }),
+      );
+
+      const href = store.href('/survey', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(
+        key === false ? '/survey?p=2' : '/survey?view={"p":2}',
+      );
+      // Once to compare it with the current one, once to pick the link's keys.
+      expect(enumerations).toBe(2);
+    },
+  );
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {

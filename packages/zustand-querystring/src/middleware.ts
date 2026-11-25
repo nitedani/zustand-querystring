@@ -796,27 +796,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       : pickFields(clickedUrlState(), changed);
     if (byField || isEmpty(link) || link === clickedUrlState())
       return pathname + writtenOf(link);
-    // How many followers a URL state's link takes where they follow to, read as a store reads it; it throws where the format's reader does. needs collects the keys map.from looks for.
-    const landing = (urlState: object, needs?: Set<PropertyKey>) => {
-      const read = fromParams(
-        parseSearchString(writtenOf(urlState)),
-        urlDefaults(pathname),
-      );
+    // How many followers a URL state's link takes where they follow to, read as a store reads it; -1 where the format's reader or map.from rejects it.
+    const landing = (urlState: object) => {
+      const search = writtenOf(urlState);
       try {
-        const seen =
-          read && needs
-            ? new Proxy(read, {
-                get: (target, key, receiver) => {
-                  needs.add(key);
-                  return Reflect.get(target, key, receiver);
-                },
-                has: (target, key) => {
-                  needs.add(key);
-                  return Reflect.has(target, key);
-                },
-              })
-            : read;
-        const storeState = seen ? map!.from(seen, pathname) : {};
+        const read = fromParams(
+          parseSearchString(search),
+          urlDefaults(pathname),
+        );
+        // A namespaced reader that rejects its one param reads as none.
+        if (!read && !standalone && search) return -1;
+        const storeState = read ? map!.from(read, pathname) : {};
         return followers.filter(([base, target]) => {
           const landed = applyState(base, storeState, pathname, {
             instances: 'read',
@@ -828,44 +818,52 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           );
         }).length;
       } catch {
-        return 0;
+        return -1;
       }
     };
-    // A map may read a value through another param: a link the format reads then also takes the click's keys map.from looks for, else each other key, else all of them.
-    const needs = new Set<PropertyKey>();
-    let most: number;
-    try {
-      most = landing(link, needs);
-    } catch {
-      return pathname + writtenOf(link);
-    }
-    let best = link;
-    let tried = link;
+    const most = landing(link);
+    if (most === followers.length) return pathname + writtenOf(link);
+    // A map may read a value through another param: the link then also takes the fewest of the click's other keys that land more followers, one key, else two.
     const has = (urlState: object, key: string) =>
       Object.prototype.hasOwnProperty.call(urlState, key);
+    const bases =
+      most < 0 ? followers.map(([base]) => urlStateOf(base, pathname)) : [];
+    // As a passed default equal to every follower's value is left out, a link the format's reader rejects never takes such a key.
     const missing = Object.keys(clickedUrlState()).filter(
-      key => !has(link, key),
+      key =>
+        !has(link, key) &&
+        (most >= 0 ||
+          bases.some(
+            known =>
+              !has(known, key) ||
+              !isSameState(clickedUrlState()[key], known[key]),
+          )),
     );
-    const needed = missing.filter(key => needs.has(key));
     const plus = (keys: string[]) =>
       pickBy(
         clickedUrlState(),
         (_value, key) => has(link, key) || keys.includes(key),
       );
-    for (const candidate of [
-      ...(needed.length ? [plus(needed)] : missing.map(key => plus([key]))),
-      clickedUrlState(),
-    ]) {
-      if (most === followers.length) break;
-      if (Object.keys(candidate).length === Object.keys(tried).length) continue;
-      tried = candidate;
+    let best = link;
+    let bestLands = Math.max(most, 0);
+    // One missing key at a time, in the click's order, then two where no one key lands more followers.
+    function* choices() {
+      for (const key of missing) yield [key];
+      if (best !== link) return;
+      for (let i = 0; i < missing.length; i++)
+        for (let j = i + 1; j < missing.length; j++)
+          yield [missing[i], missing[j]];
+    }
+    for (const keys of choices()) {
+      const candidate = plus(keys);
       let lands = 0;
       try {
         lands = landing(candidate);
       } catch {
-        // A candidate the format's reader rejects takes no follower there.
+        // A candidate the format's writer rejects takes no follower there.
       }
-      if (lands > most) [best, most] = [candidate, lands];
+      if (lands === followers.length) return pathname + writtenOf(candidate);
+      if (lands > bestLands) [best, bestLands] = [candidate, lands];
     }
     return pathname + writtenOf(best);
   };
