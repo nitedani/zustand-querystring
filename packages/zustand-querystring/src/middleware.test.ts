@@ -2462,6 +2462,47 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?date="2026-11-25T00:00:00.000Z"'],
+    ['view', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
+  ] as const)(
+    'with key %s and a map, writes a passed Date at the time of a Date subclass the map writes another way',
+    (key, link) => {
+      class CalendarDate extends Date {
+        toJSON() {
+          return this.toISOString().slice(0, 10);
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ date: Date }>()(
+          querystring(() => ({ date: new CalendarDate('2026-11-25') }), {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ date }) => ({ date: date.toJSON() }),
+              from: ({ date }) =>
+                date === undefined
+                  ? {}
+                  : {
+                      date: (date as string).includes('T')
+                        ? new Date(date as string)
+                        : new CalendarDate(date as string),
+                    },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', {
+        date: new Date('2026-11-25'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().date.toJSON()).toBe(
+        '2026-11-25T00:00:00.000Z',
+      );
+    },
+  );
+
   it('writes a passed nested undefined, with syncUndefined', () => {
     const create = (url: string) =>
       createStore<{ filters: { region: string; tag?: string } }>()(

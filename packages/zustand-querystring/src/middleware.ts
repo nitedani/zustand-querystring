@@ -282,11 +282,18 @@ const isInstance = (value: unknown) => {
   );
 };
 
-// Deep equality where an instance, at any depth, equals only itself.
+// Deep equality where an instance, at any depth, equals only itself, and Dates of two classes differ.
 const isSameState = (a: unknown, b: unknown) =>
-  isEqualWith(a, b, (x, y) =>
-    isInstance(x) || isInstance(y) ? x === y : undefined,
-  );
+  isEqualWith(a, b, (x, y) => {
+    if (isInstance(x) || isInstance(y)) return x === y;
+    if (
+      isDate(x) &&
+      isDate(y) &&
+      Object.getPrototypeOf(x) !== Object.getPrototypeOf(y)
+    )
+      return false;
+    return undefined;
+  });
 
 // The value at a path of own keys, or undefined where the path leaves the objects.
 const getIn = (state: unknown, path: string[]) =>
