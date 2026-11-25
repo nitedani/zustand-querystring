@@ -288,34 +288,6 @@ const isSameState = (a: unknown, b: unknown) =>
     isInstance(x) || isInstance(y) ? x === y : undefined,
   );
 
-// What a format can see in type hints: each own enumerable field's path and type, with its class for an object and its value otherwise; a cycle's object once.
-const hintsOf = (
-  value: unknown,
-  path: string[] = [],
-  seen = new Set<unknown>(),
-  leaves: unknown[] = [],
-) => {
-  if (isObjectLike(value) && !isDate(value)) {
-    leaves.push([path, Object.getPrototypeOf(value)?.constructor?.name]);
-    if (!seen.has(value)) {
-      seen.add(value);
-      for (const [key, field] of Object.entries(value as object))
-        hintsOf(field, [...path, key], seen, leaves);
-    }
-  } else {
-    leaves.push([
-      path,
-      typeof value,
-      isDate(value)
-        ? value.getTime()
-        : typeof value === 'function'
-          ? ''
-          : String(value),
-    ]);
-  }
-  return leaves;
-};
-
 // The value at a path of own keys, or undefined where the path leaves the objects.
 const getIn = (state: unknown, path: string[]) =>
   path.reduce<unknown>(
@@ -705,39 +677,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return url.search;
   };
 
-  // What the store read from each URL a link compared, by its search and what a format sees in the defaults it read with.
-  // A page's links share the URLs of their bases, which each link reads again and so keeps among the last 100.
-  const reads = new Map<string, object>();
-  let readsWith: object | undefined;
-  // What a store reads from a link's search with the defaults of the link's pathname, or undefined where creation reads nothing from it.
-  const readLinkUrl = (
-    search: string,
-    [defaults, hints]: [defaults: object, hints: string],
-  ) => {
-    if (readsWith !== initialState) {
-      reads.clear();
-      readsWith = initialState as object;
-    }
-    // A URL's search has no line break.
-    const key = `${search}\n${hints}`;
-    let value = reads.get(key);
-    reads.delete(key);
-    if (!value) {
-      const params = parseSearchString(search);
-      try {
-        value = isEmpty(params)
-          ? {}
-          : (fromParams(params, defaults) ?? undefined);
-      } catch {
-        value = undefined;
-      }
-    }
-    // A read that fails may succeed later, so only one that succeeded is kept.
-    if (value) reads.set(key, value);
-    if (reads.size > 100) reads.delete(reads.keys().next().value!);
-    return value;
-  };
-
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
@@ -797,18 +736,20 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         )
       );
     };
-    // The defaults a store at pathname reads with, and what a format sees in them, as the app may have edited them in place.
-    let defaults: [object, string] | undefined;
-    // A URL the store reads nothing from reads so for the rest of this link.
-    const unread = new Set<string>();
+    // What a store at pathname reads from each URL this link compares, or undefined where creation reads nothing from it.
+    const reads = new Map<string, object | undefined>();
     const read = (search: string) => {
-      if (unread.has(search)) return undefined;
-      if (!defaults) {
-        const urlState = urlDefaults(pathname);
-        defaults = [urlState, JSON.stringify(hintsOf(urlState))];
+      if (reads.has(search)) return reads.get(search);
+      const params = parseSearchString(search);
+      let value: object | undefined;
+      try {
+        value = isEmpty(params)
+          ? {}
+          : (fromParams(params, urlDefaults(pathname)) ?? undefined);
+      } catch {
+        value = undefined;
       }
-      const value = readLinkUrl(search, defaults);
-      if (!value) unread.add(search);
+      reads.set(search, value);
       return value;
     };
     // Whether a store reads the field at path alike from two whole URLs, as params can steer how others read; a URL it reads nothing from changes it.

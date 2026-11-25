@@ -1446,10 +1446,10 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3', 3, 3],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 3, 1],
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 3, 9],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 3, 3],
   ] as const)(
-    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading again only the URL of the link',
+    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading the URLs of the link and its two bases once',
     (key, link, writes, reads) => {
       class Facet {
         constructor(public value: string) {}
@@ -1913,6 +1913,119 @@ describe('href', () => {
       expect(opened.getState().id).toBe(passed);
     },
   );
+
+  it.each([
+    [false, '/text?id="01"'],
+    ['view', '/text?view={"id":"01"}'],
+  ] as const)(
+    'with key %s and a reader that takes per-route hints from a class the map returns, writes a passed value after a link to another route',
+    (key, link) => {
+      class RouteId {
+        #numeric: boolean;
+        constructor(
+          public value: string,
+          numeric: boolean,
+        ) {
+          this.#numeric = numeric;
+        }
+        read(text: string) {
+          return this.#numeric ? Number(text) : text;
+        }
+        toJSON() {
+          return this.value;
+        }
+      }
+      const restore = (
+        record: Record<string, unknown>,
+        { initialState }: ParseContext,
+      ) =>
+        record.id === undefined
+          ? record
+          : {
+              id: (initialState as { id: RouteId }).id.read(String(record.id)),
+            };
+      const options = {
+        key,
+        format: {
+          ...json,
+          parse: (value, ctx) => restore(json.parse(value, ctx), ctx),
+          parseStandalone: (params, ctx) =>
+            restore(json.parseStandalone(params, ctx), ctx),
+        },
+        map: {
+          to: ({ id }, pathname) => ({
+            id: new RouteId(id, pathname === '/numeric'),
+          }),
+          from: ({ id }) => ({ id: id as string }),
+        },
+      } satisfies Parameters<typeof querystring<{ id: string }>>[1];
+      const make = (url: string) =>
+        createStore<{ id: string }>()(
+          querystring(() => ({ id: '1' }), { ...options, url }),
+        );
+      const store = make('/list');
+      store.href('/numeric', { id: '01' });
+
+      const href = store.href('/text', { id: '01' });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(make(href).getState().id).toBe('01');
+    },
+  );
+
+  it('with a map that returns a class instance holding a list the format does not write, reads none of the list for a page link', () => {
+    class Facet {
+      constructor(public value: string) {}
+      toJSON() {
+        return this.value;
+      }
+    }
+    class CatalogScope {
+      constructor(
+        public code: string,
+        public includedSkus: number[],
+      ) {}
+      toJSON() {
+        return this.code;
+      }
+    }
+    let skuReads = 0;
+    const includedSkus = new Proxy(
+      Array.from({ length: 2500 }, (_, i) => i + 1),
+      {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) skuReads++;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    const store = createStore<{
+      facet: string;
+      includedSkus: number[];
+      page: number;
+    }>()(
+      querystring(() => ({ facet: 'all', includedSkus, page: 1 }), {
+        url: '/list',
+        format: json,
+        map: {
+          to: ({ facet, includedSkus, page }) => ({
+            facet: new Facet(facet),
+            scope: new CatalogScope('retail', includedSkus),
+            page,
+          }),
+          from: ({ facet, page }) => ({
+            ...(facet === undefined ? {} : { facet: facet as string }),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ facet: 'used' });
+    skuReads = 0;
+
+    expect(store.href('/list', { page: 2 })).toBe('/list?page=2');
+    expect(skuReads).toBe(0);
+  });
 
   it.each([
     [false, '/list?date=2026-02-01T00:00:00.000Z'],
