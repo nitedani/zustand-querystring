@@ -1697,6 +1697,63 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?prices=[1.75]&fractional=true'],
+    ['view', '/list?view={"prices":[1.75],"fractional":true}'],
+  ] as const)(
+    'with key %s and a map that returns an array of class instances, writes the array a link changes where a sibling steers how the format writes it',
+    (key, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Writes whole amounts unless fractional is set.
+      const encode = ({ prices, fractional }: Record<string, unknown>) => ({
+        ...(prices === undefined
+          ? {}
+          : {
+              prices: (prices as unknown[]).map(price => {
+                const amount =
+                  price instanceof Price ? price.amount : (price as number);
+                return fractional ? amount : Math.trunc(amount);
+              }),
+            }),
+        ...(fractional === undefined ? {} : { fractional }),
+      });
+      const options = {
+        key,
+        format: {
+          ...json,
+          stringify: state => json.stringify(encode(state)),
+          stringifyStandalone: state => json.stringifyStandalone(encode(state)),
+        },
+        map: {
+          to: ({ prices, fractional }) => ({
+            prices: prices.map(amount => new Price(amount)),
+            fractional,
+          }),
+          from: state => state,
+        },
+      } satisfies Parameters<
+        typeof querystring<{ prices: number[]; fractional: boolean }>
+      >[1];
+      const initial = () => ({ prices: [1], fractional: false });
+      const store = createStore<{ prices: number[]; fractional: boolean }>()(
+        querystring(initial, { ...options, url: '/list' }),
+      );
+
+      const href = store.href('/list', { prices: [1.75], fractional: true });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      const opened = createStore<{ prices: number[]; fractional: boolean }>()(
+        querystring(initial, { ...options, url: href }),
+      );
+      expect(opened.getState()).toStrictEqual({
+        prices: [1.75],
+        fractional: true,
+      });
+    },
+  );
+
   it('with a map, leaves out a field the app edited in place after an earlier link', () => {
     const store = createStore<{ filter: { search: string }; page: number }>()(
       querystring(() => ({ filter: { search: '' }, page: 1 }), {

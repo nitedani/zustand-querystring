@@ -741,14 +741,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return false;
       }
     };
-    // Two read values are alike when equal as data, where two class instances or two arrays inside plain objects may also be written alike whole.
+    // Two read values are alike when equal as data, where two class instances, or two arrays equal but for theirs, may also be written alike whole.
     const readAlike = (path: string[], p: unknown, q: unknown): boolean => {
       if (isSameState(p, q)) return true;
-      if (
-        (isInstance(p) && isInstance(q)) ||
-        (Array.isArray(p) && Array.isArray(q))
-      )
-        return writesAlike(path, p, q);
+      if (isInstance(p) && isInstance(q)) return writesAlike(path, p, q);
+      if (Array.isArray(p) && Array.isArray(q)) {
+        let instances = false;
+        const equal = isEqualWith(p, q, (a, b) => {
+          if (!isInstance(a) && !isInstance(b)) return undefined;
+          instances = true;
+          return true;
+        });
+        return equal && instances && writesAlike(path, p, q);
+      }
       if (!isPlainObject(p) || !isPlainObject(q)) return false;
       const [a, b] = [p, q] as Record<string, unknown>[];
       const keys = Object.keys(a);
