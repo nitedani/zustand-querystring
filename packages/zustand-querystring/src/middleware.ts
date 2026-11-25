@@ -666,22 +666,19 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return state;
   };
 
-  // A URL with the params this store writes for a compacted state, encoded like the store's own write, so a # in a value stays in the query.
-  const urlOf = (compacted: object) => {
-    const url = new URL('http://localhost');
-    url.search = rewriteSearch('', new Set(), toParams(compacted));
-    return url;
-  };
-
-  // The fields of a URL state the sync policy writes.
-  const synced = (urlState: object): object =>
-    compact(
+  // The search of a link to a URL state: the fields the sync policy writes, encoded like the store's own write, so a # in a value stays in the query.
+  const writeLinkUrl = (urlState: object): Written => {
+    const { output } = compact(
       urlState,
       {},
       defaultedOptions.syncNull,
       defaultedOptions.syncUndefined,
       Object.keys(urlState),
-    ).output;
+    );
+    const url = new URL('http://localhost');
+    url.search = rewriteSearch('', new Set(), toParams(output));
+    return { search: url.search };
+  };
 
   // What the store read from each URL a link compared, by its search and pathname, with the initial state it read with.
   // A page's links share the URLs of their bases, which each link reads again and so keeps among the last 100.
@@ -715,9 +712,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return undefined;
       }
     };
-    const writeUrl = (urlState: object): Written => ({
-      search: urlOf(synced(urlState)).search,
-    });
     const readAll = (url: Written) => {
       if (url.read) return url.read[0];
       if (readsWith !== initialState) {
@@ -738,13 +732,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const written = new Map<object, Written>();
     const writtenOf = (urlState: object) => {
       let url = written.get(urlState);
-      if (!url) written.set(urlState, (url = writeUrl(urlState)));
+      if (!url) written.set(urlState, (url = writeLinkUrl(urlState)));
       return url;
     };
     // Two class values are alike when the format writes them alike as the one field of a state, and not where it can't write one alone.
     const writesAlike = (path: string[], a: unknown, b: unknown) => {
       const alone = (value: unknown) =>
-        writeUrl(
+        writeLinkUrl(
           path.reduceRight((field, key) => ({ [key]: field }), value) as object,
         ).search;
       try {
