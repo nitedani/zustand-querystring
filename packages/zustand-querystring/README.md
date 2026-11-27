@@ -269,7 +269,7 @@ const useStore = create<{ mode: string; page: number }>()(
       from: ({ mode, page, advancedPage }) =>
         mode === 'advanced'
           ? { mode, page: advancedPage as number }
-          : { page: page as number },
+          : { mode: mode as string, page: page as number },
     },
   }),
 );
