@@ -267,32 +267,29 @@ const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
   return Object.values(value as object).some(v => holdsFunction(v, seen));
 };
 
-// An instance of a user class, which isEqual compares by its visible fields only, missing private ones.
+// Object.prototype or null, of any realm.
+const isRoot = (proto: object | null) =>
+  proto === null || Object.getPrototypeOf(proto) === null;
+
+// An instance of a user class, a subclass of a built-in one too, which isEqual compares by its visible fields only, missing private ones.
 const isInstance = (value: unknown) => {
   if (!isObjectLike(value) || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
-  return (
-    proto !== Object.prototype &&
-    proto !== null &&
-    !isDate(value) &&
-    !isRegExp(value) &&
-    !isMap(value) &&
-    !isSet(value) &&
-    !isTypedArray(value)
-  );
+  if (isTypedArray(value)) {
+    const base = Object.getPrototypeOf(proto);
+    return !base || !isRoot(Object.getPrototypeOf(base));
+  }
+  if (isDate(value) || isRegExp(value) || isMap(value) || isSet(value))
+    return !isRoot(Object.getPrototypeOf(proto));
+  return proto !== Object.prototype && proto !== null;
 };
 
-// Deep equality where an instance, at any depth, equals only itself, and Dates of two classes differ.
-const isSameState = (a: unknown, b: unknown) =>
+// Deep equality where an instance, at any depth, equals only itself; onInstance is called for each two distinct ones it compares.
+const isSameState = (a: unknown, b: unknown, onInstance?: () => void) =>
   isEqualWith(a, b, (x, y) => {
-    if (isInstance(x) || isInstance(y)) return x === y;
-    if (
-      isDate(x) &&
-      isDate(y) &&
-      Object.getPrototypeOf(x) !== Object.getPrototypeOf(y)
-    )
-      return false;
-    return undefined;
+    if (!isInstance(x) && !isInstance(y)) return undefined;
+    if (x !== y) onInstance?.();
+    return x === y;
   });
 
 // The value at a path of own keys, or undefined where the path leaves the objects.
@@ -744,10 +741,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const swaps: string[][] = [];
       const sameObject = (path: string[], value: object, before: object) => {
         let instances = false;
-        const equal = isEqualWith(value, before, (a, b) => {
-          if (!isInstance(a) && !isInstance(b)) return undefined;
-          if (a !== b) instances = true;
-          return a === b;
+        const equal = isSameState(value, before, () => {
+          instances = true;
         });
         if (!equal && instances) swaps.push(path);
         return equal;

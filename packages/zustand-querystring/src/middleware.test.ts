@@ -2463,11 +2463,13 @@ describe('href', () => {
   );
 
   it.each([
-    [false, '/list?date="2026-11-25T00:00:00.000Z"'],
-    ['view', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
+    [false, 'its text', '/list?date="2026-11-25T00:00:00.000Z"'],
+    ['view', 'its text', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
+    [false, 'itself', '/list?date="2026-11-25T00:00:00.000Z"'],
+    ['view', 'itself', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
   ] as const)(
-    'with key %s and a map, writes a passed Date at the time of a Date subclass the map writes another way',
-    (key, link) => {
+    'with key %s and a map that returns a date as %s, writes a passed Date at the time of a Date subclass the format writes another way',
+    (key, returns, link) => {
       class CalendarDate extends Date {
         toJSON() {
           return this.toISOString().slice(0, 10);
@@ -2480,7 +2482,9 @@ describe('href', () => {
             key,
             format: json,
             map: {
-              to: ({ date }) => ({ date: date.toJSON() }),
+              to: ({ date }) => ({
+                date: returns === 'itself' ? date : date.toJSON(),
+              }),
               from: ({ date }) =>
                 date === undefined
                   ? {}
@@ -2499,6 +2503,68 @@ describe('href', () => {
       expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState().date.toJSON()).toBe(
         '2026-11-25T00:00:00.000Z',
+      );
+    },
+  );
+
+  it.each([
+    [
+      false,
+      'its text',
+      '/list?date="1970-01-01T00:00:00.000Z|America/New_York"',
+    ],
+    [
+      'view',
+      'its text',
+      '/list?view={"date":"1970-01-01T00:00:00.000Z|America/New_York"}',
+    ],
+    [false, 'itself', '/list?date="1970-01-01T00:00:00.000Z|America/New_York"'],
+    [
+      'view',
+      'itself',
+      '/list?view={"date":"1970-01-01T00:00:00.000Z|America/New_York"}',
+    ],
+  ] as const)(
+    'with key %s and a map that returns a date as %s, writes a passed Date subclass at the current time in another zone, and leaves out one in the same zone',
+    (key, returns, link) => {
+      class ZonedDate extends Date {
+        constructor(
+          time: number,
+          public zone: string,
+        ) {
+          super(time);
+        }
+        toJSON() {
+          return `${this.toISOString()}|${this.zone}`;
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ date: ZonedDate }>()(
+          querystring(() => ({ date: new ZonedDate(0, 'UTC') }), {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ date }) => ({
+                date: returns === 'itself' ? date : date.toJSON(),
+              }),
+              from: ({ date }) => {
+                if (date === undefined) return {};
+                const [time, zone] = (date as string).split('|');
+                return { date: new ZonedDate(Date.parse(time), zone) };
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+
+      const href = store.href('/list', {
+        date: new ZonedDate(0, 'America/New_York'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().date.zone).toBe('America/New_York');
+      expect(store.href('/list', { date: new ZonedDate(0, 'UTC') })).toBe(
+        '/list',
       );
     },
   );
