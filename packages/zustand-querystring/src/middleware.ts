@@ -722,6 +722,22 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         written.set(urlState, (search = writeLinkUrl(urlState)));
       return search;
     };
+    // Whether whole with known's values at the paths writes the search whole writes.
+    const writesSameWith = (
+      whole: object,
+      known: object,
+      paths: string[][],
+    ) => {
+      try {
+        const swapped = paths.reduce(
+          (state, path) => setIn(state, path, getIn(known, path)),
+          whole,
+        );
+        return writeLinkUrl(swapped) === writtenOf(whole);
+      } catch {
+        return false;
+      }
+    };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
     const changes = (base: object, followed: object, next: () => object) => {
@@ -753,22 +769,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const whole = byField
         ? urlStateOf(follow(base, false), pathname)
         : urlState;
-      const search = writtenOf(whole);
-      const writesAlike = (paths: string[][]) => {
-        try {
-          const swapped = paths.reduce(
-            (state, path) => setIn(state, path, getIn(known, path)),
-            whole,
-          );
-          return writeLinkUrl(swapped) === search;
-        } catch {
-          return false;
+      const writesAlike = (paths: string[][]) =>
+        writesSameWith(whole, known, paths);
+      let alike: string[][] = [];
+      if (swaps.length > 1 && writesAlike(swaps)) alike = swaps;
+      else
+        for (const path of swaps) {
+          // A path is alike when the base's values there and at the alike paths before it write the same search; at all paths they don't.
+          const all = swaps.length > 1 && alike.length + 1 === swaps.length;
+          if (!all && writesAlike([...alike, path])) alike.push(path);
         }
-      };
-      const alike =
-        swaps.length > 1 && writesAlike(swaps)
-          ? swaps
-          : swaps.filter(path => writesAlike([path]));
       for (const path of alike) deleteIn(changed, path);
       return changed;
     };

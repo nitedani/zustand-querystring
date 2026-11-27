@@ -1581,6 +1581,49 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?revision=2'],
+    ['view', '/list?view={"revision":2}'],
+  ] as const)(
+    'with key %s and a map that returns two class instances the format writes as one value, writes a passed value only both of them hold',
+    (key, link) => {
+      class Revision {
+        constructor(public value: number) {}
+      }
+      // Writes the newer of two revisions, as a codec moving from one field to another does.
+      const encode = ({ primary, mirror }: Record<string, Revision>) =>
+        primary || mirror
+          ? { revision: Math.max(primary?.value ?? 0, mirror?.value ?? 0) }
+          : {};
+      const format = {
+        ...json,
+        stringify: (state: object) => json.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          json.stringifyStandalone(encode(state)),
+      };
+      const create = (url: string) =>
+        createStore<{ revision: number }>()(
+          querystring(() => ({ revision: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ revision }) => ({
+                primary: new Revision(revision),
+                mirror: new Revision(revision),
+              }),
+              from: ({ revision }) =>
+                revision === undefined ? {} : { revision: revision as number },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { revision: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().revision).toBe(2);
+    },
+  );
+
   it("with a map that returns new class instances, leaves out a current value when the format's reader needs the changed param with another", () => {
     class Box {
       constructor(public value: string) {}
