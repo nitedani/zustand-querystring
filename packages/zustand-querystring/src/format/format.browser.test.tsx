@@ -3337,6 +3337,139 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, 'link'],
+    [false, 'typed'],
+    ['view', 'link'],
+    ['view', 'typed'],
+  ] as const)(
+    'with key %s and a map whose reader sets one reset object for two filters, a %s page keeps the class filter',
+    async (key, source) => {
+      class Filter {
+        constructor(public status: string) {}
+      }
+      window.history.replaceState({}, '', '/list');
+      const useStore = create<{
+        page: number;
+        left: { status: string };
+        right: Filter;
+      }>()(
+        querystring(
+          () => ({
+            page: 1,
+            left: { status: 'all' },
+            right: new Filter('protected'),
+          }),
+          {
+            key,
+            format: json,
+            map: {
+              to: ({ page, right }) => ({
+                page,
+                codec: 'safe',
+                status: right.status,
+              }),
+              // A link from before the marker resets both filters.
+              from: ({ page, codec }) => {
+                if (page === undefined) return {};
+                if (codec === 'safe') return { page: page as number };
+                const reset = { status: 'all' };
+                return { page: page as number, left: reset, right: reset };
+              },
+            },
+          },
+        ),
+      );
+      const before = useStore.getState().right;
+      useStore.setState({ page: 3 });
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href =
+        source === 'link'
+          ? useStore.href('/list', { page: 2 })
+          : key === false
+            ? '/list?page=2'
+            : '/list?view=%7B%22page%22%3A2%7D';
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().right).toBe(before);
+      expect(useStore.getState().right.status).toBe('protected');
+    },
+  );
+
+  it.each([
+    [false, '/list?left={"page":2}&right={"page":2}'],
+    ['view', '/list?view={"left":{"page":2},"right":{"page":2}}'],
+  ] as const)(
+    'with key %s and a map whose reader returns one object for two panes on the same page, a click and a new store keep each pane its search',
+    async (key, link) => {
+      type Pane = { page: number; search: string };
+      const createPanes = () =>
+        create<{ left: Pane; right: Pane }>()(
+          querystring(
+            () => ({
+              left: { page: 1, search: 'left' },
+              right: { page: 1, search: 'right' },
+            }),
+            {
+              key,
+              format: json,
+              map: {
+                to: ({ left, right }) => ({
+                  left: { page: left.page },
+                  right: { page: right.page },
+                  codec: 'split',
+                }),
+                // A link from before the marker holds one pane for both.
+                from: ({ left, right, codec }) => {
+                  const panes = { left, right } as {
+                    left?: Pane;
+                    right?: Pane;
+                  };
+                  if (
+                    panes.left &&
+                    panes.right &&
+                    panes.left.page === panes.right.page &&
+                    codec !== 'split'
+                  )
+                    return { left: panes.left, right: panes.left };
+                  return {
+                    ...(panes.left && { left: panes.left }),
+                    ...(panes.right && { right: panes.right }),
+                  };
+                },
+              },
+            },
+          ),
+        );
+      window.history.replaceState({}, '', '/list');
+      const useStore = createPanes();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href = useStore.href('/list', {
+        left: { page: 2 },
+        right: { page: 2 },
+      } as Partial<{ left: Pane; right: Pane }>);
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(useStore.getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+      window.history.replaceState({}, '', href);
+      expect(createPanes().getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+    },
+  );
+
   it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
     const useStore = createCustomersStore({
       map: {

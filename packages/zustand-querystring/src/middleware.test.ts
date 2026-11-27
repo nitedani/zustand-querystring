@@ -1144,6 +1144,49 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?status=%22all%22'],
+    ['view', `/list?view=${encodeURIComponent('{"status":"all"}')}`],
+  ] as const)(
+    'with key %s and a map whose reader returns one object for two class values, merges it into each of them',
+    (key, url) => {
+      class Filter {
+        constructor(
+          public status: string,
+          public owner: string,
+        ) {}
+      }
+      const store = createStore<{ left: Filter; right: Filter }>()(
+        querystring(
+          () => ({
+            left: new Filter('open', 'ann'),
+            right: new Filter('open', 'bob'),
+          }),
+          {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ left }) => ({ status: left.status }),
+              from: ({ status }) => {
+                if (status === undefined) return {};
+                const reset = { status } as Filter;
+                return { left: reset, right: reset };
+              },
+            },
+          },
+        ),
+      );
+
+      const { left, right } = store.getState();
+      expect(left).not.toBe(right);
+      expect(left).toBeInstanceOf(Filter);
+      expect(right).toBeInstanceOf(Filter);
+      expect([left.status, left.owner]).toEqual(['all', 'ann']);
+      expect([right.status, right.owner]).toEqual(['all', 'bob']);
+    },
+  );
+
   // A format whose text for a date needs the mode next to it.
   const needsMode = (state: object) => {
     if ('date' in state && !('mode' in state)) throw Error('date needs mode');

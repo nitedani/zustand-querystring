@@ -490,7 +490,7 @@ const mergeUrlState = (
     syncUndefined = false,
   }: MergeOptions,
 ) => {
-  // Each URL object merged so far and its result, so a cycle in the URL state becomes the same cycle.
+  // Each URL object being merged and its result, so a cycle in the URL state becomes the same cycle; an object met again in another place is merged there too.
   const merges = new Map<object, object>();
   // keys is listed once per object: listing the keys of a large object walks all of them.
   const merge = (
@@ -562,8 +562,7 @@ const mergeUrlState = (
       if (delta && isEmpty(fields) && !isEmptyObject) continue;
       write(key, fields);
     }
-    // A link merges an object passed twice into each place it lands; only its cycles reuse a merge.
-    if (instances === 'read') merges.delete(urlState);
+    merges.delete(urlState);
     return merged;
   };
   return merge(state, urlState, selection, Object.keys(urlState));
