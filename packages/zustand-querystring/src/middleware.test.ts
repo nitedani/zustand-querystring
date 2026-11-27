@@ -2419,9 +2419,11 @@ describe('href', () => {
       '/list?view={"region":"US","currency":"USD","unit":"case","price":3}',
     ],
   ] as const)(
-    "with key %s and a map, writes the three current values a passed one needs when the format's reader rejects it without them",
+    "with key %s and a map, writes the three current values a passed one needs when the format's reader rejects it without them, reading a URL at most 10 times",
     (key, link) => {
+      let reads = 0;
       const read = <T extends object>(state: T) => {
+        reads++;
         if (
           'price' in state &&
           !('region' in state && 'currency' in state && 'unit' in state)
@@ -2466,8 +2468,10 @@ describe('href', () => {
         unit: 'case',
         search: 'private search',
       });
+      reads = 0;
 
       const href = store.href('/list', { price: 3 });
+      expect(reads).toBeLessThanOrEqual(10);
       expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState()).toStrictEqual({
         region: 'US',
@@ -2546,6 +2550,265 @@ describe('href', () => {
         mode: 'advanced',
         page: 2,
         answers,
+      });
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s, a map whose page param depends on the mode written after 100 changed answers, a page link reads a URL at most 16 times',
+    key => {
+      const answers = Object.fromEntries(
+        Array.from({ length: 100 }, (_, i) => [`q${i}`, 0]),
+      );
+      let reads = 0;
+      type State = {
+        mode: string;
+        page: number;
+        answers: Record<string, number>;
+      };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(() => ({ mode: 'simple', page: 1, answers }), {
+            url,
+            key,
+            format: {
+              ...json,
+              parse: (value, ctx) => (reads++, json.parse(value, ctx)),
+              parseStandalone: (params, ctx) => (
+                reads++, json.parseStandalone(params, ctx)
+              ),
+            },
+            map: {
+              to: ({ mode, page, answers }) => ({
+                ...answers,
+                [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                mode,
+              }),
+              from: ({ mode, page, advancedPage, ...fields }) => {
+                const read = mode === 'advanced' ? advancedPage : page;
+                return {
+                  ...(mode === undefined ? {} : { mode: mode as string }),
+                  ...(read === undefined ? {} : { page: read as number }),
+                  ...(Object.keys(fields).length
+                    ? { answers: fields as Record<string, number> }
+                    : {}),
+                };
+              },
+            },
+          }),
+        );
+      const store = create('/survey');
+      store.setState({
+        mode: 'advanced',
+        page: 3,
+        answers: Object.fromEntries(Object.keys(answers).map(q => [q, 1])),
+      });
+      reads = 0;
+
+      const href = store.href('/survey', { page: 2 });
+      expect(reads).toBeLessThanOrEqual(16);
+      expect(decodeURIComponent(href)).toBe(
+        key === false
+          ? '/survey?advancedPage=2&mode="advanced"'
+          : '/survey?view={"advancedPage":2,"mode":"advanced"}',
+      );
+      expect(create(href).getState()).toStrictEqual({
+        mode: 'advanced',
+        page: 2,
+        answers,
+      });
+    },
+  );
+
+  // Reads the params as json does, then passes them through check.
+  const reading = (check: (state: Record<string, unknown>) => void) => ({
+    ...json,
+    parse: (value: string, ctx?: ParseContext) => {
+      const state = json.parse(value, ctx);
+      check(state);
+      return state;
+    },
+    parseStandalone: (params: Record<string, string[]>, ctx: ParseContext) => {
+      const state = json.parseStandalone(params, ctx);
+      check(state);
+      return state;
+    },
+  });
+  const settings = () => ({
+    mode: 'simple',
+    locale: 'en',
+    version: 'v2',
+    page: 1,
+  });
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the one current value a passed one needs when the format's reader rejects all the changed ones together",
+    (key, link) => {
+      // A page needs the mode, and a locale needs a schema version.
+      const format = reading(state => {
+        if (
+          state.page !== undefined &&
+          (!state.mode || (state.locale && !state.version))
+        )
+          throw Error('page needs mode, and locale needs a schema version');
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof settings>>()(
+          querystring(settings, {
+            url,
+            key,
+            format,
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', locale: 'fr' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...settings(),
+        mode: 'advanced',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?version="v3"&page=2'],
+    ['view', '/list?view={"version":"v3","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the one current value a passed one needs rather than two the format's reader also accepts",
+    (key, link) => {
+      // A page needs a schema version or the legacy mode and locale pair, never half of the pair.
+      const format = reading(state => {
+        if (state.page === undefined) return;
+        const legacy = Boolean(state.mode && state.locale);
+        if (
+          (!legacy && (state.mode || state.locale)) ||
+          !(state.version || legacy)
+        )
+          throw Error('page needs a schema version or the legacy pair');
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof settings>>()(
+          querystring(settings, {
+            url,
+            key,
+            format,
+            map: {
+              to: state => state,
+              from: ({ page }) =>
+                page === undefined ? {} : { page: page as number },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', locale: 'fr', version: 'v3' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().page).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the mode or with the account and currency, writes the mode alone',
+    (key, link) => {
+      const init = () => ({
+        account: 'public',
+        currency: 'USD',
+        mode: 'simple',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, ...rest }) => ({
+                ...rest,
+                ...(page !== undefined &&
+                (rest.mode !== undefined ||
+                  (rest.account !== undefined && rest.currency !== undefined))
+                  ? { page }
+                  : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({
+        account: 'acme-2026',
+        currency: 'EUR',
+        mode: 'advanced',
+        page: 3,
+      });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...init(),
+        mode: 'advanced',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the current value a passed one needs past one the format's writer rejects with it",
+    (key, link) => {
+      // Writes a locale only with a schema version.
+      const write = <T extends object>(state: T) => {
+        if ('locale' in state && !('version' in state))
+          throw Error('locale needs a schema version');
+        return state;
+      };
+      const init = () => ({
+        locale: 'en',
+        mode: 'simple',
+        version: 'v2',
+        page: 1,
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof init>>()(
+          querystring(init, {
+            url,
+            key,
+            format: {
+              ...reading(state => {
+                if (state.page !== undefined && !state.mode)
+                  throw Error('page needs mode');
+              }),
+              stringify: state => json.stringify(write(state)),
+              stringifyStandalone: state =>
+                json.stringifyStandalone(write(state)),
+            },
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ locale: 'fr', mode: 'advanced' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...init(),
+        mode: 'advanced',
+        page: 2,
       });
     },
   );
