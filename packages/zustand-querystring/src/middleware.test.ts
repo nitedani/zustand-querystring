@@ -2647,13 +2647,33 @@ describe('href', () => {
   );
 
   it.each([
-    [false, 'unchanged', 3],
-    ['view', 'unchanged', 3],
-    [false, 'changed', 12],
-    ['view', 'changed', 12],
+    [false, 'first', 'unchanged', 3, '/survey?mode="advanced"&advancedPage=2'],
+    [
+      'view',
+      'first',
+      'unchanged',
+      3,
+      '/survey?view={"mode":"advanced","advancedPage":2}',
+    ],
+    [false, 'first', 'changed', 12, '/survey?mode="advanced"&advancedPage=2'],
+    [
+      'view',
+      'first',
+      'changed',
+      12,
+      '/survey?view={"mode":"advanced","advancedPage":2}',
+    ],
+    [false, 'last', 'changed', 16, '/survey?advancedPage=2&mode="advanced"'],
+    [
+      'view',
+      'last',
+      'changed',
+      16,
+      '/survey?view={"advancedPage":2,"mode":"advanced"}',
+    ],
   ] as const)(
-    'with key %s, a map whose page param depends on the mode and 100 answers %s, a page link reads a URL at most %i times',
-    (key, answered, most) => {
+    'with key %s, a map whose page param depends on the mode written %s and 100 answers %s, a page link reads a URL at most %i times',
+    (key, modeAt, answered, most, link) => {
       const answers = Object.fromEntries(
         Array.from({ length: 100 }, (_, i) => [`q${i}`, 0]),
       );
@@ -2676,11 +2696,14 @@ describe('href', () => {
               ),
             },
             map: {
-              to: ({ mode, page, answers }) => ({
-                mode,
-                [mode === 'advanced' ? 'advancedPage' : 'page']: page,
-                ...answers,
-              }),
+              to: ({ mode, page, answers }) => {
+                const pageParam = {
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                };
+                return modeAt === 'first'
+                  ? { mode, ...pageParam, ...answers }
+                  : { ...answers, ...pageParam, mode };
+              },
               from: ({ mode, page, advancedPage, ...fields }) => {
                 const read = mode === 'advanced' ? advancedPage : page;
                 return {
@@ -2704,77 +2727,7 @@ describe('href', () => {
 
       const href = store.href('/survey', { page: 2 });
       expect(reads).toBeLessThanOrEqual(most);
-      expect(decodeURIComponent(href)).toBe(
-        key === false
-          ? '/survey?mode="advanced"&advancedPage=2'
-          : '/survey?view={"mode":"advanced","advancedPage":2}',
-      );
-      expect(create(href).getState()).toStrictEqual({
-        mode: 'advanced',
-        page: 2,
-        answers,
-      });
-    },
-  );
-
-  it.each([false, 'view'] as const)(
-    'with key %s, a map whose page param depends on the mode written after 100 changed answers, a page link reads a URL at most 16 times',
-    key => {
-      const answers = Object.fromEntries(
-        Array.from({ length: 100 }, (_, i) => [`q${i}`, 0]),
-      );
-      let reads = 0;
-      type State = {
-        mode: string;
-        page: number;
-        answers: Record<string, number>;
-      };
-      const create = (url: string) =>
-        createStore<State>()(
-          querystring(() => ({ mode: 'simple', page: 1, answers }), {
-            url,
-            key,
-            format: {
-              ...json,
-              parse: (value, ctx) => (reads++, json.parse(value, ctx)),
-              parseStandalone: (params, ctx) => (
-                reads++, json.parseStandalone(params, ctx)
-              ),
-            },
-            map: {
-              to: ({ mode, page, answers }) => ({
-                ...answers,
-                [mode === 'advanced' ? 'advancedPage' : 'page']: page,
-                mode,
-              }),
-              from: ({ mode, page, advancedPage, ...fields }) => {
-                const read = mode === 'advanced' ? advancedPage : page;
-                return {
-                  ...(mode === undefined ? {} : { mode: mode as string }),
-                  ...(read === undefined ? {} : { page: read as number }),
-                  ...(Object.keys(fields).length
-                    ? { answers: fields as Record<string, number> }
-                    : {}),
-                };
-              },
-            },
-          }),
-        );
-      const store = create('/survey');
-      store.setState({
-        mode: 'advanced',
-        page: 3,
-        answers: Object.fromEntries(Object.keys(answers).map(q => [q, 1])),
-      });
-      reads = 0;
-
-      const href = store.href('/survey', { page: 2 });
-      expect(reads).toBeLessThanOrEqual(16);
-      expect(decodeURIComponent(href)).toBe(
-        key === false
-          ? '/survey?advancedPage=2&mode="advanced"'
-          : '/survey?view={"advancedPage":2,"mode":"advanced"}',
-      );
+      expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState()).toStrictEqual({
         mode: 'advanced',
         page: 2,

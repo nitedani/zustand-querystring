@@ -3305,11 +3305,17 @@ describe('href', () => {
   });
 
   it.each([
-    [false, '/list?codec="v2"&units="absolute"&page=2'],
-    ['view', '/list?view={"codec":"v2","units":"absolute","page":2}'],
+    [false, 'writes', '/list?codec="v2"&units="absolute"&page=2'],
+    ['view', 'writes', '/list?view={"codec":"v2","units":"absolute","page":2}'],
+    [false, "doesn't write", '/list?codec="v2"&units="absolute"&page=2'],
+    [
+      'view',
+      "doesn't write",
+      '/list?view={"codec":"v2","units":"absolute","page":2}',
+    ],
   ] as const)(
-    'with key %s and a map whose reader reads a page without units as a grid page, a click keeps the layout and a new tab opens the page',
-    async (key, link) => {
+    'with key %s and a map that %s the layout and reads a page without units as a grid page, a click keeps the layout and a new tab opens the page',
+    async (key, layout, link) => {
       type View = {
         codec: string;
         units: string;
@@ -3320,7 +3326,10 @@ describe('href', () => {
         key,
         format: json,
         map: {
-          to: view => view,
+          to: view =>
+            layout === 'writes'
+              ? view
+              : { codec: view.codec, units: view.units, page: view.page },
           // A link from before units has its page in the grid layout.
           from: ({ page, ...view }) => {
             if (page === undefined || view.codec === undefined) return view;
@@ -3358,65 +3367,6 @@ describe('href', () => {
       expect(createView().getState()).toMatchObject({
         codec: 'v2',
         units: 'absolute',
-        layout: 'grid',
-        page: 2,
-      });
-    },
-  );
-
-  it.each([
-    [false, '/list?codec="v2"&units="absolute"&page=2'],
-    ['view', '/list?view={"codec":"v2","units":"absolute","page":2}'],
-  ] as const)(
-    "with key %s and a map that doesn't write the layout and reads a page without units as a grid page, a click keeps the layout and a new tab opens the page",
-    async (key, link) => {
-      type View = {
-        codec: string;
-        units: string;
-        layout: string;
-        page: number;
-      };
-      const options: QueryStringOptions<View> = {
-        key,
-        format: json,
-        map: {
-          to: ({ codec, units, page }) => ({ codec, units, page }),
-          // A link from before units has its page in the grid layout.
-          from: ({ page, ...view }) => {
-            if (page === undefined || view.codec === undefined) return view;
-            return (
-              view.units === undefined
-                ? { ...view, page, layout: 'grid' }
-                : { ...view, page }
-            ) as Partial<View>;
-          },
-        },
-      };
-      const createView = () =>
-        create<View>()(
-          querystring(
-            () => ({ codec: 'v2', units: 'relative', layout: 'grid', page: 1 }),
-            options,
-          ),
-        );
-      const useStore = createView();
-      const unsubscribe = useStore.subscribe(() => {});
-      useStore.setState({ units: 'absolute', layout: 'list', page: 3 });
-
-      const href = useStore.href('/list', { page: 2 });
-      window.history.pushState({}, '', href);
-      await settle();
-      unsubscribe();
-
-      expect(decodeURIComponent(href)).toBe(link);
-      expect(useStore.getState()).toMatchObject({
-        units: 'absolute',
-        layout: 'list',
-        page: 2,
-      });
-      window.history.replaceState({}, '', href);
-      expect(createView().getState()).toMatchObject({
-        codec: 'v2',
         layout: 'grid',
         page: 2,
       });
