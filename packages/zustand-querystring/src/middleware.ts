@@ -525,41 +525,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const ownsNewKeys =
     !standalone || Boolean(defaultedOptions.prefix || defaultedOptions.select);
 
-  // The URL state the format reads from this store's params, with the defaults as type hints; null when there are none or the one param can't be read.
-  const fromParams = (params: QueryStringParams, initialState: object) => {
-    if (standalone) {
-      // Standalone mode: filter by prefix and strip it from keys
-      let filteredParams = params;
-      if (defaultedOptions.prefix) {
-        filteredParams = {};
-        for (const [key, values] of Object.entries(params)) {
-          if (key.startsWith(defaultedOptions.prefix)) {
-            setOwn(
-              filteredParams,
-              key.slice(defaultedOptions.prefix.length),
-              values,
-            );
-          }
-        }
-      }
-      // Format handles all params with initialState for type inference
-      const result = format.parseStandalone(filteredParams, { initialState });
-      return Object.keys(result).length > 0 ? result : null;
-    } else {
-      // Namespaced mode: look for prefix + key directly
-      const values = params[namespaceKey];
-      if (values && values.length > 0) {
-        try {
-          // Namespaced mode always has single value (not repeated keys)
-          return format.parse(values[0], { initialState });
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    }
-  };
-
   const getSelectedState = (
     state,
     pathname,
@@ -593,6 +558,43 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const urlDefaults = (pathname: string): object =>
     urlStateOf(initialState, pathname);
 
+  // The URL state the format reads from this store's params in a search, with the pathname's defaults as type hints; null when there are none or the one param can't be read.
+  const readUrlState = (search: string, pathname: string) => {
+    const params = parseSearchString(search);
+    const initialState = urlDefaults(pathname);
+    if (standalone) {
+      // Standalone mode: filter by prefix and strip it from keys
+      let filteredParams = params;
+      if (defaultedOptions.prefix) {
+        filteredParams = {};
+        for (const [key, values] of Object.entries(params)) {
+          if (key.startsWith(defaultedOptions.prefix)) {
+            setOwn(
+              filteredParams,
+              key.slice(defaultedOptions.prefix.length),
+              values,
+            );
+          }
+        }
+      }
+      // Format handles all params with initialState for type inference
+      const result = format.parseStandalone(filteredParams, { initialState });
+      return Object.keys(result).length > 0 ? result : null;
+    } else {
+      // Namespaced mode: look for prefix + key directly
+      const values = params[namespaceKey];
+      if (values && values.length > 0) {
+        try {
+          // Namespaced mode always has single value (not repeated keys)
+          return format.parse(values[0], { initialState });
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
   // The state with a store-shaped state applied, as a navigation or the store's creation applies a URL.
   const applyState = (
     state,
@@ -614,10 +616,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
 
   const initialize = (url: URL, state, instances: 'merge' | 'keep') => {
     try {
-      const stateFromUrl = fromParams(
-        parseSearchString(url.search),
-        urlDefaults(url.pathname),
-      );
+      const stateFromUrl = readUrlState(url.search, url.pathname);
       if (!stateFromUrl) {
         return state;
       }
@@ -808,10 +807,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const landing = (urlState: object) => {
       const search = writtenOf(urlState);
       try {
-        const read = fromParams(
-          parseSearchString(search),
-          urlDefaults(pathname),
-        );
+        const read = readUrlState(search, pathname);
         // A namespaced reader that rejects its one param reads as none.
         if (!read && !standalone && search) return -1;
         const storeState = read ? map!.from(read, pathname) : {};
