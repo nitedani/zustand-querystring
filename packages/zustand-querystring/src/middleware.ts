@@ -740,6 +740,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         return {};
       const known = urlStateOf(base, pathname);
       const urlState = next();
+      // user decision 2026-11-27: the link rules stay exact through a map that returns class instances, at the cost of extra writes per link
       // The paths where the two differ and hold distinct class instances.
       const swaps: string[][] = [];
       const sameObject = (path: string[], value: object, before: object) => {

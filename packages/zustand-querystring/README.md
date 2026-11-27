@@ -246,6 +246,8 @@ useStore.href('/customers', { status: 'paid' });
 
 A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
 
+A `map` whose `to` returns class instances (your own classes, not a `Date`) makes `href` slower. The store can't compare those instances as data, so for each param that holds one it writes the URL again to see whether the value changed. In a benchmark, 50 links over 12 such params took about 14 ms, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
+
 ### Reading a link
 
 Anyone can edit a link before they share it, and the store reads its values without checking their types: a new tab on `/customers?page=abc` sets `page` to the string `'abc'`. Check a field like `page` before your app uses it as a number. `href` writes `pathname` as given, so build it from your own routes, never from user input: `useStore.href('//example.com')` returns `//example.com`, a link to another site.
