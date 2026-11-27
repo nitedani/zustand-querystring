@@ -853,23 +853,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       type Check = {
         rejected: boolean;
         live: boolean;
-        exact: number;
         passed: number;
       };
       const unread: Check = {
         rejected: true,
         live: false,
-        exact: 0,
         passed: 0,
       };
-      // How stores read a search: rejected by the format or map.from; live when the clicking store lands where it follows to; exact, the followers that do; passed, those too that land where the link changes nothing more.
+      // How stores read a search: rejected by the format or map.from; live when the clicking store lands where it follows to; passed, the followers that do or that land where the link changes nothing more.
       const read = (search: string): Check => {
         try {
           const urlState = readUrlState(search, pathname);
           // A namespaced reader that rejects its one param reads as none.
           if (!urlState && !standalone && search) return unread;
           const storeState = urlState ? map!.from(urlState, pathname) : {};
-          const result = { rejected: false, live: false, exact: 0, passed: 0 };
+          const result = { rejected: false, live: false, passed: 0 };
           // The clicking store follows as a navigation applies a URL, on a copy; a new tab as its creation does, without writing into an instance.
           followers.forEach(([base, target], i) => {
             const landed = i
@@ -879,7 +877,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
                 });
             const isExact = sameState(landed, target);
             if (i === 0) result.live = isExact;
-            if (isExact) result.exact++;
             if (isExact || (i > 0 && sameState(follow(landed), landed)))
               result.passed++;
           });
@@ -902,9 +899,8 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
       const complete = (c: Check) => c.live && c.passed === followers.length;
       if (complete(check(link))) return link;
-      // Read first, then the store that clicks landing where it follows to, then the followers that pass, then those that land exactly.
-      const rank = (c: Check) =>
-        [!c.rejected, c.live, c.passed, c.exact].map(Number);
+      // Read first, then the store that clicks landing where it follows to, then the followers that pass.
+      const rank = (c: Check) => [!c.rejected, c.live, c.passed].map(Number);
       const better = (a: Check, b: Check) => {
         const [x, y] = [rank(a), rank(b)];
         const i = x.findIndex((value, i) => value !== y[i]);
