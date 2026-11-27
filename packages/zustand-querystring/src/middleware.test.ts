@@ -4064,6 +4064,19 @@ describe('server store (url option): a key naming an Object member keeps the res
     ).toBeUndefined();
   });
 
+  it.each(['constructor', 'toString'])(
+    'a selected field named %s that the URL lacks keeps its value',
+    field => {
+      const store = createStore<Record<string, unknown>>()(
+        querystring(() => ({ [field]: 'basic', count: 0 }), {
+          url: '/?count=:5',
+          select: () => ({ [field]: true, count: true }),
+        }),
+      );
+      expect(store.getState()).toStrictEqual({ [field]: 'basic', count: 5 });
+    },
+  );
+
   it.each([
     [{ key: false }, '/?count=5&__proto__=x'],
     [{ key: false, prefix: 'p_' }, '/?p_count=5&p___proto__=x'],

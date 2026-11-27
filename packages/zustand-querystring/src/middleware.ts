@@ -322,7 +322,10 @@ const translateSelectionToState = <T>(
     return {};
   }
   return Object.keys(selection).reduce((acc, key) => {
-    if (!(key in state)) {
+    // An own field, or a field of the state's class under a name plain objects don't inherit.
+    const isField =
+      hasOwn(state, key) || (key in state && !(key in Object.prototype));
+    if (!isField) {
       return acc;
     }
     const value = selection[key];

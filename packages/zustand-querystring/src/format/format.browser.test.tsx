@@ -2302,6 +2302,25 @@ describe('navigation', () => {
     expect(Object.keys(useStore.getState())).not.toContain('toString');
   });
 
+  it.each(['constructor', 'toString'])(
+    'keeps a selected field named %s that the URL no longer carries',
+    async field => {
+      window.history.replaceState({}, '', `/p?${field}=adv&page=:2`);
+      const useStore = create<Record<string, unknown>>()(
+        querystring(() => ({ [field]: 'basic', page: 1 }), {
+          select: () => ({ [field]: true, page: true }),
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', '/p?page=:3');
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState()).toStrictEqual({ [field]: 'adv', page: 3 });
+    },
+  );
+
   it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {
     const useStore = createNavStore({
       syncUndefined: true,
