@@ -3016,6 +3016,51 @@ describe('href', () => {
   );
 
   it.each([
+    [false, '/list?page=2&region="eu"&unit="imperial"&scope="private"'],
+    [
+      'view',
+      '/list?view={"page":2,"region":"eu","unit":"imperial","scope":"private"}',
+    ],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the region and unit and sets the region without the scope, writes the scope too',
+    (key, link) => {
+      const init = () => ({
+        page: 1,
+        region: 'all',
+        unit: 'metric',
+        scope: 'public',
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, region, unit, scope }) => {
+                if (page === undefined) return {};
+                if (page === 1) return { page: page as number };
+                if (!region || !unit)
+                  throw Error('page needs two codec params');
+                return scope
+                  ? { page: page as number }
+                  : { page: page as number, region: region as string };
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ region: 'eu', unit: 'imperial', scope: 'private' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ ...init(), page: 2 });
+    },
+  );
+
+  it.each([
     [false, '/list?mode="advanced"&page=2'],
     ['view', '/list?view={"mode":"advanced","page":2}'],
   ] as const)(
