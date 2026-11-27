@@ -1049,6 +1049,43 @@ describe('Edge Cases and Regression Tests', () => {
         ':5',
       );
     });
+
+    it('should keep a non-default value in the URL after a pathname change when the store subscribes in its initializer', async () => {
+      window.history.replaceState({}, '', '/a');
+      const unsubscribes: (() => void)[] = [];
+      const createStore = () => {
+        const store = create<{ step: number }>()(
+          querystring(() => ({ step: 0 })),
+        );
+        // React keeps only one of the two stores; the other stays subscribed.
+        unsubscribes.push(store.subscribe(() => {}));
+        return store;
+      };
+      let store!: ReturnType<typeof createStore>;
+
+      function Provider() {
+        const [useStore] = useState(createStore);
+        useStore(state => state.step);
+        store = useStore;
+        return null;
+      }
+
+      try {
+        await render(
+          <StrictMode>
+            <Provider />
+          </StrictMode>,
+        );
+        store.setState({ step: 5 });
+        window.history.pushState({}, '', '/b');
+        await settle();
+
+        expect(unsubscribes).toHaveLength(2);
+        expect(url()).toBe('/b?step=:5');
+      } finally {
+        unsubscribes.forEach(unsubscribe => unsubscribe());
+      }
+    });
   });
 
   describe('string with comma (regression test)', () => {
