@@ -203,6 +203,8 @@ export const compact = (
   alike?: Alike,
 ) => {
   const met: string[][] = [];
+  // Each object of newState being walked and the one it is compared with, so a cycle ends where it closes.
+  const active = new Map<object, object>();
   const walk = (
     newState: object,
     initialState: object,
@@ -236,10 +238,16 @@ export const compact = (
           newValue.constructor === Object;
 
         if (isPlain && isForced) {
+          if (active.has(newValue)) {
+            output[key] = newValue;
+            return;
+          }
+          active.set(newValue, {});
           const fields = walk(newValue, {}, Object.keys(newValue), [
             ...path,
             key,
           ]);
+          active.delete(newValue);
           // An object none of whose fields is written is left out too, unless it is empty.
           if (!isEmpty(fields) || isEmpty(newValue)) {
             output[key] = fields;
@@ -251,7 +259,14 @@ export const compact = (
         ) {
           // Its fields note their own paths, so met holds no path inside another.
           met.length = noted;
+          if (active.has(newValue)) {
+            // The same pair is compared further out; another pair is written whole.
+            if (active.get(newValue) !== initialValue) output[key] = newValue;
+            return;
+          }
+          active.set(newValue, initialValue);
           const fields = walk(newValue, initialValue, [], [...path, key]);
+          active.delete(newValue);
           // An empty object over a non-empty default is kept, so a cleared filter stays cleared.
           if (!isEmpty(fields) || isEmpty(newValue)) {
             output[key] = fields;
@@ -1018,18 +1033,32 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // Only changed keys, so the others keep their references; an opaque value whose visible data stay alike is kept when the store writes the same URL with it.
       const met: string[][] = [];
       const pathname = location.pathname;
-      const changed = withoutAlike(
-        pickBy(next, (value, key) =>
-          Object.prototype.hasOwnProperty.call(current, key)
-            ? !sameField(value, current[key], [key], met, true)
-            : ownsNewKeys,
-        ),
-        met,
-        alikeIn(
-          () => next,
-          current,
-          state => writeLinkUrl(urlStateOf(state, pathname)),
-        ),
+      const write = (state: object) =>
+        writeLinkUrl(urlStateOf(state, pathname));
+      const changed = pickBy(next, (value, key) =>
+        Object.prototype.hasOwnProperty.call(current, key)
+          ? !sameField(value, current[key], [key], met, true)
+          : ownsNewKeys,
+      );
+      // A value the URL isn't written from, like one map.from derives, can't be compared by the URL: it is set.
+      const written = new Set<string>();
+      if (met.length) {
+        const probe = { ...next };
+        for (const [key] of met)
+          Object.defineProperty(probe, key, {
+            enumerable: true,
+            get: () => (written.add(key), next[key]),
+          });
+        try {
+          write(probe);
+        } catch {
+          // A key read before the write failed still counts.
+        }
+      }
+      withoutAlike(
+        changed,
+        met.filter(([key]) => written.has(key)),
+        alikeIn(() => next, current, write),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };

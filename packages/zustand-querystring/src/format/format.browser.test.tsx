@@ -2697,6 +2697,85 @@ describe('navigation', () => {
     unsubscribe();
   });
 
+  it.each([false, 'view'] as const)(
+    'with key %s and a map whose reader makes a class value from the page, a link to another page sets the class value',
+    async key => {
+      class Results {
+        #page: number;
+        constructor(page: number) {
+          this.#page = page;
+        }
+        get label() {
+          return `Results for page ${this.#page}`;
+        }
+      }
+      const createResults = () =>
+        create<{ page: number; results: Results }>()(
+          querystring(() => ({ page: 1, results: new Results(1) }), {
+            key,
+            format: json,
+            map: {
+              to: ({ page }) => ({ page }),
+              from: ({ page }) =>
+                page === undefined
+                  ? {}
+                  : { page: page as number, results: new Results(page) },
+            },
+          }),
+        );
+      window.history.replaceState({}, '', '/list');
+      const useStore = createResults();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', useStore.href('/list', { page: 2 }));
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().results.label).toBe('Results for page 2');
+      expect(createResults().getState().results.label).toBe(
+        'Results for page 2',
+      );
+    },
+  );
+
+  it.each([
+    [false, '/?page=2', '/?page=2&filters={"tag":"paid"}'],
+    ['view', '/?view={"page":2}', '/?view={"filters":{"tag":"paid"},"page":2}'],
+  ] as const)(
+    'with key %s and a format that writes the tag of a circular filter, writes the tag only when it differs from the default',
+    (key, unchanged, changed) => {
+      type Filters = { tag: Tag; self?: Filters };
+      const filters = (tag: string) => {
+        const node: Filters = { tag: new Tag(tag) };
+        node.self = node;
+        return node;
+      };
+      // Writes the filter's tag, not the filter's link to itself.
+      const wire = (state: { filters?: Filters; page?: number }) => ({
+        ...(state.filters && { filters: { tag: state.filters.tag } }),
+        ...(state.page !== undefined && { page: state.page }),
+      });
+      const useStore = create<{ filters: Filters; page: number }>()(
+        querystring(() => ({ filters: filters('all'), page: 1 }), {
+          key,
+          format: {
+            ...json,
+            stringify: state => json.stringify(wire(state)),
+            stringifyStandalone: state => json.stringifyStandalone(wire(state)),
+          },
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+
+      useStore.setState({ filters: filters('all'), page: 2 });
+      expect(url()).toBe(unchanged);
+      useStore.setState({ filters: filters('paid') });
+      expect(url()).toBe(changed);
+      unsubscribe();
+    },
+  );
+
   it('with a map that returns 12 class values, writes the format at most 4 times per state change', async () => {
     class Facet {
       constructor(public value: string) {}

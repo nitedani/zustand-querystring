@@ -487,6 +487,24 @@ describe('compact', () => {
     expect(result.output).toStrictEqual({ inner: { v: 'x', w: undefined } });
   });
 
+  it('compares a circular object with a circular default once around the cycle', () => {
+    const initialState: Record<string, unknown> = { x: 1, y: 1 };
+    initialState.self = initialState;
+    const newState: Record<string, unknown> = { x: 2, y: 1 };
+    newState.self = newState;
+    expect(compact({ f: newState }, { f: initialState }).output).toStrictEqual({
+      f: { x: 2 },
+    });
+  });
+
+  it('compares one object in two fields with the default of each', () => {
+    const shared = { x: 2, y: 1 };
+    const initialState = { a: { x: 1, y: 1 }, b: { x: 2, y: 2 } };
+    expect(
+      compact({ a: shared, b: shared }, initialState).output,
+    ).toStrictEqual({ a: { x: 2 }, b: { y: 1 } });
+  });
+
   class Box {
     constructor(public value: number) {}
   }
