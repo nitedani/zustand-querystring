@@ -917,7 +917,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const others = Object.keys(full).filter(key => !has(link, key));
       const plus = (keys: string[]) =>
         pickBy(full, (_value, key) => has(link, key) || keys.includes(key));
-      // Keys of the pool that with the link land better than a link that checks as than does: all of them or, in a pool of up to 8 the reader rejects together, the best of them without one, narrowed by halves; none when neither lands better.
+      // Keys of the pool that with the link land better than a link that checks as than does: all of them or, when a pool of 3 to 8 lands no better whole, the best of them without one, narrowed by halves; none when neither lands better.
       const findCompanions = (pool: string[], than: Check): string[] => {
         if (!pool.length) return [];
         let keys = pool;
