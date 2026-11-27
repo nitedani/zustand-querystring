@@ -1659,6 +1659,47 @@ describe('href', () => {
   });
 
   it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    "with key %s and a map that returns a class instance for the mode, leaves out a passed mode equal to the current and the initial one when the format's reader needs it with the page",
+    (key, link) => {
+      class Mode {
+        constructor(public name: string) {}
+      }
+      const read = <T extends object>(state: T) => {
+        if ('page' in state && !('mode' in state))
+          throw Error('page needs mode');
+        return state;
+      };
+      const store = createStore<{ mode: string; page: number }>()(
+        querystring(() => ({ mode: 'calendar', page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            ...json,
+            parse: (value, ctx) => read(json.parse(value, ctx)),
+            parseStandalone: (params, ctx) =>
+              read(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ mode, page }) => ({ mode: new Mode(mode), page }),
+            from: ({ mode, page }) => ({
+              ...(mode === undefined ? {} : { mode: (mode as Mode).name }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ page: 3 });
+
+      expect(
+        decodeURIComponent(store.href('/list', { page: 2, mode: 'calendar' })),
+      ).toBe(link);
+    },
+  );
+
+  it.each([
     ['', '/list?price=1.75&fractional=1'],
     ['shop_', '/list?shop_price=1.75&shop_fractional=1'],
   ])(
@@ -2193,6 +2234,144 @@ describe('href', () => {
       );
       // Once to compare it with the current one, once to pick the link's keys.
       expect(enumerations).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?region="US"&currency="USD"&unit="case"&price=3'],
+    [
+      'view',
+      '/list?view={"region":"US","currency":"USD","unit":"case","price":3}',
+    ],
+  ] as const)(
+    "with key %s and a map, writes the three current values a passed one needs when the format's reader rejects it without them",
+    (key, link) => {
+      const read = <T extends object>(state: T) => {
+        if (
+          'price' in state &&
+          !('region' in state && 'currency' in state && 'unit' in state)
+        )
+          throw Error('price needs region, currency and unit');
+        return state;
+      };
+      type State = {
+        region: string;
+        currency: string;
+        unit: string;
+        price: number;
+        search: string;
+      };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({
+              region: 'EU',
+              currency: 'EUR',
+              unit: 'each',
+              price: 1,
+              search: '',
+            }),
+            {
+              url,
+              key,
+              format: {
+                ...json,
+                parse: (value, ctx) => read(json.parse(value, ctx)),
+                parseStandalone: (params, ctx) =>
+                  read(json.parseStandalone(params, ctx)),
+              },
+              map: { to: state => state, from: state => state },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({
+        region: 'US',
+        currency: 'USD',
+        unit: 'case',
+        search: 'private search',
+      });
+
+      const href = store.href('/list', { price: 3 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        region: 'US',
+        currency: 'USD',
+        unit: 'case',
+        price: 3,
+        search: '',
+      });
+    },
+  );
+
+  it.each([
+    [false, 'unchanged', 3],
+    ['view', 'unchanged', 3],
+    [false, 'changed', 12],
+    ['view', 'changed', 12],
+  ] as const)(
+    'with key %s, a map whose page param depends on the mode and 100 answers %s, a page link reads a URL at most %i times',
+    (key, answered, most) => {
+      const answers = Object.fromEntries(
+        Array.from({ length: 100 }, (_, i) => [`q${i}`, 0]),
+      );
+      let reads = 0;
+      type State = {
+        mode: string;
+        page: number;
+        answers: Record<string, number>;
+      };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(() => ({ mode: 'simple', page: 1, answers }), {
+            url,
+            key,
+            format: {
+              ...json,
+              parse: (value, ctx) => (reads++, json.parse(value, ctx)),
+              parseStandalone: (params, ctx) => (
+                reads++, json.parseStandalone(params, ctx)
+              ),
+            },
+            map: {
+              to: ({ mode, page, answers }) => ({
+                mode,
+                [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                ...answers,
+              }),
+              from: ({ mode, page, advancedPage, ...fields }) => {
+                const read = mode === 'advanced' ? advancedPage : page;
+                return {
+                  ...(mode === undefined ? {} : { mode: mode as string }),
+                  ...(read === undefined ? {} : { page: read as number }),
+                  ...(Object.keys(fields).length
+                    ? { answers: fields as Record<string, number> }
+                    : {}),
+                };
+              },
+            },
+          }),
+        );
+      const store = create('/survey');
+      store.setState({ mode: 'advanced', page: 3 });
+      if (answered === 'changed')
+        store.setState({
+          answers: Object.fromEntries(Object.keys(answers).map(q => [q, 1])),
+        });
+      reads = 0;
+
+      const href = store.href('/survey', { page: 2 });
+      expect(reads).toBeLessThanOrEqual(most);
+      expect(decodeURIComponent(href)).toBe(
+        key === false
+          ? '/survey?mode="advanced"&advancedPage=2'
+          : '/survey?view={"mode":"advanced","advancedPage":2}',
+      );
+      expect(create(href).getState()).toStrictEqual({
+        mode: 'advanced',
+        page: 2,
+        answers,
+      });
     },
   );
 
