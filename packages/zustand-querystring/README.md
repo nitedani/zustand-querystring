@@ -281,9 +281,9 @@ useStore.href('/customers', { page: 2 });
 
 A click and a new tab both open page 2 in `'advanced'` mode.
 
-A `map` whose `to` returns class instances (your own classes, a subclass of `Date` or `Array` too) makes `href` slower. The store can't compare those instances as data, so it can rewrite the query to compare a param that holds one, and it does the same for an instance whose fields match the initial one when it writes the address bar. In a benchmark, 50 links over 12 such params took about 14 ms, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
+A `map` whose `to` returns class instances (your own classes, or a subclass of `Date` or `Array`) makes `href` slower. In a benchmark over 12 such params, 50 links took about 14 ms when changing a plain field and about 85 ms when changing one of the class values, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
 
-To find the params a reader needs, `href` tries current params alone, first those whose value differs from the initial state, then, unless the reader rejects the link with only the values you passed, the params still at their initial values. It tries params alone only in a group of up to 8; when no param alone is enough, or the group is larger, it narrows the group down to fewer. The search only adds params to the fields you passed. When a reader needs several companion params, or rejects more than 8 changed params together, the link can carry params the reader doesn't need, or leave out companion params it needs. A field that `from` sets to a class instance without `to` writing it is missed when `href` checks a link, so `href` adds no companion param to keep the reader from resetting it.
+When a map's reader needs more than one current param, or rejects more than 8 changed params together, a link can carry params the reader doesn't need or leave out ones it does. A field that `from` sets to a class instance without `to` writing it is missed when `href` checks a link, so `href` adds no extra param to keep the reader from resetting it.
 
 ### Reading a link
 
