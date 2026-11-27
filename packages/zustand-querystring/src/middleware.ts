@@ -190,45 +190,95 @@ const pickFields = (source: object, masks: object[]): object => {
   return all ? source : picked;
 };
 
-// The fields of next that prev lacks or holds another value for: with deep, down to the fields of a plain object.
-// Two objects that aren't the same one are another value unless sameObject says they are alike.
-const changedFields = (
-  next: object,
-  prev: object,
-  deep: boolean,
-  sameObject: (path: string[], value: object, before: object) => boolean,
-  path: string[] = [],
-) => {
-  const changed = {};
-  for (const key of Object.keys(next)) {
-    const value = next[key];
-    const before = prev[key];
-    const has =
-      before !== undefined || Object.prototype.hasOwnProperty.call(prev, key);
-    if (has && Object.is(value, before)) continue;
-    if (
-      deep &&
-      isPlainObject(value) &&
-      !isEmpty(value) &&
-      isObjectLike(before) &&
-      !Array.isArray(before)
-    ) {
-      const fields = changedFields(value, before, deep, sameObject, [
-        ...path,
-        key,
-      ]);
-      if (!isEmpty(fields)) setOwn(changed, key, fields);
-    } else if (
-      !(
-        isObjectLike(value) &&
-        isObjectLike(before) &&
-        sameObject([...path, key], value, before)
-      )
-    ) {
-      setOwn(changed, key, value);
-    }
+// A value whose class can hold state that deep equality doesn't see: an instance of a user class, or of a subclass of a built-in one.
+const isOpaque = (value: unknown) => {
+  if (!isObjectLike(value)) return false;
+  let depth = 0;
+  for (let p = Object.getPrototypeOf(value); p; p = Object.getPrototypeOf(p))
+    depth++;
+  // A built-in's own instances have this many prototypes, in any realm.
+  const builtIn = isTypedArray(value)
+    ? 3
+    : Array.isArray(value) ||
+        isDate(value) ||
+        isRegExp(value) ||
+        isMap(value) ||
+        isSet(value)
+      ? 2
+      : 1;
+  return depth > builtIn;
+};
+
+// Deep equality of data. For two distinct values of which one is opaque, opaque() decides, or their visible data when it returns undefined.
+const sameData = (a: unknown, b: unknown, opaque: () => boolean | undefined) =>
+  isEqualWith(a, b, (x, y) =>
+    x !== y && (isOpaque(x) || isOpaque(y)) ? opaque() : undefined,
+  );
+
+// The items that can be swapped together without a change, as same tells: all of them, or each that still can after the ones before it.
+const unseen = <T>(items: T[], same: (swapped: T[]) => boolean): T[] => {
+  if (items.length > 1 && same(items)) return items;
+  const kept: T[] = [];
+  for (const item of items) {
+    // All of them together are known to show.
+    const all = items.length > 1 && kept.length + 1 === items.length;
+    if (!all && same([...kept, item])) kept.push(item);
   }
+  return kept;
+};
+
+// Tells which of the paths hold the same value, as the store's writer does.
+type Alike = (paths: string[][]) => string[][];
+
+// Whether two values are the same data. Two distinct values of which one is opaque are told apart by the store's writer: their path is noted in met and they count as another value until it tells.
+const sameField = (
+  value: unknown,
+  before: unknown,
+  path: string[],
+  met: string[][],
+) => {
+  let opaque = false;
+  const same = sameData(value, before, () => {
+    opaque = true;
+    return true;
+  });
+  if (same && opaque) met.push(path);
+  return same && !opaque;
+};
+
+// Leaves out of changed the paths, of those noted in met, that alike tells hold the same value.
+const withoutAlike = (changed: object, met: string[][], alike: Alike) => {
+  if (met.length) for (const path of alike(met)) deleteIn(changed, path);
   return changed;
+};
+
+// The fields of next that prev lacks or holds another value for: with deep, down to the fields of a plain object.
+const diff = (next: object, prev: object, deep: boolean, alike: Alike) => {
+  const met: string[][] = [];
+  const walk = (next: object, prev: object, path: string[]) => {
+    const changed = {};
+    for (const key of Object.keys(next)) {
+      const value = next[key];
+      const before = prev[key];
+      const has =
+        before !== undefined || Object.prototype.hasOwnProperty.call(prev, key);
+      if (has && Object.is(value, before)) continue;
+      if (
+        deep &&
+        isPlainObject(value) &&
+        !isEmpty(value) &&
+        isObjectLike(before) &&
+        !Array.isArray(before)
+      ) {
+        const fields = walk(value, before, [...path, key]);
+        if (!isEmpty(fields)) setOwn(changed, key, fields);
+      } else if (!has || !sameField(value, before, [...path, key], met)) {
+        setOwn(changed, key, value);
+      }
+    }
+    return changed;
+  };
+  return withoutAlike(walk(next, prev, []), met, alike);
 };
 
 // A partial state leaves out an object none of whose fields are selected, unless it is empty.
@@ -266,31 +316,6 @@ const holdsFunction = (value: unknown, seen = new Set<unknown>()): boolean => {
   seen.add(value);
   return Object.values(value as object).some(v => holdsFunction(v, seen));
 };
-
-// Object.prototype or null, of any realm.
-const isRoot = (proto: object | null) =>
-  proto === null || Object.getPrototypeOf(proto) === null;
-
-// An instance of a user class, a subclass of a built-in one too, which isEqual compares by its visible fields only, missing private ones.
-const isInstance = (value: unknown) => {
-  if (!isObjectLike(value) || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  if (isTypedArray(value)) {
-    const base = Object.getPrototypeOf(proto);
-    return !base || !isRoot(Object.getPrototypeOf(base));
-  }
-  if (isDate(value) || isRegExp(value) || isMap(value) || isSet(value))
-    return !isRoot(Object.getPrototypeOf(proto));
-  return proto !== Object.prototype && proto !== null;
-};
-
-// Deep equality where an instance, at any depth, equals only itself; onInstance is called for each two distinct ones it compares.
-const isSameState = (a: unknown, b: unknown, onInstance?: () => void) =>
-  isEqualWith(a, b, (x, y) => {
-    if (!isInstance(x) && !isInstance(y)) return undefined;
-    if (x !== y) onInstance?.();
-    return x === y;
-  });
 
 // The value at a path of own keys, or undefined where the path leaves the objects.
 const getIn = (state: unknown, path: string[]) =>
@@ -699,6 +724,27 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     return url.search;
   };
 
+  // Tells the paths, of those where whole and prev hold two distinct values of which one is opaque, at which prev's value writes the same search.
+  const alikeIn =
+    (whole: () => object, prev: object, write = writeLinkUrl): Alike =>
+    paths => {
+      let search: string | undefined;
+      return unseen(paths, swapped => {
+        try {
+          return (
+            write(
+              swapped.reduce(
+                (state, path) => setIn(state, path, getIn(prev, path)),
+                whole(),
+              ),
+            ) === (search ??= write(whole()))
+          );
+        } catch {
+          return false;
+        }
+      });
+    };
+
   // @ts-ignore - typed via StoreMutators augmentation
   api.href = (pathname: string, passed: object = {}) => {
     // Inside the initializer there is no state yet, so a link starts from none.
@@ -715,30 +761,15 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         syncUndefined: !byField || defaultedOptions.syncUndefined,
       });
     // The search written for each URL state this link compares or writes.
-    const written = new Map<object, string>();
-    const writtenOf = (urlState: object) => {
-      let search = written.get(urlState);
+    const searches = new Map<object, string>();
+    const written = (urlState: object) => {
+      let search = searches.get(urlState);
       if (search === undefined)
-        written.set(urlState, (search = writeLinkUrl(urlState)));
+        searches.set(urlState, (search = writeLinkUrl(urlState)));
       return search;
     };
-    // Whether whole with known's values at the paths writes the search whole writes.
-    const writesSameWith = (
-      whole: object,
-      known: object,
-      paths: string[][],
-    ) => {
-      try {
-        const swapped = paths.reduce(
-          (state, path) => setIn(state, path, getIn(known, path)),
-          whole,
-        );
-        return writeLinkUrl(swapped) === writtenOf(whole);
-      } catch {
-        return false;
-      }
-    };
     // user decision 2026-11-25: a passed default is written only when the live value differs (keeps links short; a click still clears)
+    // user decision 2026-11-27: the link rules stay exact through a map that returns class instances, at the cost of extra writes per link
     // What a store at base sees change in its URL state when following the link takes it to followed, whose URL state is next.
     const changes = (base: object, followed: object, next: () => object) => {
       // A state whose fields all stay alike projects alike, so it changes nothing.
@@ -746,41 +777,27 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         Object.keys(followed).every(
           key =>
             Object.prototype.hasOwnProperty.call(base, key) &&
-            isSameState(followed[key], base[key]),
+            sameData(followed[key], base[key], () => false),
         )
       )
         return {};
       const known = urlStateOf(base, pathname);
       const urlState = next();
-      // user decision 2026-11-27: the link rules stay exact through a map that returns class instances, at the cost of extra writes per link
-      // The paths where the two differ and hold distinct class instances.
-      const swaps: string[][] = [];
-      const sameObject = (path: string[], value: object, before: object) => {
-        let instances = false;
-        const equal = isSameState(value, before, () => {
-          instances = true;
-        });
-        if (!equal && instances) swaps.push(path);
-        return equal;
-      };
-      const changed = changedFields(urlState, known, byField, sameObject);
-      if (!swaps.length) return changed;
-      // A class instance can hide its data, so it is alike when the follower written whole with the base's value in its place writes the same search.
-      const whole = byField
-        ? urlStateOf(follow(base, false), pathname)
-        : urlState;
-      const writesAlike = (paths: string[][]) =>
-        writesSameWith(whole, known, paths);
-      let alike: string[][] = [];
-      if (swaps.length > 1 && writesAlike(swaps)) alike = swaps;
-      else
-        for (const path of swaps) {
-          // A path is alike when the base's values there and at the alike paths before it write the same search; at all paths they don't.
-          const all = swaps.length > 1 && alike.length + 1 === swaps.length;
-          if (!all && writesAlike([...alike, path])) alike.push(path);
-        }
-      for (const path of alike) deleteIn(changed, path);
-      return changed;
+      // An opaque value is compared in the follower's whole URL state.
+      let whole: object | undefined;
+      return diff(
+        urlState,
+        known,
+        byField,
+        alikeIn(
+          () =>
+            (whole ??= byField
+              ? urlStateOf(follow(base, false), pathname)
+              : urlState),
+          known,
+          written,
+        ),
+      );
     };
     const clicked = follow(live);
     let values: object | undefined;
@@ -794,7 +811,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       followers.push([start, followed]);
       // Following to the click's state, a new tab compares the click's URL state.
       changed.push(
-        !byField && isSameState(followed, clicked)
+        !byField && sameData(followed, clicked, () => false)
           ? changes(start, clicked, clickedUrlState)
           : changes(start, followed, () => urlStateOf(followed, pathname)),
       );
@@ -807,10 +824,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       ? {}
       : pickFields(clickedUrlState(), changed);
     if (byField || isEmpty(link) || link === clickedUrlState())
-      return pathname + writtenOf(link);
+      return pathname + written(link);
     // Two states a store writes alike.
     const sameUrlState = (a: object, b: object) =>
-      isSameState(a, b) ||
+      sameData(a, b, () => false) ||
       writeLinkUrl(urlStateOf(a, pathname)) ===
         writeLinkUrl(urlStateOf(b, pathname));
     type Check = {
@@ -828,7 +845,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     // How stores read a URL state's link: rejected by the format or map.from; live when the clicking store lands where it follows to; exact, the followers that do; passed, those too that land where the link changes nothing more.
     const check = (urlState: object): Check => {
       try {
-        const search = writtenOf(urlState);
+        const search = written(urlState);
         const read = readUrlState(search, pathname);
         // A namespaced reader that rejects its one param reads as none.
         if (!read && !standalone && search) return unread;
@@ -852,30 +869,28 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const complete = (c: Check) => c.live && c.passed === followers.length;
     const linkCheck = check(link);
     if (!linkCheck.rejected && complete(linkCheck))
-      return pathname + writtenOf(link);
+      return pathname + written(link);
     // A map may read a value through another param: the link then also takes the fewest of the click's other keys that make it land better.
     const full = clickedUrlState();
     const has = (urlState: object, key: string) =>
       Object.prototype.hasOwnProperty.call(urlState, key);
     const bases = followers.map(([base]) => urlStateOf(base, pathname));
     const otherKeys = Object.keys(full).filter(key => !has(link, key));
-    // The click's value of a key equals a follower's, a class instance too when writing the follower's in its place writes the same search.
-    const sameField = (known: object, key: string) => {
+    // The click's value of a key equals a follower's, an opaque one too when writing the follower's in its place writes the same search.
+    const sameKey = (known: object, key: string) => {
       if (!has(known, key)) return false;
-      let instances = false;
+      const met: string[][] = [];
       return (
-        isSameState(full[key], known[key], () => {
-          instances = true;
-        }) ||
-        (instances && writesSameWith(full, known, [[key]]))
+        sameField(full[key], known[key], [key], met) ||
+        (met.length > 0 && alikeIn(() => full, known, written)(met).length > 0)
       );
     };
     // As a passed default equal to every follower's value is left out, a link the format's reader rejects never takes such a key.
     const changedKeys = otherKeys.filter(key =>
       bases.some(known =>
         linkCheck.rejected
-          ? !sameField(known, key)
-          : !has(known, key) || !isSameState(full[key], known[key]),
+          ? !sameKey(known, key)
+          : !has(known, key) || !sameData(full[key], known[key], () => false),
       ),
     );
     const plus = (keys: string[]) =>
@@ -899,7 +914,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const wider = check(plus(otherKeys));
       if (better(wider, goal)) [pool, goal] = [otherKeys, wider];
     }
-    if (!better(goal, linkCheck)) return pathname + writtenOf(link);
+    if (!better(goal, linkCheck)) return pathname + written(link);
     const meets = (c: Check) =>
       !c.rejected &&
       c.live === goal.live &&
@@ -928,7 +943,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       );
       return [...needLeft, ...needRight];
     };
-    return pathname + writtenOf(plus(shrink([], pool, true)));
+    return pathname + written(plus(shrink([], pool, true)));
   };
 
   if (typeof window !== 'undefined') {
@@ -971,7 +986,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // Only changed keys, so the others keep their references.
       const changed = pickBy(next, (value, key) =>
         Object.prototype.hasOwnProperty.call(current, key)
-          ? !isSameState(value, current[key])
+          ? !sameData(value, current[key], () => false)
           : ownsNewKeys,
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);

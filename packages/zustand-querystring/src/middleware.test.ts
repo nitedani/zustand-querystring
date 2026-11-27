@@ -2730,6 +2730,91 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, 'a map', '/list?facets={"mode":"list","ids":[1,2]}'],
+    ['view', 'a map', '/list?view={"facets":{"mode":"list","ids":[1,2]}}'],
+    [false, 'no map', '/list?facets={"mode":"list","ids":[1,2]}'],
+    ['view', 'no map', '/list?view={"facets":{"mode":"list","ids":[1,2]}}'],
+  ] as const)(
+    'with key %s and %s, writes a passed Array subclass whose private mode differs, and leaves out one the format writes the same',
+    (key, mapped, link) => {
+      class Facets extends Array<number> {
+        #mode = 'grid';
+        static make(mode: string, ids: number[]) {
+          const facets = new Facets();
+          facets.push(...ids);
+          facets.#mode = mode;
+          return facets;
+        }
+        get mode() {
+          return this.#mode;
+        }
+        toJSON() {
+          return { mode: this.#mode, ids: [...this] };
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ facets: Facets }>()(
+          querystring(() => ({ facets: Facets.make('grid', [1, 2]) }), {
+            url,
+            key,
+            format: json,
+            ...(mapped === 'a map' && {
+              map: {
+                to: state => state,
+                from: ({ facets }) => {
+                  const { mode, ids } = (facets ?? {}) as {
+                    mode?: string;
+                    ids?: number[];
+                  };
+                  return mode && ids ? { facets: Facets.make(mode, ids) } : {};
+                },
+              },
+            }),
+          }),
+        );
+      const store = create('/list');
+
+      const href = store.href('/list', { facets: Facets.make('list', [1, 2]) });
+      expect(decodeURIComponent(href)).toBe(link);
+      if (mapped === 'a map')
+        expect(create(href).getState().facets.mode).toBe('list');
+      expect(store.href('/list', { facets: Facets.make('grid', [1, 2]) })).toBe(
+        '/list',
+      );
+    },
+  );
+
+  it.each([
+    ['an array', '[1, 2]', [1, 2]],
+    ['a plain object', '({ status: "all" })', { status: 'all' }],
+    ['a Date', 'new Date(0)', new Date(0)],
+  ])(
+    'leaves out %s from another realm, as from an iframe, equal to the current one, writing only the link',
+    (_, source, value) => {
+      for (const map of [undefined, { to: s => s, from: s => s }]) {
+        let writes = 0;
+        const store = createStore<{ value: unknown }>()(
+          querystring(() => ({ value }), {
+            url: '/list',
+            format: {
+              ...json,
+              stringifyStandalone: state => (
+                writes++, json.stringifyStandalone(state)
+              ),
+            },
+            map,
+          }),
+        );
+
+        expect(
+          store.href('/list', { value: runInContext(source, createContext()) }),
+        ).toBe('/list');
+        expect(writes).toBe(1);
+      }
+    },
+  );
+
   it('writes a passed nested undefined, with syncUndefined', () => {
     const create = (url: string) =>
       createStore<{ filters: { region: string; tag?: string } }>()(
