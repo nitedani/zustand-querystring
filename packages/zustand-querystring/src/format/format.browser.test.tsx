@@ -17,7 +17,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
-import type { QueryStringOptions } from '../middleware.js';
+import type { QueryStringMap, QueryStringOptions } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { json } from './json.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
@@ -2574,6 +2574,15 @@ describe('navigation', () => {
     expect(useStore.getState().since).toBe(since);
   });
 
+  // The json format, counting its writes.
+  const countedJson = (count: () => void) => ({
+    ...json,
+    stringify: (state: object) => (count(), json.stringify(state)),
+    stringifyStandalone: (state: object) => (
+      count(), json.stringifyStandalone(state)
+    ),
+  });
+
   describe('with a map that returns a Date subclass holding a zone', () => {
     class ZonedDate extends Date {
       constructor(
@@ -2586,10 +2595,12 @@ describe('navigation', () => {
         return `${this.toISOString()}|${this.zone}`;
       }
     }
-    const createZoned = () =>
-      create<{ date: ZonedDate; page: number }>()(
+    type Zoned = { date: ZonedDate; page: number };
+    const createZoned = (options: QueryStringOptions<Zoned> = {}) =>
+      create<Zoned>()(
         querystring(() => ({ date: new ZonedDate(0, 'UTC'), page: 1 }), {
           format: json,
+          ...options,
           map: {
             to: state => state,
             from: ({ date, page }) => {
@@ -2619,6 +2630,42 @@ describe('navigation', () => {
       expect(useStore.getState().page).toBe(2);
       expect(useStore.getState().date).toBe(date);
     });
+
+    it.each([
+      [false, 'nothing else', 0, '/?page=2'],
+      [false, 'the date unchanged', 2, search(new ZonedDate(0, 'UTC'), 2)],
+      ['view', 'nothing else', 0, '/?view=%7B%22page%22%3A2%7D'],
+      [
+        'view',
+        'the date unchanged',
+        2,
+        `/?view=${encodeURIComponent(JSON.stringify({ date: new ZonedDate(0, 'UTC'), page: 2 }))}`,
+      ],
+    ] as const)(
+      'with key %s and a URL to another page carrying %s, keeps the date and writes the format at most %i times before it sets the page',
+      async (key, _carried, most, href) => {
+        let writes = 0;
+        let atUpdate: number | undefined;
+        const useStore = createZoned({
+          key,
+          format: countedJson(() => writes++),
+        });
+        const date = useStore.getState().date;
+        const unsubscribe = useStore.subscribe(state => {
+          if (state.page === 2) atUpdate ??= writes;
+        });
+        await settle();
+        writes = 0;
+
+        window.history.pushState({}, '', href);
+        await settle();
+        unsubscribe();
+
+        expect(useStore.getState().page).toBe(2);
+        expect(useStore.getState().date).toBe(date);
+        expect(atUpdate).toBeLessThanOrEqual(most);
+      },
+    );
 
     it('sets a date in another zone at the same time', async () => {
       const useStore = createZoned();
@@ -2697,25 +2744,55 @@ describe('navigation', () => {
     unsubscribe();
   });
 
-  it.each([false, 'view'] as const)(
-    'with key %s and a map whose reader makes a class value from the page, a link to another page sets the class value',
-    async key => {
-      class Results {
-        #page: number;
-        constructor(page: number) {
-          this.#page = page;
-        }
-        get label() {
-          return `Results for page ${this.#page}`;
-        }
-      }
+  class Results {
+    #page: number;
+    constructor(page: number) {
+      this.#page = page;
+    }
+    get label() {
+      return `Results for page ${this.#page}`;
+    }
+  }
+  type Listed = { page: number; results: Results };
+  // Writes its value from a private field.
+  class Sealed {
+    #value: unknown;
+    constructor(value: unknown) {
+      this.#value = value;
+    }
+    toJSON() {
+      return this.#value;
+    }
+  }
+
+  it.each(
+    ([false, 'view'] as const).flatMap(key => [
+      [key, 'picks the page', ({ page }: Listed) => ({ page })],
+      [
+        key,
+        'leaves the class value out of the rest',
+        ({ results: _left, ...params }: Listed) => params,
+      ],
+      [
+        key,
+        'makes a class value of the rest',
+        ({ results: _left, ...params }: Listed) => ({
+          page: new Sealed(params.page),
+        }),
+      ],
+    ]) as [false | 'view', string, QueryStringMap<Listed>['to']][],
+  )(
+    'with key %s and a map whose reader makes a class value from the page and whose writer %s, a link to another page sets the class value without writing the format first',
+    async (key, _writer, to) => {
+      let writes = 0;
+      let atUpdate: number | undefined;
       const createResults = () =>
-        create<{ page: number; results: Results }>()(
+        create<Listed>()(
           querystring(() => ({ page: 1, results: new Results(1) }), {
             key,
-            format: json,
+            format: countedJson(() => writes++),
             map: {
-              to: ({ page }) => ({ page }),
+              to,
               from: ({ page }) =>
                 page === undefined
                   ? {}
@@ -2725,17 +2802,69 @@ describe('navigation', () => {
         );
       window.history.replaceState({}, '', '/list');
       const useStore = createResults();
-      const unsubscribe = useStore.subscribe(() => {});
+      const unsubscribe = useStore.subscribe(state => {
+        if (state.page === 2) atUpdate ??= writes;
+      });
+      await settle();
+      const href = useStore.href('/list', { page: 2 });
+      writes = 0;
 
-      window.history.pushState({}, '', useStore.href('/list', { page: 2 }));
+      window.history.pushState({}, '', href);
       await settle();
       unsubscribe();
 
       expect(useStore.getState().page).toBe(2);
+      expect(atUpdate).toBe(0);
       expect(useStore.getState().results.label).toBe('Results for page 2');
       expect(createResults().getState().results.label).toBe(
         'Results for page 2',
       );
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s and a map whose writer reads a class value its reader makes anew, a navigation to another page keeps it and writes the format at most twice before it sets the page',
+    async key => {
+      class Badge {
+        #name = 'same';
+        get name() {
+          return this.#name;
+        }
+      }
+      let writes = 0;
+      let atUpdate: number | undefined;
+      window.history.replaceState({}, '', '/list');
+      const useStore = create<{ page: number; badge: Badge }>()(
+        querystring(() => ({ page: 1, badge: new Badge() }), {
+          key,
+          format: countedJson(() => writes++),
+          map: {
+            to: ({ page, badge }) => ({ page, name: badge.name }),
+            from: ({ page }) =>
+              page === undefined
+                ? {}
+                : { page: page as number, badge: new Badge() },
+          },
+        }),
+      );
+      const badge = useStore.getState().badge;
+      const unsubscribe = useStore.subscribe(state => {
+        if (state.page === 2) atUpdate ??= writes;
+      });
+      await settle();
+      writes = 0;
+
+      window.history.pushState(
+        {},
+        '',
+        key === false ? '/list?page=2' : '/list?view=%7B%22page%22%3A2%7D',
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().badge).toBe(badge);
+      expect(atUpdate).toBeLessThanOrEqual(2);
     },
   );
 

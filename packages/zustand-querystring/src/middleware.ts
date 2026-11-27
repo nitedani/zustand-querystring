@@ -1039,32 +1039,34 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       // Only changed keys, so the others keep their references; an opaque value whose visible data stay alike is kept when the store writes the same URL with it.
       const met: string[][] = [];
       const pathname = location.pathname;
-      const write = (state: object) =>
-        writeLinkUrl(urlStateOf(state, pathname));
       const changed = pickBy(next, (value, key) =>
         Object.prototype.hasOwnProperty.call(current, key)
           ? !sameField(value, current[key], [key], met, true)
           : ownsNewKeys,
       );
-      // A value the URL isn't written from, like one map.from derives, can't be compared by the URL: it is set.
-      const written = new Set<string>();
-      if (met.length) {
-        const probe = { ...next };
-        for (const [key] of met)
-          Object.defineProperty(probe, key, {
-            enumerable: true,
-            get: () => (written.add(key), next[key]),
-          });
+      // A key the URL state is the same without, like one map.from derives, can't be compared by the URL: it is set. A writer that throws without the key writes it.
+      const reachesUrl = ([key]: string[]) => {
         try {
-          write(probe);
+          return !sameData(
+            urlStateOf(
+              pickBy(next, (_value, name) => name !== key),
+              pathname,
+            ),
+            urlStateOf(next, pathname),
+            () => undefined,
+          );
         } catch {
-          // A key read before the write failed still counts.
+          return true;
         }
-      }
+      };
       withoutAlike(
         changed,
-        met.filter(([key]) => written.has(key)),
-        alikeIn(() => next, current, write),
+        met.filter(reachesUrl),
+        alikeIn(
+          () => next,
+          current,
+          state => writeLinkUrl(urlStateOf(state, pathname)),
+        ),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
