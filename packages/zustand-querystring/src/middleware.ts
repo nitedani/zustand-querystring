@@ -467,8 +467,6 @@ type Instances = 'merge' | 'keep' | 'read';
 
 type MergeOptions = {
   instances: Instances;
-  // With 'read', a plain object is left out where it lands on a class instance below the state, as 'keep' leaves it.
-  keepNested?: boolean;
   inPlace?: Set<string>;
   delta?: boolean;
   syncUndefined?: boolean;
@@ -482,13 +480,7 @@ const mergeUrlState = (
   state: object,
   urlState: object,
   selection: Record<string, any> | true,
-  {
-    instances,
-    keepNested = false,
-    inPlace,
-    delta = false,
-    syncUndefined = false,
-  }: MergeOptions,
+  { instances, inPlace, delta = false, syncUndefined = false }: MergeOptions,
 ) => {
   // Each URL object being merged and its result, so a cycle in the URL state becomes the same cycle; an object met again in another place is merged there too.
   const merges = new Map<object, object>();
@@ -549,8 +541,7 @@ const mergeUrlState = (
         !(isEmptyObject && isPlainObject(current))
           ? current
           : {};
-      if ((instances === 'keep' || keepNested) && !isPlainObject(into))
-        continue;
+      if (instances === 'keep' && !isPlainObject(into)) continue;
       const fields = merge(
         into,
         value,
@@ -879,12 +870,13 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           if (!urlState && !standalone && search) return unread;
           const storeState = urlState ? map!.from(urlState, pathname) : {};
           const result = { rejected: false, live: false, exact: 0, passed: 0 };
-          // The clicking store follows as a navigation applies a URL; a new tab as its creation does, without writing into an instance.
+          // The clicking store follows as a navigation applies a URL, on a copy; a new tab as its creation does, without writing into an instance.
           followers.forEach(([base, target], i) => {
-            const landed = applyState(base, storeState, pathname, {
-              instances: 'read',
-              keepNested: i === 0,
-            });
+            const landed = i
+              ? applyState(base, storeState, pathname, { instances: 'read' })
+              : applyState({ ...base }, storeState, pathname, {
+                  instances: 'keep',
+                });
             const isExact = sameState(landed, target);
             if (i === 0) result.live = isExact;
             if (isExact) result.exact++;

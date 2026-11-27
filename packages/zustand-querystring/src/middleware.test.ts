@@ -1187,6 +1187,31 @@ describe('href', () => {
     },
   );
 
+  it.each([false, 'view'] as const)(
+    'with key %s and a map, building a link leaves a state that is a class instance as it is',
+    key => {
+      class View {
+        page = 1;
+        search = 'acme';
+      }
+      const store = createStore<View>()(
+        querystring(() => new View(), {
+          key,
+          format: json,
+          map: {
+            to: ({ page, search }) => ({ page, search }),
+            from: state => state,
+          },
+        }),
+      );
+      const state = store.getState();
+
+      store.href('/list', { page: 2 });
+      expect(store.getState()).toBe(state);
+      expect(state.page).toBe(1);
+    },
+  );
+
   // A format whose text for a date needs the mode next to it.
   const needsMode = (state: object) => {
     if ('date' in state && !('mode' in state)) throw Error('date needs mode');
