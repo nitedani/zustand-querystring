@@ -3215,6 +3215,49 @@ describe('href', () => {
     },
   );
 
+  it.each([
+    [false, '/list?q="paid"&codec="class"'],
+    ['view', '/list?view={"q":"paid","codec":"class"}'],
+  ] as const)(
+    'with key %s and a map whose reader makes a class filter only for a marked link, a click sets the passed filter',
+    async (key, link) => {
+      class Filter {
+        constructor(public status: string) {}
+      }
+      const createFiltered = () =>
+        create<{ filter: Filter }>()(
+          querystring(() => ({ filter: new Filter('all') }), {
+            key,
+            format: json,
+            map: {
+              to: ({ filter }) => ({ q: filter.status, codec: 'class' }),
+              // A link from before the marker holds a plain filter.
+              from: ({ q, codec }) =>
+                q === undefined
+                  ? {}
+                  : {
+                      filter:
+                        codec === 'class'
+                          ? new Filter(q as string)
+                          : { status: q as string },
+                    },
+            },
+          }),
+        );
+      const useStore = createFiltered();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href = useStore.href('/list', { filter: new Filter('paid') });
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(useStore.getState().filter.status).toBe('paid');
+      expect(createFiltered().getState().filter.status).toBe('paid');
+    },
+  );
+
   it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
     const useStore = createCustomersStore({
       map: {
