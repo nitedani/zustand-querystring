@@ -231,16 +231,18 @@ const unseen = <T>(items: T[], same: (swapped: T[]) => boolean): T[] => {
 type Alike = (paths: string[][]) => string[][];
 
 // Whether two values are the same data. Two distinct values of which one is opaque are told apart by the store's writer: their path is noted in met and they count as another value until it tells.
+// With visible, the writer is asked only where their visible data are alike.
 const sameField = (
   value: unknown,
   before: unknown,
   path: string[],
   met: string[][],
+  visible: boolean,
 ) => {
   let opaque = false;
   const same = sameData(value, before, () => {
     opaque = true;
-    return true;
+    return visible ? undefined : true;
   });
   if (same && opaque) met.push(path);
   return same && !opaque;
@@ -272,7 +274,10 @@ const diff = (next: object, prev: object, deep: boolean, alike: Alike) => {
       ) {
         const fields = walk(value, before, [...path, key]);
         if (!isEmpty(fields)) setOwn(changed, key, fields);
-      } else if (!has || !sameField(value, before, [...path, key], met)) {
+      } else if (
+        !has ||
+        !sameField(value, before, [...path, key], met, false)
+      ) {
         setOwn(changed, key, value);
       }
     }
@@ -881,7 +886,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (!has(known, key)) return false;
       const met: string[][] = [];
       return (
-        sameField(full[key], known[key], [key], met) ||
+        sameField(full[key], known[key], [key], met, false) ||
         (met.length > 0 && alikeIn(() => full, known, written)(met).length > 0)
       );
     };
@@ -983,11 +988,21 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current, 'keep');
-      // Only changed keys, so the others keep their references.
-      const changed = pickBy(next, (value, key) =>
-        Object.prototype.hasOwnProperty.call(current, key)
-          ? !sameData(value, current[key], () => false)
-          : ownsNewKeys,
+      // Only changed keys, so the others keep their references; an opaque value whose visible data stay alike is kept when the store writes the same URL with it.
+      const met: string[][] = [];
+      const pathname = location.pathname;
+      const changed = withoutAlike(
+        pickBy(next, (value, key) =>
+          Object.prototype.hasOwnProperty.call(current, key)
+            ? !sameField(value, current[key], [key], met, true)
+            : ownsNewKeys,
+        ),
+        met,
+        alikeIn(
+          () => next,
+          current,
+          state => writeLinkUrl(urlStateOf(state, pathname)),
+        ),
       );
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };

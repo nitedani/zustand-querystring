@@ -2574,6 +2574,93 @@ describe('navigation', () => {
     expect(useStore.getState().since).toBe(since);
   });
 
+  describe('with a map that returns a Date subclass holding a zone', () => {
+    class ZonedDate extends Date {
+      constructor(
+        time: number,
+        public zone: string,
+      ) {
+        super(time);
+      }
+      toJSON() {
+        return `${this.toISOString()}|${this.zone}`;
+      }
+    }
+    const createZoned = () =>
+      create<{ date: ZonedDate; page: number }>()(
+        querystring(() => ({ date: new ZonedDate(0, 'UTC'), page: 1 }), {
+          format: json,
+          map: {
+            to: state => state,
+            from: ({ date, page }) => {
+              const [time, zone] = ((date as string) ?? '').split('|');
+              return {
+                ...(zone
+                  ? { date: new ZonedDate(Date.parse(time), zone) }
+                  : {}),
+                ...(page === undefined ? {} : { page: page as number }),
+              };
+            },
+          },
+        }),
+      );
+    const search = (date: ZonedDate, page: number) =>
+      `/?date=${encodeURIComponent(JSON.stringify(date))}&page=${page}`;
+
+    it('keeps the date when the URL carries it unchanged and another param changes', async () => {
+      const useStore = createZoned();
+      const date = useStore.getState().date;
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', search(new ZonedDate(0, 'UTC'), 2));
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().date).toBe(date);
+    });
+
+    it('sets a date in another zone at the same time', async () => {
+      const useStore = createZoned();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState(
+        {},
+        '',
+        search(new ZonedDate(0, 'Europe/Paris'), 1),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().date.zone).toBe('Europe/Paris');
+    });
+  });
+
+  it("sets a class instance map.from returns for a field map.to doesn't write, when its fields differ", async () => {
+    class Layout {
+      constructor(public columns: number) {}
+    }
+    const useStore = create<{ layout: Layout; page: number }>()(
+      querystring(() => ({ layout: new Layout(1), page: 1 }), {
+        map: {
+          to: ({ page }) => ({ page }),
+          from: ({ page }) =>
+            page === undefined
+              ? {}
+              : { page: page as number, layout: new Layout(page > 1 ? 3 : 1) },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/?page=:2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState()).toMatchObject({ page: 2 });
+    expect(useStore.getState().layout.columns).toBe(3);
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),
