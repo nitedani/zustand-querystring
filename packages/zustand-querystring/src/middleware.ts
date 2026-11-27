@@ -926,18 +926,26 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const others = Object.keys(full).filter(key => !has(link, key));
       const plus = (keys: string[]) =>
         pickBy(full, (_value, key) => has(link, key) || keys.includes(key));
-      // Keys of the pool that with the link land better than a link that checks as than does, none of which can be left out; none when all of them don't.
-      const fewest = (pool: string[], than: Check): string[] => {
+      // Keys of the pool that with the link land better than a link that checks as than does: all of them or, in a pool of up to 8 the reader rejects together, the best of them without one, narrowed by halves; none when neither lands better.
+      const findCompanions = (pool: string[], than: Check): string[] => {
         if (!pool.length) return [];
-        // Up to 8 keys are each tried alone first, which costs about the reads halving does: one key that lands the link is found, whatever the reader makes of combinations.
-        const one =
-          pool.length <= 8
-            ? pool.find(key => complete(check(plus([key]))))
-            : undefined;
-        if (one !== undefined) return [one];
-        const goal = check(plus(pool));
-        if (!better(goal, than)) return [];
-        // By halves (QuickXplain): the candidates that with keep land as well as all of the pool does, where more keys never land a link worse.
+        let keys = pool;
+        let goal = check(plus(pool));
+        if (!better(goal, than)) {
+          if (pool.length <= 2 || pool.length > 8) return [];
+          let found: string[] | undefined;
+          for (let i = 0; i < pool.length && !(found && complete(goal)); i++) {
+            const without = pool.filter((_, j) => j !== i);
+            const result = check(plus(without));
+            if (better(result, found ? goal : than)) {
+              found = without;
+              goal = result;
+            }
+          }
+          if (!found) return [];
+          keys = found;
+        }
+        // By halves (QuickXplain): the candidates that with keep land as well as goal, where more keys never land a link worse.
         const shrink = (keep: string[], candidates: string[]): string[] => {
           if (keep.length && !better(goal, check(plus(keep)))) return [];
           if (candidates.length === 1) return candidates;
@@ -947,7 +955,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           const needLeft = shrink([...keep, ...needRight], left);
           return [...needLeft, ...needRight];
         };
-        return shrink([], pool);
+        return shrink([], keys);
       };
       // The click's other keys a new tab doesn't start with: the current view.
       const viewOf = (startUrl: object) =>
@@ -961,10 +969,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         ).filter(key => !has(link, key));
       const view = start === live ? [] : viewOf(urlStateOf(start, pathname));
       // The view's keys first; a link the reader reads may take any of the click's other keys, a rejected one never a key every follower already has.
+      const pools = check(link).rejected ? [view] : [view, others];
+      // Up to 8 keys of each pool are each tried alone first, which costs about the reads halving does: one key that lands the link is found, whatever the reader makes of combinations.
+      for (const pool of pools)
+        if (pool.length <= 8) {
+          const one = pool.find(key => complete(check(plus([key]))));
+          if (one !== undefined) return plus([one]);
+        }
       let best = link;
-      for (const pool of check(link).rejected ? [view] : [view, others]) {
+      for (const pool of pools) {
         if (complete(check(best))) break;
-        const candidate = plus(fewest(pool, check(best)));
+        const candidate = plus(findCompanions(pool, check(best)));
         if (better(check(candidate), check(best))) best = candidate;
       }
       return best;

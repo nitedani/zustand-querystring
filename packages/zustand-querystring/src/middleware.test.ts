@@ -2861,6 +2861,93 @@ describe('href', () => {
   );
 
   it.each([
+    [false, '/list?mode="advanced"&locale="fr"&page=2'],
+    ['view', '/list?view={"mode":"advanced","locale":"fr","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader takes a page with a schema or with the mode and locale but no currency, writes the mode and locale when it rejects all the changed values together',
+    (key, link) => {
+      const init = () => ({
+        codec: 'v2',
+        mode: 'simple',
+        locale: 'en',
+        currency: 'USD',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: state => {
+                if (state.page === undefined) return state as Partial<State>;
+                if (
+                  state.codec ||
+                  (state.mode && state.locale && !state.currency)
+                )
+                  return { page: state.page as number };
+                throw Error('page needs a known schema');
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({
+        mode: 'advanced',
+        locale: 'fr',
+        currency: 'EUR',
+        page: 3,
+      });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().page).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?codec="v2"&page=2'],
+    ['view', '/list?view={"codec":"v2","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the schema or with the account and currency, writes the schema rather than the changed account and currency',
+    (key, link) => {
+      const init = () => ({
+        account: 'public',
+        currency: 'USD',
+        codec: 'v2',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, codec, account, currency }) =>
+                page !== undefined &&
+                (codec === 'v2' ||
+                  (account !== undefined && currency !== undefined))
+                  ? { page: page as number }
+                  : {},
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ account: 'acme-2026', currency: 'EUR' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ ...init(), page: 2 });
+    },
+  );
+
+  it.each([
     [false, '/list?mode="advanced"&page=2'],
     ['view', '/list?view={"mode":"advanced","page":2}'],
   ] as const)(
