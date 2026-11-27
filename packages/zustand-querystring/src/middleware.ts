@@ -826,19 +826,136 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     let values: object | undefined;
     // The click's URL state, which a new tab shares when it follows the link to the same state.
     const clickedUrlState = () => (values ??= urlStateOf(clicked, pathname));
+    // The link with the click's other keys it needs: a map's reader may need another param to read it, or read it as more than it says, so it is read as a store reads it.
+    const withCompanions = (link: object): object => {
+      // Two store states alike: deep-equal data, and for two distinct values of which one is opaque, the same search written.
+      const sameState = (a: object, b: object) => {
+        let opaque = false;
+        return (
+          sameData(a, b, () => (opaque = true)) &&
+          (!opaque ||
+            writeLinkUrl(urlStateOf(a, pathname)) ===
+              writeLinkUrl(urlStateOf(b, pathname)))
+        );
+      };
+      type Check = {
+        rejected: boolean;
+        live: boolean;
+        exact: number;
+        passed: number;
+      };
+      const unread: Check = {
+        rejected: true,
+        live: false,
+        exact: 0,
+        passed: 0,
+      };
+      // How stores read a search: rejected by the format or map.from; live when the clicking store lands where it follows to; exact, the followers that do; passed, those too that land where the link changes nothing more.
+      const read = (search: string): Check => {
+        try {
+          const urlState = readUrlState(search, pathname);
+          // A namespaced reader that rejects its one param reads as none.
+          if (!urlState && !standalone && search) return unread;
+          const storeState = urlState ? map!.from(urlState, pathname) : {};
+          const result = { rejected: false, live: false, exact: 0, passed: 0 };
+          followers.forEach(([base, target], i) => {
+            const landed = applyState(base, storeState, pathname, {
+              instances: 'read',
+            });
+            const isExact = sameState(landed, target);
+            if (i === 0) result.live = isExact;
+            if (isExact) result.exact++;
+            if (isExact || (i > 0 && sameState(follow(landed), landed)))
+              result.passed++;
+          });
+          return result;
+        } catch {
+          return unread;
+        }
+      };
+      // How stores read a URL state's link, read once per search.
+      const checks = new Map<string, Check>();
+      const check = (urlState: object): Check => {
+        try {
+          const search = written(urlState);
+          let result = checks.get(search);
+          if (!result) checks.set(search, (result = read(search)));
+          return result;
+        } catch {
+          return unread;
+        }
+      };
+      const complete = (c: Check) => c.live && c.passed === followers.length;
+      if (complete(check(link))) return link;
+      // Read first, then the store that clicks landing where it follows to, then the followers that pass, then those that land exactly.
+      const rank = (c: Check) =>
+        [!c.rejected, c.live, c.passed, c.exact].map(Number);
+      const better = (a: Check, b: Check) => {
+        const [x, y] = [rank(a), rank(b)];
+        const i = x.findIndex((value, i) => value !== y[i]);
+        return i >= 0 && x[i] > y[i];
+      };
+      // A map may read a value through another param: the link then also takes some of the click's other keys.
+      const full = clickedUrlState();
+      const has = (urlState: object, key: string) =>
+        Object.prototype.hasOwnProperty.call(urlState, key);
+      const others = Object.keys(full).filter(key => !has(link, key));
+      const plus = (keys: string[]) =>
+        pickBy(full, (_value, key) => has(link, key) || keys.includes(key));
+      // Keys of the pool that with the link land better than a link that checks as than does, none of which can be left out; none when all of them don't.
+      const fewest = (pool: string[], than: Check): string[] => {
+        if (!pool.length) return [];
+        // Up to 8 keys are each tried alone first, which costs about the reads halving does: one key that lands the link is found, whatever the reader makes of combinations.
+        const one =
+          pool.length <= 8
+            ? pool.find(key => complete(check(plus([key]))))
+            : undefined;
+        if (one !== undefined) return [one];
+        const goal = check(plus(pool));
+        if (!better(goal, than)) return [];
+        // By halves (QuickXplain): the candidates that with keep land as well as all of the pool does, where more keys never land a link worse.
+        const shrink = (keep: string[], candidates: string[]): string[] => {
+          if (keep.length && !better(goal, check(plus(keep)))) return [];
+          if (candidates.length === 1) return candidates;
+          const mid = candidates.length >> 1;
+          const left = candidates.slice(0, mid);
+          const needRight = shrink([...keep, ...left], candidates.slice(mid));
+          const needLeft = shrink([...keep, ...needRight], left);
+          return [...needLeft, ...needRight];
+        };
+        return shrink([], pool);
+      };
+      // The click's other keys a new tab doesn't start with: the current view.
+      const viewOf = (startUrl: object) =>
+        Object.keys(
+          diff(
+            full,
+            startUrl,
+            false,
+            alikeIn(() => full, startUrl, written),
+          ),
+        ).filter(key => !has(link, key));
+      const view = start === live ? [] : viewOf(urlStateOf(start, pathname));
+      // The view's keys first; a link the reader reads may take any of the click's other keys, a rejected one never a key every follower already has.
+      let best = link;
+      for (const pool of check(link).rejected ? [view] : [view, others]) {
+        if (complete(check(best))) break;
+        const candidate = plus(fewest(pool, check(best)));
+        if (better(check(candidate), check(best))) best = candidate;
+      }
+      return best;
+    };
+
     // Each store that can follow the link, and the state it follows to.
     const followers = [[live, clicked]];
-    const changed = [changes(live, clicked, clickedUrlState)];
-    if (start !== live) {
-      const followed = follow(start);
-      followers.push([start, followed]);
-      // Following to the click's state, a new tab compares the click's URL state.
-      changed.push(
-        !byField && sameData(followed, clicked, () => false)
-          ? changes(start, clicked, clickedUrlState)
-          : changes(start, followed, () => urlStateOf(followed, pathname)),
-      );
-    }
+    if (start !== live) followers.push([start, follow(start)]);
+    // What each of them sees change; following to the click's state, a new tab compares the click's URL state.
+    const changed = followers.map(([base, followed]) =>
+      followed === clicked ||
+      (!byField && sameData(followed, clicked, () => false))
+        ? changes(base, clicked, clickedUrlState)
+        : changes(base, followed, () => urlStateOf(followed, pathname)),
+    );
     // A key a URL set inside a class instance is written whenever it is passed.
     if (byField)
       changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
@@ -846,124 +963,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     const link = changed.every(isEmpty)
       ? {}
       : pickFields(clickedUrlState(), changed);
+    // pickFields returns the click's URL state itself when the link holds all of it: such a link is not read again.
     if (byField || isEmpty(link) || link === clickedUrlState())
       return pathname + written(link);
-    // Two store states alike: deep-equal data, and for two distinct values of which one is opaque, the same search written.
-    const sameState = (a: object, b: object) => {
-      let opaque = false;
-      return (
-        sameData(a, b, () => (opaque = true)) &&
-        (!opaque ||
-          writeLinkUrl(urlStateOf(a, pathname)) ===
-            writeLinkUrl(urlStateOf(b, pathname)))
-      );
-    };
-    type Check = {
-      rejected: boolean;
-      live: boolean;
-      exact: number;
-      passed: number;
-    };
-    const unread: Check = {
-      rejected: true,
-      live: false,
-      exact: 0,
-      passed: 0,
-    };
-    // How stores read a search: rejected by the format or map.from; live when the clicking store lands where it follows to; exact, the followers that do; passed, those too that land where the link changes nothing more.
-    const read = (search: string): Check => {
-      try {
-        const urlState = readUrlState(search, pathname);
-        // A namespaced reader that rejects its one param reads as none.
-        if (!urlState && !standalone && search) return unread;
-        const storeState = urlState ? map!.from(urlState, pathname) : {};
-        const result = { rejected: false, live: false, exact: 0, passed: 0 };
-        followers.forEach(([base, target], i) => {
-          const landed = applyState(base, storeState, pathname, {
-            instances: 'read',
-          });
-          const isExact = sameState(landed, target);
-          if (i === 0) result.live = isExact;
-          if (isExact) result.exact++;
-          if (isExact || (i > 0 && sameState(follow(landed), landed)))
-            result.passed++;
-        });
-        return result;
-      } catch {
-        return unread;
-      }
-    };
-    // How stores read a URL state's link, read once per search.
-    const checks = new Map<string, Check>();
-    const check = (urlState: object): Check => {
-      try {
-        const search = written(urlState);
-        let result = checks.get(search);
-        if (!result) checks.set(search, (result = read(search)));
-        return result;
-      } catch {
-        return unread;
-      }
-    };
-    const complete = (c: Check) => c.live && c.passed === followers.length;
-    if (complete(check(link))) return pathname + written(link);
-    // Read first, then the store that clicks landing where it follows to, then the followers that pass, then those that land exactly.
-    const rank = (c: Check) =>
-      [!c.rejected, c.live, c.passed, c.exact].map(Number);
-    const better = (a: Check, b: Check) => {
-      const [x, y] = [rank(a), rank(b)];
-      const i = x.findIndex((value, i) => value !== y[i]);
-      return i >= 0 && x[i] > y[i];
-    };
-    // A map may read a value through another param: the link then also takes some of the click's other keys.
-    const full = clickedUrlState();
-    const has = (urlState: object, key: string) =>
-      Object.prototype.hasOwnProperty.call(urlState, key);
-    const others = Object.keys(full).filter(key => !has(link, key));
-    const plus = (keys: string[]) =>
-      pickBy(full, (_value, key) => has(link, key) || keys.includes(key));
-    // Keys of the pool that with the link land better than a link that checks as than does, none of which can be left out; none when all of them don't.
-    const fewest = (pool: string[], than: Check): string[] => {
-      if (!pool.length) return [];
-      // Up to 8 keys are each tried alone first, which costs about the reads halving does: one key that lands the link is found, whatever the reader makes of combinations.
-      const one =
-        pool.length <= 8
-          ? pool.find(key => complete(check(plus([key]))))
-          : undefined;
-      if (one !== undefined) return [one];
-      const goal = check(plus(pool));
-      if (!better(goal, than)) return [];
-      // By halves (QuickXplain): the candidates that with keep land as well as all of the pool does, where more keys never land a link worse.
-      const shrink = (keep: string[], candidates: string[]): string[] => {
-        if (keep.length && !better(goal, check(plus(keep)))) return [];
-        if (candidates.length === 1) return candidates;
-        const mid = candidates.length >> 1;
-        const left = candidates.slice(0, mid);
-        const needRight = shrink([...keep, ...left], candidates.slice(mid));
-        const needLeft = shrink([...keep, ...needRight], left);
-        return [...needLeft, ...needRight];
-      };
-      return shrink([], pool);
-    };
-    // The click's other keys a new tab doesn't start with: the current view.
-    const viewOf = (startUrl: object) =>
-      Object.keys(
-        diff(
-          full,
-          startUrl,
-          false,
-          alikeIn(() => full, startUrl, written),
-        ),
-      ).filter(key => !has(link, key));
-    const view = start === live ? [] : viewOf(urlStateOf(start, pathname));
-    // The view's keys first; a link the reader reads may take any of the click's other keys, a rejected one never a key every follower already has.
-    let best = link;
-    for (const pool of check(link).rejected ? [view] : [view, others]) {
-      if (complete(check(best))) break;
-      const candidate = plus(fewest(pool, check(best)));
-      if (better(check(candidate), check(best))) best = candidate;
-    }
-    return pathname + written(best);
+    return pathname + written(withCompanions(link));
   };
 
   if (typeof window !== 'undefined') {
