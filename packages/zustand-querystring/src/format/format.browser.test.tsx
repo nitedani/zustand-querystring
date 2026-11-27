@@ -17,7 +17,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
 import { querystring, createMap } from '../middleware.js';
-import type { QueryStringOptions } from '../middleware.js';
+import type { QueryStringMap, QueryStringOptions } from '../middleware.js';
 import { marked, createFormat as createMarkedFormat } from './marked.js';
 import { json } from './json.js';
 import { plain, createFormat as createPlainFormat } from './plain.js';
@@ -2302,6 +2302,38 @@ describe('navigation', () => {
     expect(Object.keys(useStore.getState())).not.toContain('toString');
   });
 
+  it('sets a field named constructor that the URL carries', async () => {
+    const useStore = create<{ constructor: string; page: number }>()(
+      querystring(() => ({ constructor: 'basic', page: 1 }), { format: json }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/p?constructor="adv"&page=2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState()).toStrictEqual({ constructor: 'adv', page: 2 });
+  });
+
+  it.each(['constructor', 'toString'])(
+    'keeps a selected field named %s that the URL no longer carries',
+    async field => {
+      window.history.replaceState({}, '', `/p?${field}=adv&page=:2`);
+      const useStore = create<Record<string, unknown>>()(
+        querystring(() => ({ [field]: 'basic', page: 1 }), {
+          select: () => ({ [field]: true, page: true }),
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', '/p?page=:3');
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState()).toStrictEqual({ [field]: 'adv', page: 3 });
+    },
+  );
+
   it('sets a selected key the state lacks to a carried undefined, with syncUndefined', async () => {
     const useStore = createNavStore({
       syncUndefined: true,
@@ -2462,6 +2494,29 @@ describe('navigation', () => {
     expect(panel.label()).toBe('Panel:0');
   });
 
+  it('sets a plain object from another realm, as from an iframe', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const defaults = (frame.contentWindow as typeof window).eval(
+      '({ status: "all" })',
+    );
+    const useStore = create<{ filter: { status: string } }>()(
+      querystring(() => ({ filter: defaults })),
+    );
+    const statuses: string[] = [];
+    const unsubscribe = useStore.subscribe(state =>
+      statuses.push(state.filter.status),
+    );
+
+    window.history.pushState({}, '', '/list?filter=.status=paid');
+    await settle();
+    unsubscribe();
+    frame.remove();
+
+    expect(statuses).toStrictEqual(['paid']);
+    expect(defaults.status).toBe('all');
+  });
+
   it('sets the class instance map.from returns', async () => {
     class Panel {
       #id: number;
@@ -2551,6 +2606,413 @@ describe('navigation', () => {
     expect(useStore.getState().since).toBe(since);
   });
 
+  // The json format, counting its writes.
+  const countedJson = (count: () => void) => ({
+    ...json,
+    stringify: (state: object) => (count(), json.stringify(state)),
+    stringifyStandalone: (state: object) => (
+      count(), json.stringifyStandalone(state)
+    ),
+  });
+
+  describe('with a map that returns a Date subclass holding a zone', () => {
+    class ZonedDate extends Date {
+      constructor(
+        time: number,
+        public zone: string,
+      ) {
+        super(time);
+      }
+      toJSON() {
+        return `${this.toISOString()}|${this.zone}`;
+      }
+    }
+    type Zoned = { date: ZonedDate; page: number };
+    const createZoned = (options: QueryStringOptions<Zoned> = {}) =>
+      create<Zoned>()(
+        querystring(() => ({ date: new ZonedDate(0, 'UTC'), page: 1 }), {
+          format: json,
+          ...options,
+          map: {
+            to: state => state,
+            from: ({ date, page }) => {
+              const [time, zone] = ((date as string) ?? '').split('|');
+              return {
+                ...(zone
+                  ? { date: new ZonedDate(Date.parse(time), zone) }
+                  : {}),
+                ...(page === undefined ? {} : { page: page as number }),
+              };
+            },
+          },
+        }),
+      );
+    const search = (date: ZonedDate, page: number) =>
+      `/?date=${encodeURIComponent(JSON.stringify(date))}&page=${page}`;
+
+    it('keeps the date when the URL carries it unchanged and another param changes', async () => {
+      const useStore = createZoned();
+      const date = useStore.getState().date;
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState({}, '', search(new ZonedDate(0, 'UTC'), 2));
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().date).toBe(date);
+    });
+
+    it.each([
+      [false, 'nothing else', 0, '/?page=2'],
+      [false, 'the date unchanged', 2, search(new ZonedDate(0, 'UTC'), 2)],
+      ['view', 'nothing else', 0, '/?view=%7B%22page%22%3A2%7D'],
+      [
+        'view',
+        'the date unchanged',
+        2,
+        `/?view=${encodeURIComponent(JSON.stringify({ date: new ZonedDate(0, 'UTC'), page: 2 }))}`,
+      ],
+    ] as const)(
+      'with key %s and a URL to another page carrying %s, keeps the date and writes the format at most %i times before it sets the page',
+      async (key, _carried, most, href) => {
+        let writes = 0;
+        let atUpdate: number | undefined;
+        const useStore = createZoned({
+          key,
+          format: countedJson(() => writes++),
+        });
+        const date = useStore.getState().date;
+        const unsubscribe = useStore.subscribe(state => {
+          if (state.page === 2) atUpdate ??= writes;
+        });
+        await settle();
+        writes = 0;
+
+        window.history.pushState({}, '', href);
+        await settle();
+        unsubscribe();
+
+        expect(useStore.getState().page).toBe(2);
+        expect(useStore.getState().date).toBe(date);
+        expect(atUpdate).toBeLessThanOrEqual(most);
+      },
+    );
+
+    it('sets a date in another zone at the same time', async () => {
+      const useStore = createZoned();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState(
+        {},
+        '',
+        search(new ZonedDate(0, 'Europe/Paris'), 1),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().date.zone).toBe('Europe/Paris');
+    });
+
+    it('sets a link to another zone at the same time, keeps it in the address bar, and a new store reads it', async () => {
+      const useStore = createZoned();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/', {
+          date: new ZonedDate(0, 'America/New_York'),
+          page: 2,
+        }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().date.zone).toBe('America/New_York');
+      expect(url()).toBe(
+        '/?date="1970-01-01T00:00:00.000Z|America/New_York"&page=2',
+      );
+      expect(createZoned().getState().date.zone).toBe('America/New_York');
+    });
+  });
+
+  // Writes a tag from a private field.
+  class Tag {
+    #name: string;
+    constructor(name: string) {
+      this.#name = name;
+    }
+    toJSON() {
+      return this.#name;
+    }
+  }
+
+  it('writes a class value to the address bar when only its writer tells it from the default, and leaves it out at the default', async () => {
+    const useStore = create<{ tag: Tag }>()(
+      querystring(() => ({ tag: new Tag('all') }), { format: json }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    useStore.setState({ tag: new Tag('paid') });
+    expect(url()).toBe('/?tag="paid"');
+    useStore.setState({ tag: new Tag('all') });
+    expect(url()).toBe('/');
+    unsubscribe();
+  });
+
+  it('writes a class value inside an object to the address bar only when its writer tells it from the default', async () => {
+    const useStore = create<{ filter: { tag: Tag } }>()(
+      querystring(() => ({ filter: { tag: new Tag('all') } }), {
+        format: json,
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    useStore.setState({ filter: { tag: new Tag('all') } });
+    expect(url()).toBe('/');
+    useStore.setState({ filter: { tag: new Tag('paid') } });
+    expect(url()).toBe('/?filter={"tag":"paid"}');
+    unsubscribe();
+  });
+
+  class Results {
+    #page: number;
+    constructor(page: number) {
+      this.#page = page;
+    }
+    get label() {
+      return `Results for page ${this.#page}`;
+    }
+  }
+  type Listed = { page: number; results: Results };
+  // Writes its value from a private field.
+  class Sealed {
+    #value: unknown;
+    constructor(value: unknown) {
+      this.#value = value;
+    }
+    toJSON() {
+      return this.#value;
+    }
+  }
+
+  it.each(
+    ([false, 'view'] as const).flatMap(key => [
+      [key, 'picks the page', ({ page }: Listed) => ({ page }), {}],
+      [
+        key,
+        'leaves the class value out of the rest',
+        ({ results: _left, ...params }: Listed) => params,
+        {},
+      ],
+      [
+        key,
+        'makes a class value of the rest',
+        ({ results: _left, ...params }: Listed) => ({
+          page: new Sealed(params.page),
+        }),
+        {},
+      ],
+      ...(['constructor', 'prototype'] as const).map(field => [
+        key,
+        `leaves the class value out of the rest, with a field named ${field}`,
+        ({ results: _left, ...params }: Listed) => params,
+        { [field]: 'list' },
+      ]),
+    ]) as [false | 'view', string, QueryStringMap<Listed>['to'], object][],
+  )(
+    'with key %s and a map whose reader makes a class value from the page and whose writer %s, a link to another page sets the class value without writing the format first',
+    async (key, _writer, to, fields) => {
+      let writes = 0;
+      let atUpdate: number | undefined;
+      const createResults = () =>
+        create<Listed>()(
+          querystring(() => ({ page: 1, results: new Results(1), ...fields }), {
+            key,
+            format: countedJson(() => writes++),
+            map: {
+              to,
+              from: ({ page }) =>
+                page === undefined
+                  ? {}
+                  : { page: page as number, results: new Results(page) },
+            },
+          }),
+        );
+      window.history.replaceState({}, '', '/list');
+      const useStore = createResults();
+      const unsubscribe = useStore.subscribe(state => {
+        if (state.page === 2) atUpdate ??= writes;
+      });
+      await settle();
+      const href = useStore.href('/list', { page: 2 });
+      writes = 0;
+
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(atUpdate).toBe(0);
+      expect(useStore.getState().results.label).toBe('Results for page 2');
+      expect(createResults().getState().results.label).toBe(
+        'Results for page 2',
+      );
+      expect(useStore.getState()).toMatchObject(fields);
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s and a map whose writer reads a class value its reader makes anew, a navigation to another page keeps it and writes the format at most twice before it sets the page',
+    async key => {
+      class Badge {
+        #name = 'same';
+        get name() {
+          return this.#name;
+        }
+      }
+      let writes = 0;
+      let atUpdate: number | undefined;
+      window.history.replaceState({}, '', '/list');
+      const useStore = create<{ page: number; badge: Badge }>()(
+        querystring(() => ({ page: 1, badge: new Badge() }), {
+          key,
+          format: countedJson(() => writes++),
+          map: {
+            to: ({ page, badge }) => ({ page, name: badge.name }),
+            from: ({ page }) =>
+              page === undefined
+                ? {}
+                : { page: page as number, badge: new Badge() },
+          },
+        }),
+      );
+      const badge = useStore.getState().badge;
+      const unsubscribe = useStore.subscribe(state => {
+        if (state.page === 2) atUpdate ??= writes;
+      });
+      await settle();
+      writes = 0;
+
+      window.history.pushState(
+        {},
+        '',
+        key === false ? '/list?page=2' : '/list?view=%7B%22page%22%3A2%7D',
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().badge).toBe(badge);
+      expect(atUpdate).toBeLessThanOrEqual(2);
+    },
+  );
+
+  it.each([
+    [false, '/?page=2', '/?page=2&filters={"tag":"paid"}'],
+    ['view', '/?view={"page":2}', '/?view={"filters":{"tag":"paid"},"page":2}'],
+  ] as const)(
+    'with key %s and a format that writes the tag of a circular filter, writes the tag only when it differs from the default',
+    (key, unchanged, changed) => {
+      type Filters = { tag: Tag; self?: Filters };
+      const filters = (tag: string) => {
+        const node: Filters = { tag: new Tag(tag) };
+        node.self = node;
+        return node;
+      };
+      // Writes the filter's tag, not the filter's link to itself.
+      const wire = (state: { filters?: Filters; page?: number }) => ({
+        ...(state.filters && { filters: { tag: state.filters.tag } }),
+        ...(state.page !== undefined && { page: state.page }),
+      });
+      const useStore = create<{ filters: Filters; page: number }>()(
+        querystring(() => ({ filters: filters('all'), page: 1 }), {
+          key,
+          format: {
+            ...json,
+            stringify: state => json.stringify(wire(state)),
+            stringifyStandalone: state => json.stringifyStandalone(wire(state)),
+          },
+        }),
+      );
+      const unsubscribe = useStore.subscribe(() => {});
+
+      useStore.setState({ filters: filters('all'), page: 2 });
+      expect(url()).toBe(unchanged);
+      useStore.setState({ filters: filters('paid') });
+      expect(url()).toBe(changed);
+      unsubscribe();
+    },
+  );
+
+  it('with a map that returns 12 class values, writes the format at most 4 times per state change', async () => {
+    class Facet {
+      constructor(public value: string) {}
+    }
+    const names = Array.from({ length: 12 }, (_, i) => `facet${i}`);
+    let writes = 0;
+    const useStore = create<Record<string, string>>()(
+      querystring(() => Object.fromEntries(names.map(name => [name, 'all'])), {
+        format: {
+          ...marked,
+          stringifyStandalone: state => (
+            writes++, marked.stringifyStandalone(state)
+          ),
+        },
+        map: {
+          to: state =>
+            Object.fromEntries(
+              Object.entries(state).map(([name, value]) => [
+                name,
+                new Facet(value),
+              ]),
+            ),
+          from: urlState =>
+            Object.fromEntries(
+              Object.entries(urlState).map(([name, value]) => [
+                name,
+                (value as Facet).value,
+              ]),
+            ),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    writes = 0;
+
+    useStore.setState({ facet0: 'red' });
+    expect(url()).toBe('/?facet0=.value=red');
+    expect(writes).toBeLessThanOrEqual(4);
+    unsubscribe();
+  });
+
+  it("sets a class instance map.from returns for a field map.to doesn't write, when its fields differ", async () => {
+    class Layout {
+      constructor(public columns: number) {}
+    }
+    const useStore = create<{ layout: Layout; page: number }>()(
+      querystring(() => ({ layout: new Layout(1), page: 1 }), {
+        map: {
+          to: ({ page }) => ({ page }),
+          from: ({ page }) =>
+            page === undefined
+              ? {}
+              : { page: page as number, layout: new Layout(page > 1 ? 3 : 1) },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/?page=:2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState()).toMatchObject({ page: 2 });
+    expect(useStore.getState().layout.columns).toBe(3);
+  });
+
   it("reads the URL with the initial state's types, like at creation", async () => {
     const useStore = create<{ id: string | number }>()(
       querystring(() => ({ id: 'none' }), { format: plain }),
@@ -2607,6 +3069,26 @@ describe('navigation', () => {
     expect(useStore.getState().count).toBe(2);
     expect(parses).toBe(1);
     expect(url()).toBe('/?count=:2');
+  });
+
+  it('keeps the value it read into a class instance at creation in the URL', async () => {
+    class Filter {
+      rating = 0;
+    }
+    window.history.replaceState({}, '', '/results?filter=.rating:4');
+    const useStore = create<{ filter: Filter; page: number }>()(
+      querystring(() => ({ filter: new Filter(), page: 1 }), {
+        select: () => ({ filter: { rating: true }, page: true }),
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    expect(url()).toBe('/results?filter=.rating:4');
+
+    useStore.setState({ page: 2 });
+    unsubscribe();
+    expect(useStore.getState().filter.rating).toBe(4);
+    expect(url()).toBe('/results?filter=.rating:4&page=:2');
   });
 
   it("ignores params that aren't keys of the store", async () => {
@@ -2692,6 +3174,24 @@ describe('navigation', () => {
   });
 });
 
+interface CustomersState {
+  status: string;
+  page: number;
+  sort: string;
+  search: string;
+}
+
+function createCustomersStore(
+  options: QueryStringOptions<CustomersState> = {},
+) {
+  return create<CustomersState>()(
+    querystring(
+      () => ({ status: 'all', page: 1, sort: 'name', search: '' }),
+      options,
+    ),
+  );
+}
+
 describe('href', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
@@ -2703,12 +3203,581 @@ describe('href', () => {
     useStore.setState({ other: 3, status: 'active' });
 
     const href = useStore.href('/b', { status: 'all' });
-    expect(decodeURIComponent(href)).toBe('/b?other=:3&status=all');
+    expect(decodeURIComponent(href)).toBe('/b?status=all');
 
     window.history.pushState({}, '', href);
     await settle();
     expect(useStore.getState().status).toBe('all');
+    expect(useStore.getState().other).toBe(3);
     expect(url()).toBe('/b?other=:3');
+  });
+
+  it('carries the initial state plus the passed keys, never the rest of the current state', () => {
+    const useStore = createCustomersStore();
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+    const nav = useStore.href('/customers');
+    const paid = useStore.href('/customers', { status: 'paid' });
+
+    expect(nav).toBe('/customers');
+    expect(paid).toBe('/customers?status=paid');
+
+    window.history.replaceState({}, '', paid);
+    expect(createCustomersStore().getState()).toStrictEqual({
+      status: 'paid',
+      page: 1,
+      sort: 'name',
+      search: '',
+    });
+  });
+
+  it('carries the current state that is passed', () => {
+    const useStore = createCustomersStore();
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const href = useStore.href('/customers', {
+      ...useStore.getState(),
+      status: 'paid',
+    });
+    expect(decodeURIComponent(href)).toBe(
+      '/customers?status=paid&page=:3&search=acme',
+    );
+  });
+
+  it('with a map that returns new class instances, leaves out the values a link does not change', () => {
+    class SearchParam {
+      constructor(public value: string) {}
+    }
+    const useStore = createCustomersStore({
+      map: {
+        to: state => ({
+          search: new SearchParam(state.search),
+          page: state.page,
+        }),
+        from: ({ search, page }) => ({
+          search: (search as SearchParam | undefined)?.value,
+          page: page as number | undefined,
+        }),
+      },
+    });
+    useStore.setState({ search: 'acme', page: 3 });
+
+    expect(useStore.href('/customers')).toBe('/customers');
+    expect(decodeURIComponent(useStore.href('/customers', { page: 2 }))).toBe(
+      '/customers?page=:2',
+    );
+  });
+
+  it('with a map, a click resets a date the app changed in place after an earlier link', async () => {
+    const useStore = create<{ date: Date; page: number }>()(
+      querystring(() => ({ date: new Date('2026-01-01'), page: 1 }), {
+        map: {
+          to: ({ date, page }) => ({ date: date.toISOString(), page }),
+          from: ({ date, page }) => ({
+            ...(date === undefined ? {} : { date: new Date(date as string) }),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.href('/list', { page: 2 });
+    useStore.getState().date.setUTCDate(3);
+
+    const href = useStore.href('/list', { date: new Date('2026-01-01') });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/list?date=2026-01-01T00:00:00.000Z');
+    expect(useStore.getState().date).toStrictEqual(new Date('2026-01-01'));
+  });
+
+  it('with a map whose param name depends on a field, a click applies the passed value', async () => {
+    const useStore = create<{ mode: string; page: number }>()(
+      querystring(() => ({ mode: 'simple', page: 1 }), {
+        map: {
+          to: state =>
+            state.mode === 'simple'
+              ? { simplePage: state.page }
+              : { advancedPage: state.page },
+          from: urlState =>
+            'advancedPage' in urlState
+              ? { mode: 'advanced', page: urlState.advancedPage as number }
+              : { mode: 'simple', page: urlState.simplePage as number },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ mode: 'advanced', page: 3 });
+
+    const href = useStore.href('/list', { page: 2 });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?advancedPage=:2');
+    expect(useStore.getState()).toMatchObject({ mode: 'advanced', page: 2 });
+  });
+
+  it('with a map whose reader takes a param name from another param, a click applies the passed value', async () => {
+    const useStore = create<{ category: string; amount: number }>()(
+      querystring(() => ({ category: 'color', amount: 1 }), {
+        map: {
+          to: ({ category, amount }) => ({ category, [category]: amount }),
+          from: urlState => {
+            const category = urlState.category as string | undefined;
+            return category !== undefined && category in urlState
+              ? { category, amount: urlState[category] as number }
+              : {};
+          },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ category: 'size', amount: 3 });
+
+    const href = useStore.href('/list', { amount: 2 });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?category=size&size=:2');
+    expect(useStore.getState()).toMatchObject({ category: 'size', amount: 2 });
+  });
+
+  it.each([
+    [false, 'writes', '/list?codec="v2"&units="absolute"&page=2'],
+    ['view', 'writes', '/list?view={"codec":"v2","units":"absolute","page":2}'],
+    [false, "doesn't write", '/list?codec="v2"&units="absolute"&page=2'],
+    [
+      'view',
+      "doesn't write",
+      '/list?view={"codec":"v2","units":"absolute","page":2}',
+    ],
+  ] as const)(
+    'with key %s and a map that %s the layout and reads a page without units as a grid page, a click keeps the layout and a new tab opens the page',
+    async (key, layout, link) => {
+      type View = {
+        codec: string;
+        units: string;
+        layout: string;
+        page: number;
+      };
+      const options: QueryStringOptions<View> = {
+        key,
+        format: json,
+        map: {
+          to: view =>
+            layout === 'writes'
+              ? view
+              : { codec: view.codec, units: view.units, page: view.page },
+          // A link from before units has its page in the grid layout.
+          from: ({ page, ...view }) => {
+            if (page === undefined || view.codec === undefined) return view;
+            return (
+              view.units === undefined
+                ? { ...view, page, layout: 'grid' }
+                : { ...view, page }
+            ) as Partial<View>;
+          },
+        },
+      };
+      const createView = () =>
+        create<View>()(
+          querystring(
+            () => ({ codec: 'v2', units: 'relative', layout: 'grid', page: 1 }),
+            options,
+          ),
+        );
+      const useStore = createView();
+      const unsubscribe = useStore.subscribe(() => {});
+      useStore.setState({ units: 'absolute', layout: 'list', page: 3 });
+
+      const href = useStore.href('/list', { page: 2 });
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(useStore.getState()).toMatchObject({
+        units: 'absolute',
+        layout: 'list',
+        page: 2,
+      });
+      window.history.replaceState({}, '', href);
+      expect(createView().getState()).toMatchObject({
+        codec: 'v2',
+        units: 'absolute',
+        layout: 'grid',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?q="paid"&codec="class"'],
+    ['view', '/list?view={"q":"paid","codec":"class"}'],
+  ] as const)(
+    'with key %s and a map whose reader makes a class filter only for a marked link, a click sets the passed filter',
+    async (key, link) => {
+      class Filter {
+        constructor(public status: string) {}
+      }
+      const createFiltered = () =>
+        create<{ filter: Filter }>()(
+          querystring(() => ({ filter: new Filter('all') }), {
+            key,
+            format: json,
+            map: {
+              to: ({ filter }) => ({ q: filter.status, codec: 'class' }),
+              // A link from before the marker holds a plain filter.
+              from: ({ q, codec }) =>
+                q === undefined
+                  ? {}
+                  : {
+                      filter:
+                        codec === 'class'
+                          ? new Filter(q as string)
+                          : { status: q as string },
+                    },
+            },
+          }),
+        );
+      const useStore = createFiltered();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href = useStore.href('/list', { filter: new Filter('paid') });
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(useStore.getState().filter.status).toBe('paid');
+      expect(createFiltered().getState().filter.status).toBe('paid');
+    },
+  );
+
+  it.each([
+    [false, 'link'],
+    [false, 'typed'],
+    ['view', 'link'],
+    ['view', 'typed'],
+  ] as const)(
+    'with key %s and a map whose reader sets one reset object for two filters, a %s page keeps the class filter',
+    async (key, source) => {
+      class Filter {
+        constructor(public status: string) {}
+      }
+      window.history.replaceState({}, '', '/list');
+      const useStore = create<{
+        page: number;
+        left: { status: string };
+        right: Filter;
+      }>()(
+        querystring(
+          () => ({
+            page: 1,
+            left: { status: 'all' },
+            right: new Filter('protected'),
+          }),
+          {
+            key,
+            format: json,
+            map: {
+              to: ({ page, right }) => ({
+                page,
+                codec: 'safe',
+                status: right.status,
+              }),
+              // A link from before the marker resets both filters.
+              from: ({ page, codec }) => {
+                if (page === undefined) return {};
+                if (codec === 'safe') return { page: page as number };
+                const reset = { status: 'all' };
+                return { page: page as number, left: reset, right: reset };
+              },
+            },
+          },
+        ),
+      );
+      const before = useStore.getState().right;
+      useStore.setState({ page: 3 });
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href =
+        source === 'link'
+          ? useStore.href('/list', { page: 2 })
+          : key === false
+            ? '/list?page=2'
+            : '/list?view=%7B%22page%22%3A2%7D';
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(useStore.getState().right).toBe(before);
+      expect(useStore.getState().right.status).toBe('protected');
+    },
+  );
+
+  it.each([
+    [false, '/list?left={"page":2}&right={"page":2}'],
+    ['view', '/list?view={"left":{"page":2},"right":{"page":2}}'],
+  ] as const)(
+    'with key %s and a map whose reader returns one object for two panes on the same page, a click and a new store keep each pane its search',
+    async (key, link) => {
+      type Pane = { page: number; search: string };
+      const createPanes = () =>
+        create<{ left: Pane; right: Pane }>()(
+          querystring(
+            () => ({
+              left: { page: 1, search: 'left' },
+              right: { page: 1, search: 'right' },
+            }),
+            {
+              key,
+              format: json,
+              map: {
+                to: ({ left, right }) => ({
+                  left: { page: left.page },
+                  right: { page: right.page },
+                  codec: 'split',
+                }),
+                // A link from before the marker holds one pane for both.
+                from: ({ left, right, codec }) => {
+                  const panes = { left, right } as {
+                    left?: Pane;
+                    right?: Pane;
+                  };
+                  if (
+                    panes.left &&
+                    panes.right &&
+                    panes.left.page === panes.right.page &&
+                    codec !== 'split'
+                  )
+                    return { left: panes.left, right: panes.left };
+                  return {
+                    ...(panes.left && { left: panes.left }),
+                    ...(panes.right && { right: panes.right }),
+                  };
+                },
+              },
+            },
+          ),
+        );
+      window.history.replaceState({}, '', '/list');
+      const useStore = createPanes();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      const href = useStore.href('/list', {
+        left: { page: 2 },
+        right: { page: 2 },
+      } as Partial<{ left: Pane; right: Pane }>);
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(useStore.getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+      window.history.replaceState({}, '', href);
+      expect(createPanes().getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+    },
+  );
+
+  it('with a map packing fields into one param, a click keeps the packed field the link leaves out', async () => {
+    const useStore = createCustomersStore({
+      map: {
+        to: state => ({
+          q: `${state.status}-${state.page}`,
+          sort: state.sort,
+          search: state.search,
+        }),
+        from: ({ q, ...rest }) => {
+          if (typeof q !== 'string') return rest;
+          const [status, page] = q.split('-');
+          return { ...rest, status, page: Number(page) };
+        },
+      },
+    });
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const unchanged = useStore.href('/customers', { status: 'active' });
+    const href = useStore.href('/customers', { status: 'paid' });
+
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+    expect(unchanged).toBe('/customers?q=active-3');
+    expect(href).toBe('/customers?q=paid-3');
+    expect(useStore.getState()).toMatchObject({
+      status: 'paid',
+      page: 3,
+      search: 'acme',
+    });
+  });
+
+  it('with a map packing nested fields into one param, a click keeps the nested field the link leaves out', async () => {
+    const useStore = create<{ filters: { status: string; page?: number } }>()(
+      querystring(() => ({ filters: { status: 'all', page: 1 } }), {
+        select: () => ({ filters: { status: true, page: true } }),
+        map: {
+          to: state => ({
+            q: `${state.filters.status}-${state.filters.page ?? 1}`,
+          }),
+          from: ({ q }) => {
+            const [status, page] = String(q).split('-');
+            return { filters: { status, page: Number(page) } };
+          },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filters: { status: 'active', page: 3 } });
+
+    const href = useStore.href('/list', { filters: { status: 'paid' } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/list?q=paid-3');
+    expect(useStore.getState().filters).toEqual({ status: 'paid', page: 3 });
+  });
+
+  it('building a link leaves a class instance whose field is an accessor as it is', () => {
+    class Filter {
+      storage = { status: 'all' };
+      get status() {
+        return this.storage.status;
+      }
+      set status(status: string) {
+        this.storage.status = status;
+      }
+    }
+    const useStore = create<{ filter: { status: string }; page: number }>()(
+      querystring(() => ({ filter: new Filter(), page: 1 }), {
+        select: () => ({ filter: { status: true }, page: true }),
+      }),
+    );
+
+    const href = useStore.href('/list', { filter: { status: 'paid' } });
+    useStore.setState({ page: 2 });
+
+    expect(decodeURIComponent(href)).toBe('/list?filter=.status=paid');
+    expect(useStore.getState().filter.status).toBe('all');
+    expect(url()).toBe('/?page=:2');
+  });
+
+  it('with a map packing fields into an object param, writes the whole param, so a reader needing all of it follows the link', async () => {
+    const options: QueryStringOptions<CustomersState> = {
+      map: {
+        to: ({ status, page }) => ({ q: { status, page } }),
+        // Reads q only when it holds both fields.
+        from: ({ q }) => {
+          const { status, page } = (q ?? {}) as Partial<CustomersState>;
+          return status === undefined || page === undefined
+            ? {}
+            : { status, page };
+        },
+      },
+    };
+    const useStore = createCustomersStore(options);
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ status: 'active', page: 3, search: 'acme' });
+
+    const href = useStore.href('/customers', { status: 'paid' });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/customers?q=.status=paid,page:3');
+    expect(useStore.getState()).toMatchObject({ status: 'paid', page: 3 });
+    window.history.replaceState({}, '', href);
+    expect(createCustomersStore(options).getState()).toMatchObject({
+      status: 'paid',
+      page: 3,
+      search: '',
+    });
+  });
+
+  it('a store created on a URL that sets a field of a class instance with a private field writes and links it', () => {
+    class Filter {
+      #scale = 2;
+      rating = 0;
+      get scaled() {
+        return this.rating * this.#scale;
+      }
+      label() {
+        return `${this.rating * this.#scale} of 10`;
+      }
+    }
+    type State = { filter: { rating: number }; page: number };
+    for (const [options, written] of [
+      [
+        {
+          select: () => ({
+            filter: { rating: true, scaled: true },
+            page: true,
+          }),
+        },
+        '/list?filter=.rating:4,scaled:8&page=:2',
+      ],
+      [
+        {
+          map: {
+            to: ({ filter, page }) => ({
+              filter: {
+                rating: filter.rating,
+                label: (filter as Filter).label(),
+              },
+              page,
+            }),
+            from: ({ filter, page }) => ({
+              ...(filter ? { filter: filter as { rating: number } } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        },
+        '/list?filter=.rating:4,label=8 of 10&page=:2',
+      ],
+    ] as [QueryStringOptions<State>, string][]) {
+      window.history.replaceState({}, '', '/list?filter=.rating:4');
+      const useStore = create<State>()(
+        querystring(() => ({ filter: new Filter(), page: 1 }), options),
+      );
+
+      useStore.setState({ page: 2 });
+      expect(url()).toBe(written);
+      expect(decodeURIComponent(useStore.href('/list', { page: 3 }))).toBe(
+        '/list?page=:3',
+      );
+    }
+  });
+
+  it('links a value a navigation set in a class instance state', async () => {
+    class Filter {
+      rating = 0;
+    }
+    const createFilterStore = () =>
+      create<Filter>()(querystring(() => new Filter()));
+    window.history.replaceState({}, '', '/list');
+    const useStore = createFilterStore();
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/list?rating=:4');
+    await expect.poll(() => useStore.getState().rating).toBe(4);
+    const href = useStore.href('/list', { rating: useStore.getState().rating });
+    unsubscribe();
+
+    expect(decodeURIComponent(href)).toBe('/list?rating=:4');
+    window.history.replaceState({}, '', href);
+    expect(createFilterStore().getState().rating).toBe(4);
   });
 
   it('clears an object filter whose initial value is empty', async () => {
@@ -2728,6 +3797,30 @@ describe('href', () => {
 
     expect(useStore.getState().filters).toEqual({});
     expect(url()).toBe('/results');
+  });
+
+  it('with a map that writes an unset filter field as a value, a link passing undefined clears it on a click', async () => {
+    const useStore = create<{ filter: { status?: string } }>()(
+      querystring(() => ({ filter: {} }), {
+        map: {
+          to: ({ filter }) => ({ status: filter.status ?? 'none' }),
+          from: ({ status }) =>
+            status === undefined
+              ? {}
+              : { filter: status === 'none' ? {} : { status } },
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    useStore.setState({ filter: { status: 'paid' } });
+
+    const href = useStore.href('/customers', { filter: { status: undefined } });
+    window.history.pushState({}, '', href);
+    await settle();
+    unsubscribe();
+
+    expect(href).toBe('/customers?status=none');
+    expect(useStore.getState().filter).toStrictEqual({});
   });
 
   it('clears an object filter with the plain format, in standalone and namespaced mode', async () => {

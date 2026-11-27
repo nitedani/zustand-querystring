@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { createContext, runInContext } from 'node:vm';
 import { createStore } from 'zustand/vanilla';
 import {
   compact,
   createMap,
   querystring,
   type ParseContext,
+  type QueryStringFormat,
 } from './middleware';
 import { marked } from './format/marked';
 import { plain, createFormat as createPlainFormat } from './format/plain';
@@ -484,6 +486,88 @@ describe('compact', () => {
     const result = compact(newState, initialState, false, true, ['inner']);
     expect(result.output).toStrictEqual({ inner: { v: 'x', w: undefined } });
   });
+
+  it('compares a circular object with a circular default once around the cycle', () => {
+    const initialState: Record<string, unknown> = { x: 1, y: 1 };
+    initialState.self = initialState;
+    const newState: Record<string, unknown> = { x: 2, y: 1 };
+    newState.self = newState;
+    expect(compact({ f: newState }, { f: initialState }).output).toStrictEqual({
+      f: { x: 2 },
+    });
+  });
+
+  it('compares one object in two fields with the default of each', () => {
+    const shared = { x: 2, y: 1 };
+    const initialState = { a: { x: 1, y: 1 }, b: { x: 2, y: 2 } };
+    expect(
+      compact({ a: shared, b: shared }, initialState).output,
+    ).toStrictEqual({ a: { x: 2 }, b: { y: 1 } });
+  });
+
+  class Box {
+    constructor(public value: number) {}
+  }
+  it.each([
+    [
+      'a null field inside an object over a string default, with syncNull',
+      [{ f: { a: null } }, { f: 'x' }, true],
+      { f: { a: null } },
+    ],
+    [
+      'a null field inside an object over a string default',
+      [{ f: { a: null } }, { f: 'x' }],
+      { f: { a: null } },
+    ],
+    [
+      'undefined over an absent default, with syncUndefined',
+      [{ a: undefined }, {}, false, true],
+      {},
+    ],
+    ['undefined over an absent default', [{ a: undefined }, {}], {}],
+    [
+      'an object over a null default',
+      [{ f: { a: 1 } }, { f: null }],
+      { f: { a: 1 } },
+    ],
+    [
+      'an object over an array default',
+      [{ f: { a: 1 } }, { f: [1] }],
+      { f: { a: 1 } },
+    ],
+    [
+      'an array over an object default with the same entries',
+      [{ f: [1] }, { f: { 0: 1 } }],
+      { f: [1] },
+    ],
+    [
+      'an object holding an instance equal to the default one',
+      [{ f: { box: new Box(1) } }, { f: { box: new Box(1) } }],
+      {},
+    ],
+    [
+      'an instance over a plain object with the same fields',
+      [{ f: new Box(1) }, { f: { value: 1 } }],
+      { f: new Box(1) },
+    ],
+    [
+      'an object without a prototype over a plain one with the same fields',
+      [{ f: Object.assign(Object.create(null), { a: 1 }) }, { f: { a: 1 } }],
+      {},
+    ],
+    ['an empty object over a zero default', [{ f: {} }, { f: 0 }], { f: {} }],
+    [
+      'a forced object whose fields are all undefined',
+      [{ f: { a: undefined } }, {}, false, false, ['f']],
+      {},
+    ],
+    ['-0 over 0', [{ n: -0 }, { n: 0 }], {}],
+  ] as [string, Parameters<typeof compact>, object][])(
+    'writes %s',
+    (_, args, output) => {
+      expect(compact(...args).output).toStrictEqual(output);
+    },
+  );
 });
 
 describe('url option', () => {
@@ -708,6 +792,29 @@ describe('url option', () => {
 
     expect(store.getState().filter).toBe(filter);
   });
+
+  it('reads a plain object from another realm, as from an iframe, as a plain object', () => {
+    const realm = createContext();
+    const defaults = runInContext('({ status: "all" })', realm);
+    const filtered = createStore<{ filter: { status: string } }>()(
+      querystring(() => ({ filter: defaults }), {
+        url: '/list?filter=.status=paid',
+      }),
+    );
+    const selected = createStore<{
+      filters: { search?: string; localSort: string };
+    }>()(
+      querystring(() => ({ filters: { search: 'acme', localSort: 'name' } }), {
+        url: '/list?filters=.',
+        select: () => runInContext('({ filters: { search: true } })', realm),
+      }),
+    );
+
+    expect(filtered.getState().filter.status).toBe('paid');
+    expect(filtered.getState().filter).not.toBe(defaults);
+    expect(defaults.status).toBe('all');
+    expect(selected.getState().filters).toStrictEqual({ localSort: 'name' });
+  });
 });
 
 describe('href', () => {
@@ -716,8 +823,9 @@ describe('href', () => {
       querystring(() => ({ count: 0, other: 0 }), { url: '/a?count=:5' }),
     );
 
-    expect(decodeURIComponent(store.href('/b', { other: 0 }))).toBe(
-      '/b?count=:5&other=:0',
+    expect(store.href('/b', { other: 0 })).toBe('/b');
+    expect(decodeURIComponent(store.href('/b', { count: 0 }))).toBe(
+      '/b?count=:0',
     );
   });
 
@@ -746,23 +854,2769 @@ describe('href', () => {
     expect(create(href).getState()).toStrictEqual({ tag: undefined });
   });
 
-  it('with map, forces the mapped keys only when select keeps a passed key', () => {
+  it('with map, writes a passed key only when select keeps it', () => {
     const store = createStore<{ count: number; hidden: number }>()(
       querystring(() => ({ count: 0, hidden: 3 }), {
-        url: '/results',
+        url: '/results?n=:2',
         select: pathname => ({ count: true, hidden: pathname === '/admin' }),
         map: {
-          to: state => ({ n: state.count }),
-          from: urlState => ({ count: urlState.n as number }),
+          to: state => ({ n: state.count, hidden: state.hidden }),
+          from: ({ n, hidden }) => ({
+            ...(n === undefined ? {} : { count: n as number }),
+            ...(hidden === undefined ? {} : { hidden: hidden as number }),
+          }),
         },
       }),
     );
 
     expect(store.href('/results', { hidden: 7 })).toBe('/results');
+    expect(decodeURIComponent(store.href('/admin', { hidden: 7 }))).toBe(
+      '/admin?hidden=:7',
+    );
     expect(decodeURIComponent(store.href('/results', { count: 0 }))).toBe(
       '/results?n=:0',
     );
   });
+
+  it('leaves a class instance state as it is, and writes the passed field', () => {
+    class Filters {
+      constructor(public status: string) {}
+    }
+    const store = createStore<Filters>()(
+      querystring(() => new Filters('all'), { url: '/list' }),
+    );
+
+    expect(store.href('/list', { status: 'paid' })).toBe('/list?status=paid');
+    expect(store.getState().status).toBe('all');
+  });
+
+  it('leaves a class instance whose field is an accessor as it is, and writes the passed field', () => {
+    class Filter {
+      storage = { status: 'all' };
+      get status() {
+        return this.storage.status;
+      }
+      set status(status: string) {
+        this.storage.status = status;
+      }
+    }
+    const store = createStore<{ status: string }>()(
+      querystring(() => new Filter(), {
+        url: '/list',
+        select: () => ({ status: true }),
+      }),
+    );
+
+    expect(store.href('/list', { status: 'paid' })).toBe('/list?status=paid');
+    expect(store.getState().status).toBe('all');
+  });
+
+  it('writes a plain object passed for a class instance whose toJSON reads a private field', () => {
+    class Filter {
+      #unit = 'stars';
+      rating = 0;
+      toJSON() {
+        return { rating: this.rating, unit: this.#unit };
+      }
+    }
+    const create = (url?: string) =>
+      createStore<{ filter: { rating: number } }>()(
+        querystring(() => ({ filter: new Filter() }), { url, format: json }),
+      );
+
+    const href = create().href('/list', { filter: { rating: 2 } });
+    expect(decodeURIComponent(href)).toBe('/list?filter={"rating":2}');
+    expect(create(href).getState().filter.rating).toBe(2);
+  });
+
+  it('writes a plain object passed for a class instance field, which a new store merges into its instance', () => {
+    class Filters {
+      constructor(public status: string) {}
+    }
+    const create = (url: string) =>
+      createStore<{ filters: Filters }>()(
+        querystring(() => ({ filters: new Filters('all') }), { url }),
+      );
+
+    const href = create('/list').href('/list', { filters: { status: 'paid' } });
+    expect(decodeURIComponent(href)).toBe('/list?filters=.status=paid');
+    const opened = create(href).getState().filters;
+    expect(opened).toBeInstanceOf(Filters);
+    expect(opened.status).toBe('paid');
+  });
+
+  it('writes a field passed for a class instance the URL set at creation, and leaves the instance as it is', () => {
+    class Filter {
+      rating = 0;
+    }
+    const create = (url: string) =>
+      createStore<{ filter: Filter }>()(
+        querystring(() => ({ filter: new Filter() }), {
+          url,
+          select: () => ({ filter: { rating: true } }),
+        }),
+      );
+    const store = create('/results?filter=.rating:4');
+
+    const href = store.href('/results', { filter: { rating: 2 } });
+    expect(decodeURIComponent(href)).toBe('/results?filter=.rating:2');
+    expect(create(href).getState().filter.rating).toBe(2);
+    expect(store.getState().filter.rating).toBe(4);
+  });
+
+  it.each(['filter', 'constructor', 'prototype'])(
+    'writes a class instance field named %s that the URL set at creation, when it is passed',
+    field => {
+      class Filter {
+        rating = 0;
+      }
+      const create = (url: string) =>
+        createStore<Record<string, Filter>>()(
+          querystring(() => ({ [field]: new Filter() }), {
+            url,
+            select: () => ({ [field]: { rating: true } }),
+          }),
+        );
+      const store = create(`/results?${field}=.rating:4`);
+      const four = Object.assign(new Filter(), { rating: 4 });
+
+      const spread = store.href('/results', { ...store.getState() });
+      expect(decodeURIComponent(spread)).toBe(`/results?${field}=.rating:4`);
+      expect(
+        decodeURIComponent(store.href('/results', { [field]: four })),
+      ).toBe(`/results?${field}=.rating:4`);
+      expect(create(spread).getState()[field].rating).toBe(4);
+    },
+  );
+
+  it('links from a class instance with a private field that the URL set at creation', () => {
+    class Filter {
+      #label = 'Rating';
+      rating = 0;
+      get label() {
+        return this.#label;
+      }
+    }
+    const store = createStore<{ rating: number; label: string }>()(
+      querystring(() => new Filter(), {
+        url: '/list?rating=:4',
+        select: () => ({ rating: true, label: true }),
+      }),
+    );
+
+    expect(store.getState().rating).toBe(4);
+    expect(decodeURIComponent(store.href('/list', { rating: 2 }))).toBe(
+      '/list?rating=:2',
+    );
+  });
+
+  it('with a map, leaves out a value the format writes alike from two classes', () => {
+    class ActiveSearch {
+      constructor(public value: string) {}
+    }
+    class ArchivedSearch {
+      constructor(public value: string) {}
+    }
+    const store = createStore<{ mode: string; search: string }>()(
+      querystring(() => ({ mode: 'active', search: '' }), {
+        url: '/results?search=.value=acme',
+        map: {
+          to: ({ mode, search }) => ({
+            mode,
+            search:
+              mode === 'archived'
+                ? new ArchivedSearch(search)
+                : new ActiveSearch(search),
+          }),
+          from: ({ mode, search }) => ({
+            mode: mode as string | undefined,
+            search: (search as ActiveSearch | undefined)?.value,
+          }),
+        },
+      }),
+    );
+
+    expect(store.getState().search).toBe('acme');
+    expect(store.href('/results', { mode: 'archived' })).toBe(
+      '/results?mode=archived',
+    );
+  });
+
+  it('with a map, writes a passed value the format writes from a private field', () => {
+    class SearchParam {
+      #value: string;
+      constructor(value: string) {
+        this.#value = value;
+      }
+      toJSON() {
+        return this.#value;
+      }
+    }
+    const create = (url: string) =>
+      createStore<{ search: string }>()(
+        querystring(() => ({ search: '' }), {
+          url,
+          key: 'view',
+          format: json,
+          map: {
+            to: ({ search }) => ({ search: new SearchParam(search) }),
+            from: ({ search }) => ({ search: search as unknown as string }),
+          },
+        }),
+      );
+
+    const href = create('/results').href('/results', { search: 'acme' });
+    expect(decodeURIComponent(href)).toBe('/results?view={"search":"acme"}');
+    expect(create(href).getState().search).toBe('acme');
+  });
+
+  type Panes = {
+    left: { page: number; search: string };
+    right: { page: number; search: string };
+  };
+  const panes = (): Panes => ({
+    left: { page: 1, search: 'left' },
+    right: { page: 1, search: 'right' },
+  });
+
+  it.each([
+    [
+      false,
+      '/list?left={"page":2,"search":"left"}&right={"page":2,"search":"right"}',
+    ],
+    [
+      'view',
+      '/list?view={"left":{"page":2,"search":"left"},"right":{"page":2,"search":"right"}}',
+    ],
+  ] as const)(
+    'with key %s and a map, merges one object passed for two fields into each of them',
+    (key, link) => {
+      const create = (url: string) =>
+        createStore<Panes>()(
+          querystring(panes, {
+            url,
+            key,
+            format: json,
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const nextPage = { page: 2 };
+
+      const href = create('/list').href('/list', {
+        left: nextPage,
+        right: nextPage,
+      } as Partial<Panes>);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?left={"page":2,"search":"left"}'],
+    ['view', '/list?view={"left":{"page":2,"search":"left"}}'],
+  ] as const)(
+    'with key %s and a map, merges a circular object passed for a field',
+    (key, link) => {
+      const create = (url: string) =>
+        createStore<Panes>()(
+          querystring(panes, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ left, right }) => ({
+                left: { page: left.page, search: left.search },
+                right: { page: right.page, search: right.search },
+              }),
+              from: state => state,
+            },
+          }),
+        );
+      const left: Record<string, unknown> = { page: 2 };
+      left.self = left;
+
+      const href = create('/list').href('/list', { left } as Partial<Panes>);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...panes(),
+        left: { page: 2, search: 'left' },
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?status=%22all%22'],
+    ['view', `/list?view=${encodeURIComponent('{"status":"all"}')}`],
+  ] as const)(
+    'with key %s and a map whose reader returns one object for two class values, merges it into each of them',
+    (key, url) => {
+      class Filter {
+        constructor(
+          public status: string,
+          public owner: string,
+        ) {}
+      }
+      const store = createStore<{ left: Filter; right: Filter }>()(
+        querystring(
+          () => ({
+            left: new Filter('open', 'ann'),
+            right: new Filter('open', 'bob'),
+          }),
+          {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ left }) => ({ status: left.status }),
+              from: ({ status }) => {
+                if (status === undefined) return {};
+                const reset = { status } as Filter;
+                return { left: reset, right: reset };
+              },
+            },
+          },
+        ),
+      );
+
+      const { left, right } = store.getState();
+      expect(left).not.toBe(right);
+      expect(left).toBeInstanceOf(Filter);
+      expect(right).toBeInstanceOf(Filter);
+      expect([left.status, left.owner]).toEqual(['all', 'ann']);
+      expect([right.status, right.owner]).toEqual(['all', 'bob']);
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s and a map, building a link leaves a state that is a class instance as it is',
+    key => {
+      class View {
+        page = 1;
+        search = 'acme';
+      }
+      const store = createStore<View>()(
+        querystring(() => new View(), {
+          key,
+          format: json,
+          map: {
+            to: ({ page, search }) => ({ page, search }),
+            from: state => state,
+          },
+        }),
+      );
+      const state = store.getState();
+
+      store.href('/list', { page: 2 });
+      expect(store.getState()).toBe(state);
+      expect(state.page).toBe(1);
+    },
+  );
+
+  // A format whose text for a date needs the mode next to it.
+  const needsMode = (state: object) => {
+    if ('date' in state && !('mode' in state)) throw Error('date needs mode');
+    return state;
+  };
+  it.each([
+    [
+      'writer',
+      {
+        ...marked,
+        stringify: (state: object) => marked.stringify(needsMode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(needsMode(state)),
+      },
+    ],
+    [
+      'reader',
+      {
+        ...marked,
+        parse: (value: string, ctx?: ParseContext) =>
+          needsMode(marked.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => needsMode(marked.parseStandalone(params, ctx)),
+      },
+    ],
+  ])(
+    'writes the passed fields to a format whose %s needs them together',
+    (_, format) => {
+      for (const [key, link] of [
+        [false, '/list?mode=calendar&date=D1769904000000'],
+        ['view', '/list?view=mode=calendar,date=D1769904000000'],
+      ] as const) {
+        const create = (url?: string) =>
+          createStore<{ mode: string; date: Date }>()(
+            querystring(
+              () => ({ mode: 'compact', date: new Date('2026-01-01') }),
+              { url, key, format },
+            ),
+          );
+
+        const href = create().href('/list', {
+          mode: 'calendar',
+          date: new Date('2026-02-01'),
+        });
+        expect(href).toBe(link);
+        expect(create(href).getState()).toStrictEqual({
+          mode: 'calendar',
+          date: new Date('2026-02-01'),
+        });
+      }
+    },
+  );
+
+  it.each([
+    [false, '/list?mode=paid&status=paid'],
+    ['view', '/list?view=mode=paid,status=paid'],
+  ] as const)(
+    'with key %s, writes a passed class value and the field a format needs to agree with it',
+    (key, link) => {
+      class Status {
+        #mode: string;
+        constructor(mode: string) {
+          this.#mode = mode;
+        }
+        mode() {
+          return this.#mode;
+        }
+      }
+      const encode = ({ status, ...state }: { status?: Status }) => {
+        if (status && status.mode() !== (state as { mode?: string }).mode)
+          throw Error('status needs matching mode');
+        return status ? { ...state, status: status.mode() } : state;
+      };
+      const format = {
+        ...marked,
+        stringify: (state: object) => marked.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(encode(state)),
+      };
+      const create = (url?: string) =>
+        createStore<{ mode: string; status: Status }>()(
+          querystring(() => ({ mode: 'all', status: new Status('all') }), {
+            url,
+            key,
+            format,
+            map: {
+              to: state => state,
+              from: ({ mode, status }) => ({
+                ...(mode ? { mode: mode as string } : {}),
+                ...(status ? { status: new Status(status as string) } : {}),
+              }),
+            },
+          }),
+        );
+
+      const href = create().href('/list', {
+        mode: 'paid',
+        status: new Status('paid'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().status.mode()).toBe('paid');
+    },
+  );
+
+  describe.each([
+    [
+      'marked',
+      marked,
+      ['/list?page=:2', '/list?view=page:2'],
+      '/list?pageSize=:50',
+    ],
+    [
+      'plain',
+      plain,
+      ['/list?page=2', '/list?view=page=2'],
+      '/list?pageSize=50',
+    ],
+    [
+      'json',
+      json,
+      ['/list?page=2', '/list?view={"page":2}'],
+      '/list?pageSize=50',
+    ],
+  ] as const)(
+    'with %s and a map that returns new class instances',
+    (_, format, links, pageSizeLink) => {
+      class Box {
+        constructor(public value: unknown) {}
+      }
+      const create = <T extends object>(
+        init: T,
+        boxed: string,
+        key: false | 'view',
+      ) =>
+        createStore<T>()(
+          querystring(() => init, {
+            url: '/list',
+            key,
+            format,
+            map: {
+              to: state => ({ ...state, [boxed]: new Box(state[boxed]) }),
+              from: urlState =>
+                Object.fromEntries(
+                  Object.entries(urlState)
+                    .filter(([, value]) => value !== undefined)
+                    .map(([name, value]) => [
+                      name,
+                      name === boxed ? (value as Box).value : value,
+                    ]),
+                ) as Partial<T>,
+            },
+          }),
+        );
+
+      it.each([
+        [false, links[0]],
+        ['view', links[1]],
+      ] as const)(
+        'with key %s, leaves out a current value the link leaves as it is',
+        (key, link) => {
+          const store = create({ search: '', page: 1 }, 'search', key);
+          store.setState({ search: 'acme' });
+
+          expect(decodeURIComponent(store.href('/list', { page: 2 }))).toBe(
+            link,
+          );
+        },
+      );
+
+      it('leaves out a key whose name starts the changed key', () => {
+        const store = create({ page: 1, pageSize: 20 }, 'page', false);
+        store.setState({ page: 3 });
+
+        expect(store.href('/list', { pageSize: 50 })).toBe(pageSizeLink);
+      });
+
+      it('leaves out a key the format encodes in its param name', () => {
+        const store = create({ 'my search': '', page: 1 }, 'my search', false);
+        store.setState({ 'my search': 'acme' });
+
+        expect(store.href('/list', { page: 2 })).toBe(links[0]);
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?filter=.rating:0'],
+    ['view', '/list?view=filter.rating:0'],
+  ] as const)(
+    'with key %s, writes a passed class value that another store changed in the instance this one holds',
+    (key, link) => {
+      class Filter {
+        constructor(public rating = 0) {}
+      }
+      const shared = new Filter();
+      const create = (filter: Filter, url = '/list') =>
+        createStore<{ filter: Filter }>()(
+          querystring(() => ({ filter }), { url, key }),
+        );
+      const store = create(shared);
+      store.href('/list', { filter: new Filter(1) });
+      create(
+        shared,
+        key ? '/list?view=filter.rating:4' : '/list?filter=.rating:4',
+      );
+
+      const href = store.href('/list', { filter: new Filter(0) });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(new Filter(8), href).getState().filter.rating).toBe(0);
+    },
+  );
+
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns new class instances, leaves out a current value the format reads back as a new class instance',
+    (key, link) => {
+      class Phrase {
+        constructor(public value: string) {}
+      }
+      const typed = (state: object) =>
+        'search' in state
+          ? { ...state, search: new Phrase((state.search as Phrase).value) }
+          : state;
+      const format = {
+        ...json,
+        parse: (value: string, ctx?: ParseContext) =>
+          typed(json.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => typed(json.parseStandalone(params, ctx)),
+      };
+      const create = (url: string) =>
+        createStore<{ search: string; page: number }>()(
+          querystring(() => ({ search: '', page: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: state => ({ ...state, search: new Phrase(state.search) }),
+              from: ({ search, ...state }) => ({
+                ...state,
+                ...(search ? { search: (search as Phrase).value } : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ search: 'acme' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+    },
+  );
+
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns a class instance inside an object, leaves out a current value the format reads back as a new class instance',
+    (key, link) => {
+      class Phrase {
+        #text;
+        constructor(text: string) {
+          this.#text = text;
+        }
+        toJSON() {
+          return this.#text;
+        }
+      }
+      type Filter = { query: Phrase };
+      const typed = (state: { filter?: Filter }) =>
+        state.filter
+          ? {
+              ...state,
+              filter: {
+                ...state.filter,
+                query: new Phrase(state.filter.query as unknown as string),
+              },
+            }
+          : state;
+      const format = {
+        ...json,
+        parse: (value: string, ctx?: ParseContext) =>
+          typed(json.parse(value, ctx)),
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => typed(json.parseStandalone(params, ctx)),
+      };
+      const create = (url: string) =>
+        createStore<{ search: string; page: number }>()(
+          querystring(() => ({ search: '', page: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ search, page }) => ({
+                filter: { query: new Phrase(search) },
+                page,
+              }),
+              from: ({ filter, ...state }) => ({
+                ...state,
+                ...(filter
+                  ? { search: (filter as Filter).query.toJSON() }
+                  : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ search: 'acme' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+    },
+  );
+
+  it('leaves out a passed class value in a nested field that equals the current and the initial one', () => {
+    class Range {
+      constructor(public max: number) {}
+    }
+    const store = createStore<{ filters: { price: Range; page: number } }>()(
+      querystring(() => ({ filters: { price: new Range(100), page: 1 } }), {
+        url: '/list',
+      }),
+    );
+
+    expect(
+      store.href('/list', { filters: { price: new Range(100), page: 2 } }),
+    ).toBe('/list?filters=.page:2');
+  });
+
+  describe('with a class value a format writes from a private field', () => {
+    class Id {
+      #value: string;
+      constructor(value: string) {
+        this.#value = value;
+      }
+      toJSON() {
+        return this.#value;
+      }
+    }
+    const idOf = (state: object) => (state as { id?: Id }).id;
+    const create = (format: QueryStringFormat, url?: string) =>
+      createStore<{ id: Id }>()(
+        querystring(() => ({ id: new Id('start') }), { url, format }),
+      );
+
+    it('writes a passed value to a format whose reader takes the values out of the params it gets', () => {
+      // Writes the text of an id once and hands out the same array for it.
+      const written = new Map<string, string[]>();
+      const format = {
+        ...json,
+        stringifyStandalone: (state: object) => {
+          const id = idOf(state);
+          if (!id) return {};
+          const text = encodeURIComponent(JSON.stringify(id));
+          if (!written.has(text)) written.set(text, [text]);
+          return { id: written.get(text)! };
+        },
+        parseStandalone: (params: Record<string, string[]>) => {
+          const text = params.id?.shift();
+          return text
+            ? { id: new Id(JSON.parse(decodeURIComponent(text))) }
+            : {};
+        },
+      };
+
+      const href = create(format).href('/list', { id: new Id('next') });
+      expect(href).toBe('/list?id=%22next%22');
+      expect(create(format, href).getState().id.toJSON()).toBe('next');
+    });
+
+    it("writes a passed value when the current ones are values the format's reader rejects", () => {
+      const format = {
+        ...json,
+        parseStandalone: (
+          params: Record<string, string[]>,
+          ctx: ParseContext,
+        ) => {
+          const state = json.parseStandalone(params, ctx);
+          if (Object.values(state).includes('')) throw Error('empty id');
+          return state;
+        },
+      };
+      const create = (url?: string) =>
+        createStore<{ id: Id; parent: Id }>()(
+          querystring(() => ({ id: new Id(''), parent: new Id('') }), {
+            url,
+            format,
+          }),
+        );
+
+      const href = create().href('/list', { id: new Id('42') });
+      expect(href).toBe('/list?id=%2242%22');
+      expect(create(href).getState().id).toBe('42');
+    });
+
+    it('writes a passed value with a #, which the URL escapes for the reader', () => {
+      const format = {
+        ...json,
+        stringifyStandalone: (state: object) => {
+          const id = idOf(state);
+          return id ? { id: [JSON.stringify(id)] } : {};
+        },
+        parseStandalone: (params: Record<string, string[]>) => {
+          const [text] = params.id ?? [];
+          if (text === undefined) return {};
+          if (text.includes('#')) throw Error('expected an escaped #');
+          return { id: new Id(JSON.parse(decodeURIComponent(text))) };
+        },
+      };
+
+      const href = create(format).href('/list', { id: new Id('a#b') });
+      expect(href).toBe('/list?id=%22a%23b%22');
+      expect(create(format, href).getState().id.toJSON()).toBe('a#b');
+    });
+  });
+
+  it('with a map that returns new class instances, writes the current and the initial state once per link', () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    let writes = 0;
+    const store = createStore<{ search: string; page: number }>()(
+      querystring(() => ({ search: '', page: 1 }), {
+        url: '/list',
+        format: {
+          ...marked,
+          stringifyStandalone: (state: object) => {
+            writes++;
+            return marked.stringifyStandalone(state);
+          },
+        },
+        map: {
+          to: ({ search, page }) => ({ search: new Box(search), page }),
+          from: ({ search, page }) => ({
+            ...(search ? { search: (search as Box).value } : {}),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ search: 'acme' });
+
+    const counts = [2, 3].map(page => {
+      writes = 0;
+      expect(store.href('/list', { page })).toBe(`/list?page=:${page}`);
+      return writes;
+    });
+    expect(counts).toStrictEqual([5, 5]);
+  });
+
+  it.each([
+    [false, '/list?color=.value=red&size=.value=red&page=:3', 5, 0],
+    ['view', '/list?view=color.value=red~,size.value=red~,page:3', 5, 0],
+  ] as const)(
+    'with key %s and a map that returns new class instances, writes a link that carries the current view, reading no URL',
+    (key, link, writes, reads) => {
+      class Facet {
+        constructor(public value: string) {}
+      }
+      const counts = { writes: 0, reads: 0 };
+      const count =
+        <A extends unknown[], R>(
+          name: keyof typeof counts,
+          fn: (...args: A) => R,
+          params: (...args: A) => number,
+        ) =>
+        (...args: A) => {
+          counts[name] += params(...args);
+          return fn(...args);
+        };
+      const store = createStore<{
+        color: string;
+        size: string;
+        page: number;
+      }>()(
+        querystring(() => ({ color: 'all', size: 'all', page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            stringify: count('writes', marked.stringify, () => 1),
+            parse: count('reads', marked.parse, () => 1),
+            stringifyStandalone: count(
+              'writes',
+              marked.stringifyStandalone,
+              () => 1,
+            ),
+            parseStandalone: count('reads', marked.parseStandalone, () => 1),
+          },
+          map: {
+            to: ({ color, size, page }) => ({
+              color: new Facet(color),
+              size: new Facet(size),
+              page,
+            }),
+            from: ({ color, size, page }) => ({
+              ...(color ? { color: (color as Facet).value } : {}),
+              ...(size ? { size: (size as Facet).value } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ color: 'red', size: 'red' });
+      store.href('/list', { ...store.getState(), page: 2 });
+      counts.writes = counts.reads = 0;
+
+      expect(
+        decodeURIComponent(
+          store.href('/list', { ...store.getState(), page: 3 }),
+        ),
+      ).toBe(link);
+      expect(counts).toStrictEqual({ writes, reads });
+    },
+  );
+
+  it.each([
+    [
+      false,
+      (facets: string[]) =>
+        `/list?${facets.map(f => `${f}=.value=blue`).join('&')}&page=:2`,
+    ],
+    [
+      'view',
+      (facets: string[]) =>
+        `/list?view=${facets.map(f => `${f}.value=blue~`).join(',')},page:2`,
+    ],
+  ] as const)(
+    'with key %s and a map that returns new class instances, writes a link that changes every one of 12 facets in 27 format writes',
+    (key, link) => {
+      class Facet {
+        constructor(public value: string) {}
+      }
+      const names = Array.from({ length: 12 }, (_, i) => `facet${i}`);
+      let writes = 0;
+      const store = createStore<Record<string, string | number>>()(
+        querystring(
+          () => ({
+            ...Object.fromEntries(names.map(name => [name, 'all'])),
+            page: 1,
+          }),
+          {
+            url: '/list',
+            key,
+            format: {
+              ...marked,
+              stringify: state => (writes++, marked.stringify(state)),
+              stringifyStandalone: state => (
+                writes++, marked.stringifyStandalone(state)
+              ),
+            },
+            map: {
+              to: state =>
+                Object.fromEntries(
+                  Object.entries(state).map(([name, value]) => [
+                    name,
+                    name === 'page' ? value : new Facet(value as string),
+                  ]),
+                ),
+              from: urlState =>
+                Object.fromEntries(
+                  Object.entries(urlState).map(([name, value]) => [
+                    name,
+                    name === 'page' ? value : (value as Facet).value,
+                  ]),
+                ),
+            },
+          },
+        ),
+      );
+      store.setState(Object.fromEntries(names.map(name => [name, 'red'])));
+      writes = 0;
+
+      const href = store.href('/list', {
+        ...Object.fromEntries(names.map(name => [name, 'blue'])),
+        page: 2,
+      });
+      expect(decodeURIComponent(href)).toBe(link(names));
+      // The link state once, then for each of the two followers all 12 facets swapped back together and each one alone.
+      expect(writes).toBe(27);
+    },
+  );
+
+  it.each([
+    [false, '/list?revision=2'],
+    ['view', '/list?view={"revision":2}'],
+  ] as const)(
+    'with key %s and a map that returns two class instances the format writes as one value, writes a passed value only both of them hold',
+    (key, link) => {
+      class Revision {
+        constructor(public value: number) {}
+      }
+      // Writes the newer of two revisions, as a codec moving from one field to another does.
+      const encode = ({ primary, mirror }: Record<string, Revision>) =>
+        primary || mirror
+          ? { revision: Math.max(primary?.value ?? 0, mirror?.value ?? 0) }
+          : {};
+      const format = {
+        ...json,
+        stringify: (state: object) => json.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          json.stringifyStandalone(encode(state)),
+      };
+      const create = (url: string) =>
+        createStore<{ revision: number }>()(
+          querystring(() => ({ revision: 1 }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ revision }) => ({
+                primary: new Revision(revision),
+                mirror: new Revision(revision),
+              }),
+              from: ({ revision }) =>
+                revision === undefined ? {} : { revision: revision as number },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { revision: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().revision).toBe(2);
+    },
+  );
+
+  it("with a map that returns new class instances, leaves out a current value when the format's reader needs the changed param with another", () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    const store = createStore<{ mode: string; date: Date; search: string }>()(
+      querystring(
+        () => ({ mode: 'calendar', date: new Date('2026-01-01'), search: '' }),
+        {
+          url: '/list',
+          format: {
+            ...marked,
+            parseStandalone: (params, ctx) =>
+              needsMode(marked.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ search, ...state }) => ({
+              ...state,
+              search: new Box(search),
+            }),
+            from: ({ search, ...state }) => ({
+              ...state,
+              ...(search ? { search: (search as Box).value } : {}),
+            }),
+          },
+        },
+      ),
+    );
+    store.setState({ search: 'acme' });
+
+    expect(store.href('/list', { date: new Date('2026-02-01') })).toBe(
+      '/list?date=D1769904000000',
+    );
+  });
+
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    "with key %s and a map that returns a class instance for the mode, leaves out a passed mode equal to the current and the initial one when the format's reader needs it with the page",
+    (key, link) => {
+      class Mode {
+        constructor(public name: string) {}
+      }
+      const read = <T extends object>(state: T) => {
+        if ('page' in state && !('mode' in state))
+          throw Error('page needs mode');
+        return state;
+      };
+      const store = createStore<{ mode: string; page: number }>()(
+        querystring(() => ({ mode: 'calendar', page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            ...json,
+            parse: (value, ctx) => read(json.parse(value, ctx)),
+            parseStandalone: (params, ctx) =>
+              read(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ mode, page }) => ({ mode: new Mode(mode), page }),
+            from: ({ mode, page }) => ({
+              ...(mode === undefined ? {} : { mode: (mode as Mode).name }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ page: 3 });
+
+      expect(
+        decodeURIComponent(store.href('/list', { page: 2, mode: 'calendar' })),
+      ).toBe(link);
+    },
+  );
+
+  it.each([
+    ['', '/list?price=1.75&fractional=1'],
+    ['shop_', '/list?shop_price=1.75&shop_fractional=1'],
+  ])(
+    "with prefix '%s' and a map that returns new class instances, writes a passed value whose reading depends on a param the current URL writes alike",
+    (prefix, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Reads a price without the fractional marker as a whole number, as links from before the marker do.
+      const format = {
+        ...marked,
+        stringifyStandalone: (state: object) =>
+          'price' in state
+            ? {
+                price: [String((state.price as Price).amount)],
+                fractional: ['1'],
+              }
+            : {},
+        parseStandalone: (params: Record<string, string[]>) => {
+          const [raw] = params.price ?? [];
+          if (raw === undefined) return {};
+          return {
+            price:
+              params.fractional?.[0] === '1' ? Number(raw) : parseInt(raw, 10),
+          };
+        },
+      };
+      const create = (url: string) =>
+        createStore<{ price: number }>()(
+          querystring(() => ({ price: 1.25 }), {
+            url,
+            prefix,
+            format,
+            map: {
+              to: ({ price }) => ({ price: new Price(price) }),
+              from: ({ price }) => ({ price: price as number }),
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { price: 1.75 });
+      expect(href).toBe(link);
+      expect(create(href).getState().price).toBe(1.75);
+    },
+  );
+
+  it('with a map that returns new class instances, writes a link that passes nothing once', () => {
+    class Facet {
+      constructor(public value: string) {}
+    }
+    const names = ['color', 'size', 'brand', 'price'];
+    let writes = 0;
+    const store = createStore<{
+      values: Record<string, string>;
+      open: boolean;
+    }>()(
+      querystring(
+        () => ({
+          values: Object.fromEntries(names.map(name => [name, 'all'])),
+          open: false,
+        }),
+        {
+          url: '/collection',
+          format: {
+            ...marked,
+            stringifyStandalone: (state: object) => {
+              writes++;
+              return marked.stringifyStandalone(state);
+            },
+          },
+          map: {
+            to: ({ values }) =>
+              Object.fromEntries(
+                names.map(name => [name, new Facet(values[name])]),
+              ),
+            from: urlState => ({
+              values: Object.fromEntries(
+                Object.entries(urlState).map(([name, facet]) => [
+                  name,
+                  (facet as Facet).value,
+                ]),
+              ),
+            }),
+          },
+        },
+      ),
+    );
+    store.setState({ open: true });
+    writes = 0;
+
+    expect(store.href('/collection/1')).toBe('/collection/1');
+    expect(writes).toBe(1);
+  });
+
+  it.each([
+    [false, '/list?page=2'],
+    ['view', '/list?view={"page":2}'],
+  ] as const)(
+    'with key %s and a map that returns an array of class instances, leaves out the array a link does not change',
+    (key, link) => {
+      class Tag {
+        constructor(public name: string) {}
+        toJSON() {
+          return this.name;
+        }
+      }
+      // Writes the tags as their names, which it reads back as new tags.
+      const encode = (state: object) =>
+        'tags' in state
+          ? { ...state, tags: (state.tags as Tag[]).map(tag => tag.toJSON()) }
+          : state;
+      const decode = (state: object) =>
+        'tags' in state
+          ? {
+              ...state,
+              tags: (state.tags as string[]).map(name => new Tag(name)),
+            }
+          : state;
+      const store = createStore<{ tags: string[]; page: number }>()(
+        querystring(() => ({ tags: [], page: 1 }), {
+          url: '/list',
+          key,
+          format: {
+            stringify: state => json.stringify(encode(state)),
+            parse: (value, ctx) => decode(json.parse(value, ctx)),
+            stringifyStandalone: state =>
+              json.stringifyStandalone(encode(state)),
+            parseStandalone: (params, ctx) =>
+              decode(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ tags, page }) => ({
+              tags: tags.map(name => new Tag(name)),
+              page,
+            }),
+            from: ({ tags, page }) => ({
+              ...(tags ? { tags: (tags as Tag[]).map(tag => tag.name) } : {}),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+      store.setState({ tags: ['private'] });
+
+      expect(decodeURIComponent(store.href('/list', { page: 2 }))).toBe(link);
+    },
+  );
+
+  it.each([
+    [false, '/list?prices=[1.75]&fractional=true'],
+    ['view', '/list?view={"prices":[1.75],"fractional":true}'],
+  ] as const)(
+    'with key %s and a map that returns an array of class instances, writes the array a link changes where a sibling steers how the format writes it',
+    (key, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Writes whole amounts unless fractional is set.
+      const encode = ({ prices, fractional }: Record<string, unknown>) => ({
+        ...(prices === undefined
+          ? {}
+          : {
+              prices: (prices as unknown[]).map(price => {
+                const amount =
+                  price instanceof Price ? price.amount : (price as number);
+                return fractional ? amount : Math.trunc(amount);
+              }),
+            }),
+        ...(fractional === undefined ? {} : { fractional }),
+      });
+      const options = {
+        key,
+        format: {
+          ...json,
+          stringify: state => json.stringify(encode(state)),
+          stringifyStandalone: state => json.stringifyStandalone(encode(state)),
+        },
+        map: {
+          to: ({ prices, fractional }) => ({
+            prices: prices.map(amount => new Price(amount)),
+            fractional,
+          }),
+          from: state => state,
+        },
+      } satisfies Parameters<
+        typeof querystring<{ prices: number[]; fractional: boolean }>
+      >[1];
+      const initial = () => ({ prices: [1], fractional: false });
+      const store = createStore<{ prices: number[]; fractional: boolean }>()(
+        querystring(initial, { ...options, url: '/list' }),
+      );
+
+      const href = store.href('/list', { prices: [1.75], fractional: true });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      const opened = createStore<{ prices: number[]; fractional: boolean }>()(
+        querystring(initial, { ...options, url: href }),
+      );
+      expect(opened.getState()).toStrictEqual({
+        prices: [1.75],
+        fractional: true,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?prices=[1.75]&fractional=true'],
+    ['view', '/list?view={"prices":[1.75],"fractional":true}'],
+  ] as const)(
+    'with key %s and a format that reads an array as class instances, writes the array a link changes where a sibling steers how the format writes it',
+    (key, link) => {
+      class Price {
+        constructor(public amount: number) {}
+      }
+      // Writes whole amounts unless fractional is set, and reads amounts back as prices.
+      const encode = ({ prices, fractional }: Record<string, unknown>) => ({
+        ...(prices === undefined
+          ? {}
+          : {
+              prices: (prices as Price[]).map(({ amount }) =>
+                fractional ? amount : Math.trunc(amount),
+              ),
+            }),
+        ...(fractional === undefined ? {} : { fractional }),
+      });
+      const decode = (state: Record<string, unknown>) =>
+        state.prices === undefined
+          ? state
+          : {
+              ...state,
+              prices: (state.prices as number[]).map(
+                amount => new Price(amount),
+              ),
+            };
+      const options = {
+        key,
+        format: {
+          stringify: state => json.stringify(encode(state)),
+          parse: (value, ctx) => decode(json.parse(value, ctx)),
+          stringifyStandalone: state => json.stringifyStandalone(encode(state)),
+          parseStandalone: (params, ctx) =>
+            decode(json.parseStandalone(params, ctx)),
+        },
+        map: {
+          to: ({ prices, fractional }) => ({
+            prices: prices.map(amount => new Price(amount)),
+            fractional,
+          }),
+          from: ({ prices, fractional }) => ({
+            ...(prices === undefined
+              ? {}
+              : { prices: (prices as Price[]).map(({ amount }) => amount) }),
+            ...(fractional === undefined
+              ? {}
+              : { fractional: fractional as boolean }),
+          }),
+        },
+      } satisfies Parameters<
+        typeof querystring<{ prices: number[]; fractional: boolean }>
+      >[1];
+      const create = (url: string) =>
+        createStore<{ prices: number[]; fractional: boolean }>()(
+          querystring(() => ({ prices: [1], fractional: false }), {
+            ...options,
+            url,
+          }),
+        );
+
+      const href = create('/list').href('/list', {
+        prices: [1.75],
+        fractional: true,
+      });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        prices: [1.75],
+        fractional: true,
+      });
+    },
+  );
+
+  it('with a map that returns new class instances and a reader that returns a circular object, leaves out a current value the link leaves as it is', () => {
+    class Segment {
+      constructor(public id: string) {}
+    }
+    type Read = { parent?: Read; tag?: Segment };
+    // Writes a segment as its id, and reads it back as a record that points to itself.
+    const encode = (state: Record<string, unknown>) =>
+      state.segment === undefined
+        ? state
+        : { ...state, segment: (state.segment as Segment).id };
+    const decode = (state: Record<string, unknown>) => {
+      if (state.segment === undefined) return state;
+      const segment: Read = {};
+      segment.parent = segment;
+      segment.tag = new Segment(state.segment as string);
+      return { ...state, segment };
+    };
+    const create = (url: string) =>
+      createStore<{ segment: string; page: number }>()(
+        querystring(() => ({ segment: 'all', page: 1 }), {
+          url,
+          format: {
+            ...json,
+            stringifyStandalone: state =>
+              json.stringifyStandalone(encode(state)),
+            parseStandalone: (params, ctx) =>
+              decode(json.parseStandalone(params, ctx)),
+          },
+          map: {
+            to: ({ segment, page }) => ({
+              segment: new Segment(segment),
+              page,
+            }),
+            from: ({ segment, page }) => ({
+              ...(segment === undefined
+                ? {}
+                : { segment: (segment as Read).tag!.id }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+    const store = create('/catalog');
+    store.setState({ segment: 'retail' });
+
+    const href = store.href('/catalog', { page: 2 });
+    expect(href).toBe('/catalog?page=2');
+    expect(create(href).getState()).toStrictEqual({ segment: 'all', page: 2 });
+  });
+
+  it("with a map that returns new class instances, leaves out a current value in a param of its own when the format's reader rejects the current state", () => {
+    class Search {
+      constructor(public id: string) {}
+    }
+    // Page 1 is the default, which the store never writes.
+    const create = (url: string) =>
+      createStore<{ search: string; page: number }>()(
+        querystring(() => ({ search: '', page: 1 }), {
+          url,
+          format: {
+            ...json,
+            parseStandalone: (params, ctx) => {
+              const state = json.parseStandalone(params, ctx);
+              if (state.page === 1) throw new Error('page 1 is implicit');
+              return state;
+            },
+          },
+          map: {
+            to: ({ search, page }) => ({ search: new Search(search), page }),
+            from: ({ search, page }) => ({
+              ...(search === undefined
+                ? {}
+                : { search: (search as Search).id }),
+              ...(page === undefined ? {} : { page: page as number }),
+            }),
+          },
+        }),
+      );
+    const store = create('/search');
+    store.setState({ search: 'private search' });
+
+    const href = store.href('/search', { page: 2 });
+    expect(href).toBe('/search?page=2');
+    expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
+  });
+
+  it.each(
+    (['category', 'constructor', 'prototype'] as const).flatMap(field => [
+      [false, field, `/list?${field}=color&color=:2`],
+      ['view', field, `/list?view=${field}=color,color:2`],
+    ]) as [false | 'view', string, string][],
+  )(
+    'with key %s and a map whose reader takes a param name from the param %s, writes that param with a passed value',
+    (key, field, link) => {
+      // Writes the amount under the name of its category, which it reads first.
+      const create = (url: string) =>
+        createStore<Record<string, unknown>>()(
+          querystring(() => ({ [field]: 'color', amount: 1 }), {
+            url,
+            key,
+            map: {
+              to: state => ({
+                [field]: state[field],
+                [state[field] as string]: state.amount,
+              }),
+              from: urlState => {
+                const category = urlState[field];
+                return typeof category === 'string' && category in urlState
+                  ? { [field]: category, amount: urlState[category] }
+                  : {};
+              },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', { amount: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        [field]: 'color',
+        amount: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&advancedPage=2'],
+    ['view', '/list?view={"mode":"advanced","advancedPage":2}'],
+  ] as const)(
+    'with key %s and a map whose reader copies the params and takes a param name from another, writes that param and leaves out a current value',
+    (key, link) => {
+      type State = {
+        layout: string;
+        mode: string;
+        page: number;
+        search: string;
+      };
+      // Writes the page under advancedPage in advanced mode, which it reads from a copy of the params.
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({ layout: 'grid', mode: 'simple', page: 1, search: '' }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ layout, mode, page, search }) => ({
+                  layout,
+                  mode,
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                  search,
+                }),
+                from: urlState => {
+                  const { mode, page, advancedPage, ...rest } = {
+                    ...urlState,
+                  } as Partial<Record<string, unknown>>;
+                  const read = mode === 'advanced' ? advancedPage : page;
+                  return {
+                    ...rest,
+                    ...(mode === undefined ? {} : { mode }),
+                    ...(read === undefined ? {} : { page: read }),
+                  } as Partial<State>;
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', search: 'private search', page: 3 });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        layout: 'grid',
+        mode: 'advanced',
+        page: 2,
+        search: '',
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?codec="v2"&units="absolute"&page=2'],
+    ['view', '/list?view={"codec":"v2","units":"absolute","page":2}'],
+  ] as const)(
+    "with key %s and a map whose reader resets a field the map doesn't write unless a param is there, writes that param",
+    (key, link) => {
+      type View = {
+        codec: string;
+        units: string;
+        layout: string;
+        page: number;
+      };
+      // Reads a page without units as a grid.
+      const create = (url: string) =>
+        createStore<View>()(
+          querystring(
+            () => ({ codec: 'v2', units: 'relative', layout: 'grid', page: 1 }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ codec, units, page }) => ({ codec, units, page }),
+                from: ({ page, ...view }) => {
+                  if (page === undefined || view.codec === undefined)
+                    return view as Partial<View>;
+                  return (
+                    view.units === undefined
+                      ? { ...view, page, layout: 'grid' }
+                      : { ...view, page }
+                  ) as Partial<View>;
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({ units: 'absolute', layout: 'list', page: 3 });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        codec: 'v2',
+        units: 'absolute',
+        layout: 'grid',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?search="acme"&mode="advanced"&advancedPage=2'],
+    ['view', '/list?view={"search":"acme","mode":"advanced","advancedPage":2}'],
+  ] as const)(
+    "with key %s and a map that takes a param name from another, writes a passed class value whose field the format doesn't write, and that param",
+    (key, link) => {
+      // Writes the text only; the offset is where the search box scrolled to.
+      class Search {
+        constructor(
+          public text: string,
+          public offset: number,
+        ) {}
+        toJSON() {
+          return this.text;
+        }
+      }
+      type State = { mode: string; page: number; search: Search };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({ mode: 'simple', page: 1, search: new Search('', 0) }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ mode, page, search }) => ({
+                  search,
+                  mode,
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                }),
+                from: ({ search, mode, page, advancedPage }) => {
+                  const read = mode === 'advanced' ? advancedPage : page;
+                  return {
+                    ...(search === undefined
+                      ? {}
+                      : { search: new Search(search as string, 0) }),
+                    ...(mode === undefined ? {} : { mode: mode as string }),
+                    ...(read === undefined ? {} : { page: read as number }),
+                  };
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({
+        mode: 'advanced',
+        page: 3,
+        search: new Search('acme', 40),
+      });
+
+      const href = store.href('/list', {
+        page: 2,
+        search: new Search('acme', 40),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toMatchObject({
+        mode: 'advanced',
+        page: 2,
+        search: { text: 'acme' },
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?region="US"&price=3'],
+    ['view', '/list?view={"region":"US","price":3}'],
+  ] as const)(
+    "with key %s and a map, writes the current value a passed one needs when the format's reader rejects the passed one alone",
+    (key, link) => {
+      const read = <T extends object>(state: T) => {
+        if ('price' in state && !('region' in state))
+          throw Error('region required for price');
+        return state;
+      };
+      const create = (url: string) =>
+        createStore<{ region: string; price: number; search: string }>()(
+          querystring(() => ({ region: 'EU', price: 1, search: '' }), {
+            url,
+            key,
+            format: {
+              ...json,
+              parse: (value, ctx) => read(json.parse(value, ctx)),
+              parseStandalone: (params, ctx) =>
+                read(json.parseStandalone(params, ctx)),
+            },
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ region: 'US' });
+
+      const href = store.href('/list', { price: 3 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        region: 'US',
+        price: 3,
+        search: '',
+      });
+    },
+  );
+
+  it.each([false, 'view'] as const)(
+    'with key %s and a map flattening 250 answers, a page-only link that lands enumerates the URL state twice',
+    key => {
+      const answers = Object.fromEntries(
+        Array.from({ length: 250 }, (_, i) => [`q${i}`, 0]),
+      );
+      let enumerations = 0;
+      const store = createStore<{
+        page: number;
+        answers: Record<string, number>;
+      }>()(
+        querystring(() => ({ page: 1, answers }), {
+          url: '/survey',
+          key,
+          format: json,
+          map: {
+            to: ({ page, answers }) =>
+              new Proxy(
+                { p: page, ...answers },
+                {
+                  ownKeys: target => (enumerations++, Reflect.ownKeys(target)),
+                },
+              ),
+            from: ({ p, ...fields }) => ({
+              ...(p === undefined ? {} : { page: p as number }),
+              ...(Object.keys(fields).length
+                ? { answers: fields as Record<string, number> }
+                : {}),
+            }),
+          },
+        }),
+      );
+
+      const href = store.href('/survey', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(
+        key === false ? '/survey?p=2' : '/survey?view={"p":2}',
+      );
+      // Once to compare it with the current one, once to pick the link's keys.
+      expect(enumerations).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?region="US"&currency="USD"&unit="case"&price=3'],
+    [
+      'view',
+      '/list?view={"region":"US","currency":"USD","unit":"case","price":3}',
+    ],
+  ] as const)(
+    "with key %s and a map, writes the three current values a passed one needs when the format's reader rejects it without them, reading a URL at most 10 times",
+    (key, link) => {
+      let reads = 0;
+      const read = <T extends object>(state: T) => {
+        reads++;
+        if (
+          'price' in state &&
+          !('region' in state && 'currency' in state && 'unit' in state)
+        )
+          throw Error('price needs region, currency and unit');
+        return state;
+      };
+      type State = {
+        region: string;
+        currency: string;
+        unit: string;
+        price: number;
+        search: string;
+      };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({
+              region: 'EU',
+              currency: 'EUR',
+              unit: 'each',
+              price: 1,
+              search: '',
+            }),
+            {
+              url,
+              key,
+              format: {
+                ...json,
+                parse: (value, ctx) => read(json.parse(value, ctx)),
+                parseStandalone: (params, ctx) =>
+                  read(json.parseStandalone(params, ctx)),
+              },
+              map: { to: state => state, from: state => state },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({
+        region: 'US',
+        currency: 'USD',
+        unit: 'case',
+        search: 'private search',
+      });
+      reads = 0;
+
+      const href = store.href('/list', { price: 3 });
+      expect(reads).toBeLessThanOrEqual(10);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        region: 'US',
+        currency: 'USD',
+        unit: 'case',
+        price: 3,
+        search: '',
+      });
+    },
+  );
+
+  it.each([
+    [false, 'first', 'unchanged', 3, '/survey?mode="advanced"&advancedPage=2'],
+    [
+      'view',
+      'first',
+      'unchanged',
+      3,
+      '/survey?view={"mode":"advanced","advancedPage":2}',
+    ],
+    [false, 'first', 'changed', 12, '/survey?mode="advanced"&advancedPage=2'],
+    [
+      'view',
+      'first',
+      'changed',
+      12,
+      '/survey?view={"mode":"advanced","advancedPage":2}',
+    ],
+    [false, 'last', 'changed', 16, '/survey?advancedPage=2&mode="advanced"'],
+    [
+      'view',
+      'last',
+      'changed',
+      16,
+      '/survey?view={"advancedPage":2,"mode":"advanced"}',
+    ],
+  ] as const)(
+    'with key %s, a map whose page param depends on the mode written %s and 100 answers %s, a page link reads a URL at most %i times',
+    (key, modeAt, answered, most, link) => {
+      const answers = Object.fromEntries(
+        Array.from({ length: 100 }, (_, i) => [`q${i}`, 0]),
+      );
+      let reads = 0;
+      type State = {
+        mode: string;
+        page: number;
+        answers: Record<string, number>;
+      };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(() => ({ mode: 'simple', page: 1, answers }), {
+            url,
+            key,
+            format: {
+              ...json,
+              parse: (value, ctx) => (reads++, json.parse(value, ctx)),
+              parseStandalone: (params, ctx) => (
+                reads++, json.parseStandalone(params, ctx)
+              ),
+            },
+            map: {
+              to: ({ mode, page, answers }) => {
+                const pageParam = {
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                };
+                return modeAt === 'first'
+                  ? { mode, ...pageParam, ...answers }
+                  : { ...answers, ...pageParam, mode };
+              },
+              from: ({ mode, page, advancedPage, ...fields }) => {
+                const read = mode === 'advanced' ? advancedPage : page;
+                return {
+                  ...(mode === undefined ? {} : { mode: mode as string }),
+                  ...(read === undefined ? {} : { page: read as number }),
+                  ...(Object.keys(fields).length
+                    ? { answers: fields as Record<string, number> }
+                    : {}),
+                };
+              },
+            },
+          }),
+        );
+      const store = create('/survey');
+      store.setState({ mode: 'advanced', page: 3 });
+      if (answered === 'changed')
+        store.setState({
+          answers: Object.fromEntries(Object.keys(answers).map(q => [q, 1])),
+        });
+      reads = 0;
+
+      const href = store.href('/survey', { page: 2 });
+      expect(reads).toBeLessThanOrEqual(most);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        mode: 'advanced',
+        page: 2,
+        answers,
+      });
+    },
+  );
+
+  // Reads the params as json does, then passes them through check.
+  const reading = (check: (state: Record<string, unknown>) => void) => ({
+    ...json,
+    parse: (value: string, ctx?: ParseContext) => {
+      const state = json.parse(value, ctx);
+      check(state);
+      return state;
+    },
+    parseStandalone: (params: Record<string, string[]>, ctx: ParseContext) => {
+      const state = json.parseStandalone(params, ctx);
+      check(state);
+      return state;
+    },
+  });
+  const settings = () => ({
+    mode: 'simple',
+    locale: 'en',
+    version: 'v2',
+    page: 1,
+  });
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the one current value a passed one needs when the format's reader rejects all the changed ones together",
+    (key, link) => {
+      // A page needs the mode, and a locale needs a schema version.
+      const format = reading(state => {
+        if (
+          state.page !== undefined &&
+          (!state.mode || (state.locale && !state.version))
+        )
+          throw Error('page needs mode, and locale needs a schema version');
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof settings>>()(
+          querystring(settings, {
+            url,
+            key,
+            format,
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', locale: 'fr' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...settings(),
+        mode: 'advanced',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?version="v3"&page=2'],
+    ['view', '/list?view={"version":"v3","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the one current value a passed one needs rather than two the format's reader also accepts",
+    (key, link) => {
+      // A page needs a schema version or the legacy mode and locale pair, never half of the pair.
+      const format = reading(state => {
+        if (state.page === undefined) return;
+        const legacy = Boolean(state.mode && state.locale);
+        if (
+          (!legacy && (state.mode || state.locale)) ||
+          !(state.version || legacy)
+        )
+          throw Error('page needs a schema version or the legacy pair');
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof settings>>()(
+          querystring(settings, {
+            url,
+            key,
+            format,
+            map: {
+              to: state => state,
+              from: ({ page }) =>
+                page === undefined ? {} : { page: page as number },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ mode: 'advanced', locale: 'fr', version: 'v3' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().page).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the mode or with the account and currency, writes the mode alone',
+    (key, link) => {
+      const init = () => ({
+        account: 'public',
+        currency: 'USD',
+        mode: 'simple',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, ...rest }) => ({
+                ...rest,
+                ...(page !== undefined &&
+                (rest.mode !== undefined ||
+                  (rest.account !== undefined && rest.currency !== undefined))
+                  ? { page }
+                  : {}),
+              }),
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({
+        account: 'acme-2026',
+        currency: 'EUR',
+        mode: 'advanced',
+        page: 3,
+      });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...init(),
+        mode: 'advanced',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&locale="fr"&page=2'],
+    ['view', '/list?view={"mode":"advanced","locale":"fr","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader takes a page with a schema or with the mode and locale but no currency, writes the mode and locale when it rejects all the changed values together',
+    (key, link) => {
+      const init = () => ({
+        codec: 'v2',
+        mode: 'simple',
+        locale: 'en',
+        currency: 'USD',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: state => {
+                if (state.page === undefined) return state as Partial<State>;
+                if (
+                  state.codec ||
+                  (state.mode && state.locale && !state.currency)
+                )
+                  return { page: state.page as number };
+                throw Error('page needs a known schema');
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({
+        mode: 'advanced',
+        locale: 'fr',
+        currency: 'EUR',
+        page: 3,
+      });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().page).toBe(2);
+    },
+  );
+
+  it.each([
+    [false, '/list?codec="v2"&page=2'],
+    ['view', '/list?view={"codec":"v2","page":2}'],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the schema or with the account and currency, writes the schema rather than the changed account and currency',
+    (key, link) => {
+      const init = () => ({
+        account: 'public',
+        currency: 'USD',
+        codec: 'v2',
+        page: 1,
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, codec, account, currency }) =>
+                page !== undefined &&
+                (codec === 'v2' ||
+                  (account !== undefined && currency !== undefined))
+                  ? { page: page as number }
+                  : {},
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ account: 'acme-2026', currency: 'EUR' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ ...init(), page: 2 });
+    },
+  );
+
+  it.each([
+    [false, '/list?page=2&region="eu"&unit="imperial"&scope="private"'],
+    [
+      'view',
+      '/list?view={"page":2,"region":"eu","unit":"imperial","scope":"private"}',
+    ],
+  ] as const)(
+    'with key %s and a map whose reader reads a page with the region and unit and sets the region without the scope, writes the scope too',
+    (key, link) => {
+      const init = () => ({
+        page: 1,
+        region: 'all',
+        unit: 'metric',
+        scope: 'public',
+      });
+      type State = ReturnType<typeof init>;
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(init, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => state,
+              from: ({ page, region, unit, scope }) => {
+                if (page === undefined) return {};
+                if (page === 1) return { page: page as number };
+                if (!region || !unit)
+                  throw Error('page needs two codec params');
+                return scope
+                  ? { page: page as number }
+                  : { page: page as number, region: region as string };
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ region: 'eu', unit: 'imperial', scope: 'private' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ ...init(), page: 2 });
+    },
+  );
+
+  it.each([
+    [false, '/list?mode="advanced"&page=2'],
+    ['view', '/list?view={"mode":"advanced","page":2}'],
+  ] as const)(
+    "with key %s and a map, writes the current value a passed one needs past one the format's writer rejects with it",
+    (key, link) => {
+      // Writes a locale only with a schema version.
+      const write = <T extends object>(state: T) => {
+        if ('locale' in state && !('version' in state))
+          throw Error('locale needs a schema version');
+        return state;
+      };
+      const init = () => ({
+        locale: 'en',
+        mode: 'simple',
+        version: 'v2',
+        page: 1,
+      });
+      const create = (url: string) =>
+        createStore<ReturnType<typeof init>>()(
+          querystring(init, {
+            url,
+            key,
+            format: {
+              ...reading(state => {
+                if (state.page !== undefined && !state.mode)
+                  throw Error('page needs mode');
+              }),
+              stringify: state => json.stringify(write(state)),
+              stringifyStandalone: state =>
+                json.stringifyStandalone(write(state)),
+            },
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const store = create('/list');
+      store.setState({ locale: 'fr', mode: 'advanced' });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...init(),
+        mode: 'advanced',
+        page: 2,
+      });
+    },
+  );
+
+  it('with a map, leaves out a field the app edited in place after an earlier link', () => {
+    const store = createStore<{ filter: { search: string }; page: number }>()(
+      querystring(() => ({ filter: { search: '' }, page: 1 }), {
+        url: '/list',
+        map: {
+          to: ({ filter, page }) => ({ search: filter.search, page }),
+          from: ({ search, page }) => ({
+            ...(search === undefined ? {} : { filter: { search } }),
+            ...(page === undefined ? {} : { page }),
+          }),
+        },
+      }),
+    );
+    store.href('/list', { page: 2 });
+    store.getState().filter.search = 'private';
+
+    expect(decodeURIComponent(store.href('/list', { page: 3 }))).toBe(
+      '/list?page=:3',
+    );
+  });
+
+  it("with a map that returns new class instances, leaves out a current value once the format's reader reads again", () => {
+    class Box {
+      constructor(public value: string) {}
+    }
+    let readable = true;
+    const store = createStore<{ search: string; page: number }>()(
+      querystring(() => ({ search: '', page: 1 }), {
+        url: '/list',
+        format: {
+          ...marked,
+          parseStandalone: (params, ctx) => {
+            if (!readable) throw new Error('lookup unavailable');
+            return marked.parseStandalone(params, ctx);
+          },
+        },
+        map: {
+          to: ({ search, page }) => ({ search: new Box(search), page }),
+          from: ({ search, page }) => ({
+            ...(search ? { search: (search as Box).value } : {}),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ search: 'private' });
+    readable = false;
+    store.href('/list', { page: 3 });
+    readable = true;
+
+    expect(decodeURIComponent(store.href('/list', { page: 3 }))).toBe(
+      '/list?page=:3',
+    );
+  });
+
+  it.each([
+    [false, 1, '1', '01', '/list?id.value=01'],
+    ['view', 1, '1', '01', '/list?view=id.value=01'],
+    [
+      false,
+      new Date('2026-01-01T00:00:00.000Z'),
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00Z',
+      '/list?id.value=2026-01-01T00:00:00Z',
+    ],
+    [
+      'view',
+      new Date('2026-01-01T00:00:00.000Z'),
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00Z',
+      '/list?view=id.value=2026-01-01T00:00:00Z',
+    ],
+  ] as const)(
+    'with key %s, the plain format and a map that returns a class instance, writes a passed value a store reads differently once the app edits the initial %o to %o in place',
+    (key, initial, edited, passed, link) => {
+      class Id {
+        constructor(public value: unknown) {}
+      }
+      const options = {
+        key,
+        format: plain,
+        map: {
+          to: ({ id }) => ({ id: new Id(id) }),
+          from: ({ id }) => (id ? { id: (id as Id).value } : {}),
+        },
+      } satisfies Parameters<typeof querystring<{ id: unknown }>>[1];
+      const store = createStore<{ id: unknown }>()(
+        querystring(() => ({ id: initial }), { ...options, url: '/list' }),
+      );
+      store.href('/list', { id: passed });
+      store.getState().id = edited;
+
+      const href = store.href('/list', { id: passed });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      const opened = createStore<{ id: unknown }>()(
+        querystring(() => ({ id: edited }), { ...options, url: href }),
+      );
+      expect(opened.getState().id).toBe(passed);
+    },
+  );
+
+  it.each([
+    [false, '/text?id="01"'],
+    ['view', '/text?view={"id":"01"}'],
+  ] as const)(
+    'with key %s and a reader that takes per-route hints from a class the map returns, writes a passed value after a link to another route',
+    (key, link) => {
+      class RouteId {
+        #numeric: boolean;
+        constructor(
+          public value: string,
+          numeric: boolean,
+        ) {
+          this.#numeric = numeric;
+        }
+        read(text: string) {
+          return this.#numeric ? Number(text) : text;
+        }
+        toJSON() {
+          return this.value;
+        }
+      }
+      const restore = (
+        record: Record<string, unknown>,
+        { initialState }: ParseContext,
+      ) =>
+        record.id === undefined
+          ? record
+          : {
+              id: (initialState as { id: RouteId }).id.read(String(record.id)),
+            };
+      const options = {
+        key,
+        format: {
+          ...json,
+          parse: (value, ctx) => restore(json.parse(value, ctx), ctx),
+          parseStandalone: (params, ctx) =>
+            restore(json.parseStandalone(params, ctx), ctx),
+        },
+        map: {
+          to: ({ id }, pathname) => ({
+            id: new RouteId(id, pathname === '/numeric'),
+          }),
+          from: ({ id }) => ({ id: id as string }),
+        },
+      } satisfies Parameters<typeof querystring<{ id: string }>>[1];
+      const make = (url: string) =>
+        createStore<{ id: string }>()(
+          querystring(() => ({ id: '1' }), { ...options, url }),
+        );
+      const store = make('/list');
+      store.href('/numeric', { id: '01' });
+
+      const href = store.href('/text', { id: '01' });
+
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(make(href).getState().id).toBe('01');
+    },
+  );
+
+  it('with a map that returns a class instance holding a list the format does not write, reads none of the list for a page link', () => {
+    class Facet {
+      constructor(public value: string) {}
+      toJSON() {
+        return this.value;
+      }
+    }
+    class CatalogScope {
+      constructor(
+        public code: string,
+        public includedSkus: number[],
+      ) {}
+      toJSON() {
+        return this.code;
+      }
+    }
+    let skuReads = 0;
+    const includedSkus = new Proxy(
+      Array.from({ length: 2500 }, (_, i) => i + 1),
+      {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) skuReads++;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    const store = createStore<{
+      facet: string;
+      includedSkus: number[];
+      page: number;
+    }>()(
+      querystring(() => ({ facet: 'all', includedSkus, page: 1 }), {
+        url: '/list',
+        format: json,
+        map: {
+          to: ({ facet, includedSkus, page }) => ({
+            facet: new Facet(facet),
+            scope: new CatalogScope('retail', includedSkus),
+            page,
+          }),
+          from: ({ facet, page }) => ({
+            ...(facet === undefined ? {} : { facet: facet as string }),
+            ...(page === undefined ? {} : { page: page as number }),
+          }),
+        },
+      }),
+    );
+    store.setState({ facet: 'used' });
+    skuReads = 0;
+
+    expect(store.href('/list', { page: 2 })).toBe('/list?page=2');
+    expect(skuReads).toBe(0);
+  });
+
+  it.each([
+    [false, '/list?date=2026-02-01T00:00:00.000Z'],
+    ['view', '/list?view=date=2026-02-01T00:00:00.000Z'],
+  ] as const)(
+    'with key %s, writes the values the map returns to a format that encodes them',
+    (key, link) => {
+      // Writes a date as its ISO text, which map.from turns back into a date.
+      const encode = (state: { date?: Date }) =>
+        state.date ? { date: state.date.toISOString() } : state;
+      const format = {
+        ...marked,
+        stringify: (state: object) => marked.stringify(encode(state)),
+        stringifyStandalone: (state: object) =>
+          marked.stringifyStandalone(encode(state)),
+      };
+      const create = (url?: string) =>
+        createStore<{ date: Date }>()(
+          querystring(() => ({ date: new Date('2026-01-01') }), {
+            url,
+            key,
+            format,
+            map: {
+              to: ({ date }) => ({ date }),
+              from: ({ date }) =>
+                date === undefined ? {} : { date: new Date(date as string) },
+            },
+          }),
+        );
+
+      const href = create().href('/list', { date: new Date('2026-02-01') });
+      expect(href).toBe(link);
+      expect(create(href).getState().date).toStrictEqual(
+        new Date('2026-02-01'),
+      );
+    },
+  );
+
+  it.each([
+    [false, 'its text', '/list?date="2026-11-25T00:00:00.000Z"'],
+    ['view', 'its text', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
+    [false, 'itself', '/list?date="2026-11-25T00:00:00.000Z"'],
+    ['view', 'itself', '/list?view={"date":"2026-11-25T00:00:00.000Z"}'],
+  ] as const)(
+    'with key %s and a map that returns a date as %s, writes a passed Date at the time of a Date subclass the format writes another way',
+    (key, returns, link) => {
+      class CalendarDate extends Date {
+        toJSON() {
+          return this.toISOString().slice(0, 10);
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ date: Date }>()(
+          querystring(() => ({ date: new CalendarDate('2026-11-25') }), {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ date }) => ({
+                date: returns === 'itself' ? date : date.toJSON(),
+              }),
+              from: ({ date }) =>
+                date === undefined
+                  ? {}
+                  : {
+                      date: (date as string).includes('T')
+                        ? new Date(date as string)
+                        : new CalendarDate(date as string),
+                    },
+            },
+          }),
+        );
+
+      const href = create('/list').href('/list', {
+        date: new Date('2026-11-25'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().date.toJSON()).toBe(
+        '2026-11-25T00:00:00.000Z',
+      );
+    },
+  );
+
+  it.each([
+    [
+      false,
+      'its text',
+      '/list?date="1970-01-01T00:00:00.000Z|America/New_York"',
+    ],
+    [
+      'view',
+      'its text',
+      '/list?view={"date":"1970-01-01T00:00:00.000Z|America/New_York"}',
+    ],
+    [false, 'itself', '/list?date="1970-01-01T00:00:00.000Z|America/New_York"'],
+    [
+      'view',
+      'itself',
+      '/list?view={"date":"1970-01-01T00:00:00.000Z|America/New_York"}',
+    ],
+  ] as const)(
+    'with key %s and a map that returns a date as %s, writes a passed Date subclass at the current time in another zone, and leaves out one in the same zone',
+    (key, returns, link) => {
+      class ZonedDate extends Date {
+        constructor(
+          time: number,
+          public zone: string,
+        ) {
+          super(time);
+        }
+        toJSON() {
+          return `${this.toISOString()}|${this.zone}`;
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ date: ZonedDate }>()(
+          querystring(() => ({ date: new ZonedDate(0, 'UTC') }), {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ date }) => ({
+                date: returns === 'itself' ? date : date.toJSON(),
+              }),
+              from: ({ date }) => {
+                if (date === undefined) return {};
+                const [time, zone] = (date as string).split('|');
+                return { date: new ZonedDate(Date.parse(time), zone) };
+              },
+            },
+          }),
+        );
+      const store = create('/list');
+
+      const href = store.href('/list', {
+        date: new ZonedDate(0, 'America/New_York'),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState().date.zone).toBe('America/New_York');
+      expect(store.href('/list', { date: new ZonedDate(0, 'UTC') })).toBe(
+        '/list',
+      );
+    },
+  );
+
+  it.each([
+    [false, 'a map', '/list?facets={"mode":"list","ids":[1,2]}'],
+    ['view', 'a map', '/list?view={"facets":{"mode":"list","ids":[1,2]}}'],
+    [false, 'no map', '/list?facets={"mode":"list","ids":[1,2]}'],
+    ['view', 'no map', '/list?view={"facets":{"mode":"list","ids":[1,2]}}'],
+  ] as const)(
+    'with key %s and %s, writes a passed Array subclass whose private mode differs, and leaves out one the format writes the same',
+    (key, mapped, link) => {
+      class Facets extends Array<number> {
+        #mode = 'grid';
+        static make(mode: string, ids: number[]) {
+          const facets = new Facets();
+          facets.push(...ids);
+          facets.#mode = mode;
+          return facets;
+        }
+        get mode() {
+          return this.#mode;
+        }
+        toJSON() {
+          return { mode: this.#mode, ids: [...this] };
+        }
+      }
+      const create = (url: string) =>
+        createStore<{ facets: Facets }>()(
+          querystring(() => ({ facets: Facets.make('grid', [1, 2]) }), {
+            url,
+            key,
+            format: json,
+            ...(mapped === 'a map' && {
+              map: {
+                to: state => state,
+                from: ({ facets }) => {
+                  const { mode, ids } = (facets ?? {}) as {
+                    mode?: string;
+                    ids?: number[];
+                  };
+                  return mode && ids ? { facets: Facets.make(mode, ids) } : {};
+                },
+              },
+            }),
+          }),
+        );
+      const store = create('/list');
+
+      const href = store.href('/list', { facets: Facets.make('list', [1, 2]) });
+      expect(decodeURIComponent(href)).toBe(link);
+      if (mapped === 'a map')
+        expect(create(href).getState().facets.mode).toBe('list');
+      expect(store.href('/list', { facets: Facets.make('grid', [1, 2]) })).toBe(
+        '/list',
+      );
+    },
+  );
+
+  it.each([
+    ['an array', '[1, 2]', [1, 2]],
+    ['a plain object', '({ status: "all" })', { status: 'all' }],
+    ['a Date', 'new Date(0)', new Date(0)],
+  ])(
+    'leaves out %s from another realm, as from an iframe, equal to the current one, writing only the link',
+    (_, source, value) => {
+      for (const map of [undefined, { to: s => s, from: s => s }]) {
+        let writes = 0;
+        const store = createStore<{ value: unknown }>()(
+          querystring(() => ({ value }), {
+            url: '/list',
+            format: {
+              ...json,
+              stringifyStandalone: state => (
+                writes++, json.stringifyStandalone(state)
+              ),
+            },
+            map,
+          }),
+        );
+
+        expect(
+          store.href('/list', { value: runInContext(source, createContext()) }),
+        ).toBe('/list');
+        expect(writes).toBe(1);
+      }
+    },
+  );
+
+  it('writes a passed nested undefined, with syncUndefined', () => {
+    const create = (url: string) =>
+      createStore<{ filters: { region: string; tag?: string } }>()(
+        querystring(() => ({ filters: { region: 'EU' } }), {
+          url,
+          format: plain,
+          syncUndefined: true,
+        }),
+      );
+
+    const href = create('/results').href('/results', {
+      filters: { tag: undefined },
+    });
+    expect(href).toBe('/results?filters.tag=undefined');
+    expect(create(href).getState()).toStrictEqual({
+      filters: { region: 'EU', tag: undefined },
+    });
+  });
+
+  it('gives a map a passed undefined, which it can write as a value that clears a filter', () => {
+    const create = (url: string) =>
+      createStore<{ filter: { status?: string } }>()(
+        querystring(() => ({ filter: {} }), {
+          url,
+          map: {
+            to: ({ filter }) => ({ status: filter.status ?? 'none' }),
+            from: ({ status }) =>
+              status === undefined
+                ? {}
+                : { filter: status === 'none' ? {} : { status } },
+          },
+        }),
+      );
+    const store = create('/customers');
+    store.setState({ filter: { status: 'paid' } });
+
+    const href = store.href('/customers', { filter: { status: undefined } });
+    expect(href).toBe('/customers?status=none');
+    expect(create(href).getState()).toStrictEqual({ filter: {} });
+  });
+
+  it.each([null, undefined])(
+    'leaves out the %s a map writes, without syncNull and syncUndefined',
+    empty => {
+      const store = createStore<{ mode: string; page: number | null }>()(
+        querystring(() => ({ mode: 'visible', page: 1 }), {
+          url: '/list',
+          map: {
+            to: ({ mode, page }) => ({
+              page: mode === 'hidden' ? empty : page,
+            }),
+            from: ({ page }) => ({ page: page as number }),
+          },
+        }),
+      );
+      store.setState({ mode: 'hidden', page: 3 });
+
+      expect(store.href('/list', { page: 2 })).toBe('/list');
+    },
+  );
+
+  it.each([
+    ['with url', { url: '/list' }],
+    ['without url', {}],
+  ] as const)('%s: works inside the initializer', (_, options) => {
+    const store = createStore<{ status: string; paidHref: string }>()(
+      querystring(
+        (_set, _get, api) => ({
+          status: 'all',
+          paidHref: api.href('/list', { status: 'paid' }),
+        }),
+        options,
+      ),
+    );
+
+    expect(store.getState().paidHref).toBe('/list?status=paid');
+  });
+
+  it.each([
+    ['marked', false, marked],
+    ['marked', 'view', marked],
+    ['plain', false, plain],
+    ['plain', 'view', plain],
+  ] as const)(
+    '%s with key %s: leaves out an object whose passed fields are all undefined, without syncUndefined',
+    (_, key, format) => {
+      const create = (url: string) =>
+        createStore<{ filter: { search?: string; sort: string } }>()(
+          querystring(() => ({ filter: { search: 'all', sort: 'date' } }), {
+            url,
+            key,
+            format,
+          }),
+        );
+      const store = create('/list');
+      store.setState({ filter: { search: 'paid', sort: 'name' } });
+
+      expect(store.href('/target', { filter: { search: undefined } })).toBe(
+        '/target',
+      );
+      const cleared = store.href('/target', { filter: {} });
+      expect(create(cleared).getState().filter).toStrictEqual({});
+    },
+  );
 
   it('leaves out nested null and undefined, without syncNull and syncUndefined', () => {
     const store = createStore<{ inner: { v: string | null; w?: string } }>()(
@@ -811,7 +3665,7 @@ describe('href', () => {
     expect(store.href('/review', { filters: { hidden: 'internal' } })).toBe(
       '/review',
     );
-    expect(store.href('/review', { filters: {} })).toBe('/review?v=open');
+    expect(store.href('/review', { filters: {} })).toBe('/review');
     store.setState({ filters: { hidden: 'internal' } });
     expect(store.href('/review')).toBe('/review');
   });
@@ -830,15 +3684,20 @@ describe('server store: setDefaults', () => {
     ['with url', { url: '/review' }],
     ['without url', {}],
   ] as const)('%s: setDefaults works inside the initializer', (_, options) => {
-    const store = createStore<{ view: string }>()(
-      querystring((_set, _get, api) => {
-        api.setDefaults({ view: 'list' });
-        return { view: 'grid' };
-      }, options),
-    );
+    const create = (options: { url?: string }) =>
+      createStore<{ view: string }>()(
+        querystring((_set, _get, api) => {
+          api.setDefaults({ view: 'list' });
+          return { view: 'grid' };
+        }, options),
+      );
+    const store = create(options);
 
     expect(store.getState().view).toBe('grid');
-    expect(store.href('/review')).toBe('/review?view=grid');
+    store.setState({ view: 'list' });
+    const href = store.href('/review', { view: 'list' });
+    expect(href).toBe('/review?view=list');
+    expect(create({ url: href }).getState().view).toBe('list');
   });
 });
 
@@ -1213,6 +4072,19 @@ describe('server store (url option): a key naming an Object member keeps the res
     ).toBeUndefined();
   });
 
+  it.each(['constructor', 'toString'])(
+    'a selected field named %s that the URL lacks keeps its value',
+    field => {
+      const store = createStore<Record<string, unknown>>()(
+        querystring(() => ({ [field]: 'basic', count: 0 }), {
+          url: '/?count=:5',
+          select: () => ({ [field]: true, count: true }),
+        }),
+      );
+      expect(store.getState()).toStrictEqual({ [field]: 'basic', count: 5 });
+    },
+  );
+
   it.each([
     [{ key: false }, '/?count=5&__proto__=x'],
     [{ key: false, prefix: 'p_' }, '/?p_count=5&p___proto__=x'],
@@ -1223,5 +4095,15 @@ describe('server store (url option): a key naming an Object member keeps the res
     );
     // A trailing __ is plain's escaped _
     expect(store.getState()).toEqual({ count: 5, __proto_: 'x' });
+  });
+
+  it('ignores an absent namespaced key named constructor instead of reading Object.prototype', () => {
+    const store = createStore<{ count: number }>()(
+      querystring(() => ({ count: 1 }), {
+        url: '/?other=1',
+        key: 'constructor',
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 1 });
   });
 });

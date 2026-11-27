@@ -170,6 +170,8 @@ querystring(store, { url: request.url, select: () => ({ search: true }) });
 2. **On state change**: State → URL (via `replaceState`)
 3. **On navigation** (a link, `router.push`, Back/Forward), while something subscribes to the store, like a component that uses it: URL → State, then State → URL. Store keys missing from the URL keep their values, and other params, like `utm_source`, stay in the URL.
 
+A navigation sets a field the state doesn't have yet, like an optional `search` the initializer leaves out, only when `select` lists it, or when the store keeps its params under a `key` or a `prefix`. Without them, a store following the navigation reads only the fields its state has, so `/customers?search=acme` leaves a store without `search` as it is. A store created on that URL, as in a new tab, reads `search` from it too.
+
 When the store writes the current URL, only values **different from initial state** are written:
 
 ```ts
@@ -183,30 +185,109 @@ Type handling:
 
 - Objects: recursively diffed
 - Arrays, Dates: compared as whole values
+- Class instances, a subclass of `Array` or `Date` too: compared by their fields, then by the query the store writes for them, so a private field counts
 - Functions: never synced
 
 ---
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` that carries the fields `select` syncs on that page, from the store's state with `state` applied. Pass a field's initial value to restore it, like clearing a filter. Call it in a selector, so the link updates when the state changes:
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still make them part of the link: in a param value it packs ([below](#links-with-a-packing-map)), in a param name it derives from them, like `advancedPage` for `page` while `mode` is `'advanced'`, or in another param the reader needs to decode a value you passed. `href` reads the link as a store would and looks for params the reader needs from the current state ([limits below](#links-with-a-packing-map)).
+
+Call `href` in a selector so the link updates with the store, then pass it to your router's `Link` or `router.push` ([How State Syncs](#how-state-syncs)). To carry the current view, spread it and override the fields that change:
 
 ```tsx
-const useStore = create<{ status: string; search?: string }>()(
-  querystring(() => ({ status: 'all' }), {
-    // search starts out missing from the state, so select includes it for a link to set it
-    select: () => ({ status: true, search: true }),
+const useStore = create<{ status: string; page: number; search: string }>()(
+  querystring(() => ({ status: 'all', page: 1, search: '' })),
+);
+
+// Current: { status: 'active', page: 3, search: 'acme' }
+const next = useStore(s => useStore.href('/customers', { ...s, page: 2 }));
+// next: /customers?status=active&page=:2&search=acme
+
+<Link href={next}>Next page</Link>;
+```
+
+A link without the spread carries only what you pass:
+
+```tsx
+const paid = useStore(() => useStore.href('/customers', { status: 'paid' }));
+// paid: /customers?status=paid
+```
+
+A click sets `status` to `'paid'` and keeps `page: 3` and `search: 'acme'`. A new tab opens `/customers?status=paid` with `status: 'paid'`, `page: 1` and an empty search. To clear a filter on a click, pass its initial value: `useStore.href('/customers', { status: 'all' })` gives `/customers?status=all`. A click sets `status` back to `'all'`, and the store rewrites the address bar to `/customers?page=:3&search=acme`, leaving out `status` at its initial value. A passed initial value is written only when the current value differs: while `status` is `'all'`, the same call gives `/customers`.
+
+`href` uses [`select`](#select) for the target pathname. If `search` is enabled only on `/search`, a link to `/customers` leaves it out.
+
+On the server, create the store for each request with its [`url`](#url). The values the request URL sets are current values, as in a store created on that URL in the browser:
+
+```ts
+// request.url: /customers?status=active
+const useStore = create<{ status: string; page: number }>()(
+  querystring(() => ({ status: 'all', page: 1 }), { url: request.url }),
+);
+useStore.href('/customers', { page: 2 }); // /customers?page=:2
+useStore.href('/customers', { status: 'all' }); // /customers?status=all
+```
+
+### Links with a packing map
+
+A `map` that packs `status` and `page` into one param `q` makes the link write the whole param when it changes, so it carries the current `page` you didn't pass. A param the link doesn't change, like `search`, stays out:
+
+```ts
+const useStore = create<{ status: string; page: number; search: string }>()(
+  querystring(() => ({ status: 'all', page: 1, search: '' }), {
+    map: {
+      to: state => ({
+        q: `${state.status}-${state.page}`,
+        search: state.search,
+      }),
+      from: ({ q, ...rest }) => {
+        if (typeof q !== 'string') return rest;
+        const [status, page] = q.split('-');
+        return { ...rest, status, page: Number(page) };
+      },
+    },
   }),
 );
 
-// Current: { status: 'active', search: 'acme' }
-const href = useStore(() => useStore.href('/customers', { status: 'all' }));
-// href: /customers?status=all&search=acme
-
-<Link href={href}>All customers</Link>;
+// Current: { status: 'active', page: 3, search: 'acme' }
+useStore.href('/customers', { status: 'paid' });
+// href: /customers?q=paid-3
 ```
 
-A navigation sets a top-level field the store's state doesn't have yet only when `select`, a namespace (`key`) or a `prefix` includes it. Navigate on the client, with your router's `Link` or `router.push(href)`.
+A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
+
+A `map` that writes `page` as `advancedPage` while `mode` is `'advanced'` makes a link that passes only `page` carry the current `mode` too, so its reader finds the page:
+
+```ts
+const useStore = create<{ mode: string; page: number }>()(
+  querystring(() => ({ mode: 'basic', page: 1 }), {
+    map: {
+      to: ({ mode, page }) =>
+        mode === 'advanced' ? { mode, advancedPage: page } : { mode, page },
+      from: ({ mode, page, advancedPage }) =>
+        mode === 'advanced'
+          ? { mode, page: advancedPage as number }
+          : { mode: mode as string, page: page as number },
+    },
+  }),
+);
+
+// Current: { mode: 'advanced', page: 3 }
+useStore.href('/customers', { page: 2 });
+// href: /customers?mode=advanced&advancedPage=:2
+```
+
+A click and a new tab both open page 2 in `'advanced'` mode.
+
+A `map` whose `to` returns class instances (your own classes, or a subclass of `Date` or `Array`) makes `href` slower. In a benchmark over 12 such params, 50 links took about 14 ms when changing a plain field and about 85 ms when changing one of the class values, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
+
+When a map's reader needs more than one current param, or rejects more than 8 changed params together, a link can carry params the reader doesn't need or leave out ones it does. A field that `from` sets to a class instance without `to` writing it is missed when `href` checks a link, so `href` adds no extra param to keep the reader from resetting it.
+
+### Reading a link
+
+Anyone can edit a link before they share it, and the store reads its values without checking their types: a new tab on `/customers?page=abc` sets `page` to the string `'abc'`. Check a field like `page` before your app uses it as a number. `href` writes `pathname` as given, so build it from your own routes, never from user input: `useStore.href('//example.com')` returns `//example.com`, a link to another site.
 
 ---
 
