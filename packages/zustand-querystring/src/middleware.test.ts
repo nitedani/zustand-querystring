@@ -986,6 +986,28 @@ describe('href', () => {
     expect(create(spread).getState().filter.rating).toBe(4);
   });
 
+  it.each(['constructor', 'prototype'])(
+    'writes a class instance field named %s that the URL set at creation, when it is passed',
+    field => {
+      class Filter {
+        rating = 0;
+      }
+      const create = (url: string) =>
+        createStore<Record<string, Filter>>()(
+          querystring(() => ({ [field]: new Filter() }), {
+            url,
+            select: () => ({ [field]: { rating: true } }),
+          }),
+        );
+      const store = create(`/results?${field}=.rating:4`);
+      const four = Object.assign(new Filter(), { rating: 4 });
+
+      const href = store.href('/results', { [field]: four });
+      expect(decodeURIComponent(href)).toBe(`/results?${field}=.rating:4`);
+      expect(create(href).getState()[field].rating).toBe(4);
+    },
+  );
+
   it('links from a class instance with a private field that the URL set at creation', () => {
     class Filter {
       #label = 'Rating';
@@ -1315,6 +1337,44 @@ describe('href', () => {
       });
       expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState().status.mode()).toBe('paid');
+    },
+  );
+
+  it.each([
+    ['constructor', false, '/p?constructor="adv"&adv=2'],
+    ['constructor', 'view', '/p?view={"constructor":"adv","adv":2}'],
+    ['prototype', false, '/p?prototype="adv"&adv=2'],
+    ['prototype', 'view', '/p?view={"prototype":"adv","adv":2}'],
+  ] as const)(
+    'with a map, writes the field %s that names the param of a passed field, with key %s',
+    (field, key, link) => {
+      const create = (url?: string) =>
+        createStore<Record<string, unknown>>()(
+          querystring(() => ({ a: 1, [field]: 'basic' }), {
+            url,
+            key,
+            format: json,
+            map: {
+              to: state => ({
+                [field]: state[field],
+                [state[field] as string]: state.a,
+              }),
+              from: params => {
+                const mode = params[field];
+                if (typeof mode !== 'string') return {};
+                return typeof params[mode] === 'number'
+                  ? { [field]: mode, a: params[mode] }
+                  : { [field]: mode };
+              },
+            },
+          }),
+        );
+      const store = create();
+      store.setState({ [field]: 'adv', a: 4 });
+
+      const href = store.href('/p', { a: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({ a: 2, [field]: 'adv' });
     },
   );
 

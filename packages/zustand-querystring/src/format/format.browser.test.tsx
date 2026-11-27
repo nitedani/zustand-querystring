@@ -2302,6 +2302,19 @@ describe('navigation', () => {
     expect(Object.keys(useStore.getState())).not.toContain('toString');
   });
 
+  it('sets a field named constructor that the URL carries', async () => {
+    const useStore = create<{ constructor: string; page: number }>()(
+      querystring(() => ({ constructor: 'basic', page: 1 }), { format: json }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    window.history.pushState({}, '', '/p?constructor="adv"&page=2');
+    await settle();
+    unsubscribe();
+
+    expect(useStore.getState()).toStrictEqual({ constructor: 'adv', page: 2 });
+  });
+
   it.each(['constructor', 'toString'])(
     'keeps a selected field named %s that the URL no longer carries',
     async field => {
@@ -2838,6 +2851,56 @@ describe('navigation', () => {
       expect(createResults().getState().results.label).toBe(
         'Results for page 2',
       );
+    },
+  );
+
+  it.each(
+    (['constructor', 'prototype'] as const).flatMap(field =>
+      ([false, 'view'] as const).map(key => [key, field] as const),
+    ),
+  )(
+    'with key %s and a map that writes a field named %s, a link to another page sets the class value the reader makes from the page without writing the format first',
+    async (key, field) => {
+      let writes = 0;
+      let atUpdate: number | undefined;
+      type Named = Record<string, unknown> & Listed;
+      const createResults = () =>
+        create<Named>()(
+          querystring(
+            () => ({ page: 1, [field]: 'list', results: new Results(1) }),
+            {
+              key,
+              format: countedJson(() => writes++),
+              map: {
+                to: state => ({ page: state.page, [field]: state[field] }),
+                from: params =>
+                  params.page === undefined
+                    ? {}
+                    : {
+                        page: params.page as number,
+                        results: new Results(params.page as number),
+                      },
+              },
+            },
+          ),
+        );
+      window.history.replaceState({}, '', '/list');
+      const useStore = createResults();
+      const unsubscribe = useStore.subscribe(state => {
+        if (state.page === 2) atUpdate ??= writes;
+      });
+      await settle();
+      const href = useStore.href('/list', { page: 2 });
+      writes = 0;
+
+      window.history.pushState({}, '', href);
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().page).toBe(2);
+      expect(atUpdate).toBe(0);
+      expect(useStore.getState().results.label).toBe('Results for page 2');
+      expect(useStore.getState()[field]).toBe('list');
     },
   );
 

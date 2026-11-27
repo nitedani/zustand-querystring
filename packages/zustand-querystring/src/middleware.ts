@@ -10,7 +10,6 @@ import {
   isSet,
   isTypedArray,
   mergeWith,
-  pickBy,
 } from 'lodash-es';
 import { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
 import { marked as markedFormat } from './format/marked.js';
@@ -19,7 +18,7 @@ import type {
   QueryStringFormatFor,
   QueryStringParams,
 } from './format/types.js';
-import { getOwn, hasOwn, setOwn } from './own.js';
+import { getOwn, hasOwn, pickOwn, setOwn } from './own.js';
 
 export type {
   ParseContext,
@@ -709,7 +708,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     pathname: string,
   ) => {
     const met: string[][] = [];
-    const changed = pickBy(next, (value, key) =>
+    const changed = pickOwn(next, (value, key) =>
       hasOwn(current, key)
         ? !sameField(value, current[key], [key], met, true)
         : ownsNewKeys,
@@ -720,7 +719,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       try {
         return !sameData(
           urlStateOf(
-            pickBy(next, (_value, name) => name !== key),
+            pickOwn(next, (_value, name) => name !== key),
             pathname,
           ),
           (whole ??= urlStateOf(next, pathname)),
@@ -889,7 +888,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     );
     // A key a URL set inside a class instance is written whenever it is passed.
     if (byField)
-      changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
+      changed.push(pickOwn(passed, (_value, key) => urlSetKeys.includes(key)));
     // Written with the click's values: a map packing fields into one param keeps those not passed.
     const link = changed.every(isEmpty)
       ? {}
@@ -973,7 +972,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const full = clickedUrlState();
       const others = Object.keys(full).filter(key => !hasOwn(link, key));
       const plus = (keys: string[]) =>
-        pickBy(full, (_value, key) => hasOwn(link, key) || keys.includes(key));
+        pickOwn(full, (_value, key) => hasOwn(link, key) || keys.includes(key));
       // Keys of the pool that with the link land better than a link that checks as than does: all of them or, when a pool of 3 to 8 lands no better whole, the best of them without one, narrowed by halves; none when neither lands better.
       const findCompanions = (pool: string[], than: Check): string[] => {
         if (!pool.length) return [];

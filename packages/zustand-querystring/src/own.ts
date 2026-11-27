@@ -21,3 +21,16 @@ export function setOwn(obj: object, key: string, value: unknown): void {
     (obj as Record<string, unknown>)[key] = value;
   }
 }
+
+/** Picks own entries matching pred into a new object, keeping keys like constructor, prototype and __proto__. */
+export function pickOwn(
+  obj: object,
+  pred: (value: unknown, key: string) => boolean,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    const value = (obj as Record<string, unknown>)[key];
+    if (pred(value, key)) setOwn(result, key, value);
+  }
+  return result;
+}
