@@ -2634,6 +2634,109 @@ describe('navigation', () => {
 
       expect(useStore.getState().date.zone).toBe('Europe/Paris');
     });
+
+    it('sets a link to another zone at the same time, keeps it in the address bar, and a new store reads it', async () => {
+      const useStore = createZoned();
+      const unsubscribe = useStore.subscribe(() => {});
+
+      window.history.pushState(
+        {},
+        '',
+        useStore.href('/', {
+          date: new ZonedDate(0, 'America/New_York'),
+          page: 2,
+        }),
+      );
+      await settle();
+      unsubscribe();
+
+      expect(useStore.getState().date.zone).toBe('America/New_York');
+      expect(url()).toBe(
+        '/?date="1970-01-01T00:00:00.000Z|America/New_York"&page=2',
+      );
+      expect(createZoned().getState().date.zone).toBe('America/New_York');
+    });
+  });
+
+  // Writes a tag from a private field.
+  class Tag {
+    #name: string;
+    constructor(name: string) {
+      this.#name = name;
+    }
+    toJSON() {
+      return this.#name;
+    }
+  }
+
+  it('writes a class value to the address bar when only its writer tells it from the default, and leaves it out at the default', async () => {
+    const useStore = create<{ tag: Tag }>()(
+      querystring(() => ({ tag: new Tag('all') }), { format: json }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    useStore.setState({ tag: new Tag('paid') });
+    expect(url()).toBe('/?tag="paid"');
+    useStore.setState({ tag: new Tag('all') });
+    expect(url()).toBe('/');
+    unsubscribe();
+  });
+
+  it('writes a class value inside an object to the address bar only when its writer tells it from the default', async () => {
+    const useStore = create<{ filter: { tag: Tag } }>()(
+      querystring(() => ({ filter: { tag: new Tag('all') } }), {
+        format: json,
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+
+    useStore.setState({ filter: { tag: new Tag('all') } });
+    expect(url()).toBe('/');
+    useStore.setState({ filter: { tag: new Tag('paid') } });
+    expect(url()).toBe('/?filter={"tag":"paid"}');
+    unsubscribe();
+  });
+
+  it('with a map that returns 12 class values, writes the format at most 4 times per state change', async () => {
+    class Facet {
+      constructor(public value: string) {}
+    }
+    const names = Array.from({ length: 12 }, (_, i) => `facet${i}`);
+    let writes = 0;
+    const useStore = create<Record<string, string>>()(
+      querystring(() => Object.fromEntries(names.map(name => [name, 'all'])), {
+        format: {
+          ...marked,
+          stringifyStandalone: state => (
+            writes++, marked.stringifyStandalone(state)
+          ),
+        },
+        map: {
+          to: state =>
+            Object.fromEntries(
+              Object.entries(state).map(([name, value]) => [
+                name,
+                new Facet(value),
+              ]),
+            ),
+          from: urlState =>
+            Object.fromEntries(
+              Object.entries(urlState).map(([name, value]) => [
+                name,
+                (value as Facet).value,
+              ]),
+            ),
+        },
+      }),
+    );
+    const unsubscribe = useStore.subscribe(() => {});
+    await settle();
+    writes = 0;
+
+    useStore.setState({ facet0: 'red' });
+    expect(url()).toBe('/?facet0=.value=red');
+    expect(writes).toBeLessThanOrEqual(4);
+    unsubscribe();
   });
 
   it("sets a class instance map.from returns for a field map.to doesn't write, when its fields differ", async () => {

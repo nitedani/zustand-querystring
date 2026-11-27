@@ -108,65 +108,6 @@ type QueryStringImpl = <T>(
   options?: QueryStringOptions<T>,
 ) => StateCreator<T, [], []>;
 
-export const compact = (
-  newState,
-  initialState,
-  syncNull = false,
-  syncUndefined = false,
-  // Keys kept even at their initial value; nothing inside them is compared.
-  forced: string[] = [],
-) => {
-  const output = {};
-
-  Object.keys(newState).forEach(key => {
-    const newValue = newState[key];
-    const initialValue = initialState[key];
-    const isForced = forced.includes(key);
-
-    if (
-      typeof newValue !== 'function' &&
-      (isForced || !isEqual(newValue, initialValue)) &&
-      (syncNull || newValue !== null) &&
-      (syncUndefined || newValue !== undefined)
-    ) {
-      const isPlainObject =
-        typeof newValue === 'object' &&
-        newValue !== null &&
-        newValue !== undefined &&
-        !Array.isArray(newValue) &&
-        newValue.constructor === Object;
-
-      if (isPlainObject && isForced) {
-        const fields = compact(
-          newValue,
-          {},
-          syncNull,
-          syncUndefined,
-          Object.keys(newValue),
-        ).output;
-        // An object none of whose fields is written is left out too, unless it is empty.
-        if (!isEmpty(fields) || isEmpty(newValue)) {
-          output[key] = fields;
-        }
-      } else if (
-        isPlainObject &&
-        initialValue &&
-        typeof initialValue === 'object'
-      ) {
-        const result = compact(newValue, initialValue, syncNull, syncUndefined);
-        // An empty object over a non-empty default is kept, so a cleared filter stays cleared.
-        if (!isEmpty(result.output) || isEmpty(newValue)) {
-          output[key] = result.output;
-        }
-      } else {
-        output[key] = newValue;
-      }
-    }
-  });
-
-  return { output };
-};
-
 // The fields of source that any of the masks holds, down to where one of them holds a whole value; source itself when that is all of it.
 const pickFields = (source: object, masks: object[]): object => {
   const picked = {};
@@ -231,12 +172,12 @@ const unseen = <T>(items: T[], same: (swapped: T[]) => boolean): T[] => {
 type Alike = (paths: string[][]) => string[][];
 
 // Whether two values are the same data. Two distinct values of which one is opaque are told apart by the store's writer: their path is noted in met and they count as another value until it tells.
-// With visible, the writer is asked only where their visible data are alike.
+// With visible, the writer is asked only where their visible data are alike; without met, their visible data decide.
 const sameField = (
   value: unknown,
   before: unknown,
   path: string[],
-  met: string[][],
+  met: string[][] | undefined,
   visible: boolean,
 ) => {
   let opaque = false;
@@ -244,14 +185,91 @@ const sameField = (
     opaque = true;
     return visible ? undefined : true;
   });
-  if (same && opaque) met.push(path);
-  return same && !opaque;
+  if (same && opaque && met) met.push(path);
+  return same && !(opaque && met);
 };
 
 // Leaves out of changed the paths, of those noted in met, that alike tells hold the same value.
-const withoutAlike = (changed: object, met: string[][], alike: Alike) => {
-  if (met.length) for (const path of alike(met)) deleteIn(changed, path);
+const withoutAlike = (changed: object, met: string[][], alike?: Alike) => {
+  if (alike && met.length)
+    for (const path of alike(met)) deleteIn(changed, path);
   return changed;
+};
+
+// What the address bar writes of a state: the fields that differ from the initial state's, as the sync policy writes them.
+export const compact = (
+  newState: object,
+  initialState: object,
+  syncNull = false,
+  syncUndefined = false,
+  // Keys kept even at their initial value; nothing inside them is compared.
+  forced: string[] = [],
+  alike?: Alike,
+) => {
+  const met: string[][] = [];
+  const walk = (
+    newState: object,
+    initialState: object,
+    forced: string[],
+    path: string[],
+  ) => {
+    const output = {};
+    Object.keys(newState).forEach(key => {
+      const newValue = newState[key];
+      const initialValue = initialState[key];
+      const isForced = forced.includes(key);
+      const noted = met.length;
+
+      if (
+        typeof newValue !== 'function' &&
+        (isForced ||
+          !sameField(
+            newValue,
+            initialValue,
+            [...path, key],
+            alike && met,
+            true,
+          )) &&
+        (syncNull || newValue !== null) &&
+        (syncUndefined || newValue !== undefined)
+      ) {
+        const isPlain =
+          typeof newValue === 'object' &&
+          newValue !== null &&
+          !Array.isArray(newValue) &&
+          newValue.constructor === Object;
+
+        if (isPlain && isForced) {
+          const fields = walk(newValue, {}, Object.keys(newValue), [
+            ...path,
+            key,
+          ]);
+          // An object none of whose fields is written is left out too, unless it is empty.
+          if (!isEmpty(fields) || isEmpty(newValue)) {
+            output[key] = fields;
+          }
+        } else if (
+          isPlain &&
+          initialValue &&
+          typeof initialValue === 'object'
+        ) {
+          // Its fields note their own paths, so met holds no path inside another.
+          met.length = noted;
+          const fields = walk(newValue, initialValue, [], [...path, key]);
+          // An empty object over a non-empty default is kept, so a cleared filter stays cleared.
+          if (!isEmpty(fields) || isEmpty(newValue)) {
+            output[key] = fields;
+          }
+        } else {
+          output[key] = newValue;
+        }
+      }
+    });
+    return output;
+  };
+  return {
+    output: withoutAlike(walk(newState, initialState, forced, []), met, alike),
+  };
 };
 
 // The fields of next that prev lacks or holds another value for: with deep, down to the fields of a plain object.
@@ -1014,12 +1032,14 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       clearTimeout(writeTimer);
       const url = new URL(window.location.href);
       const stateForUrl = urlStateOf(get(), url.pathname);
+      const defaults = urlDefaults(url.pathname);
       const { output: newCompacted } = compact(
         stateForUrl,
-        urlDefaults(url.pathname),
+        defaults,
         defaultedOptions.syncNull,
         defaultedOptions.syncUndefined,
         urlSetKeys,
+        alikeIn(() => stateForUrl, defaults),
       );
       const previous = url.search;
 

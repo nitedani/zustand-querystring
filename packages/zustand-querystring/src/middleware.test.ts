@@ -486,6 +486,70 @@ describe('compact', () => {
     const result = compact(newState, initialState, false, true, ['inner']);
     expect(result.output).toStrictEqual({ inner: { v: 'x', w: undefined } });
   });
+
+  class Box {
+    constructor(public value: number) {}
+  }
+  it.each([
+    [
+      'a null field inside an object over a string default, with syncNull',
+      [{ f: { a: null } }, { f: 'x' }, true],
+      { f: { a: null } },
+    ],
+    [
+      'a null field inside an object over a string default',
+      [{ f: { a: null } }, { f: 'x' }],
+      { f: { a: null } },
+    ],
+    [
+      'undefined over an absent default, with syncUndefined',
+      [{ a: undefined }, {}, false, true],
+      {},
+    ],
+    ['undefined over an absent default', [{ a: undefined }, {}], {}],
+    [
+      'an object over a null default',
+      [{ f: { a: 1 } }, { f: null }],
+      { f: { a: 1 } },
+    ],
+    [
+      'an object over an array default',
+      [{ f: { a: 1 } }, { f: [1] }],
+      { f: { a: 1 } },
+    ],
+    [
+      'an array over an object default with the same entries',
+      [{ f: [1] }, { f: { 0: 1 } }],
+      { f: [1] },
+    ],
+    [
+      'an object holding an instance equal to the default one',
+      [{ f: { box: new Box(1) } }, { f: { box: new Box(1) } }],
+      {},
+    ],
+    [
+      'an instance over a plain object with the same fields',
+      [{ f: new Box(1) }, { f: { value: 1 } }],
+      { f: new Box(1) },
+    ],
+    [
+      'an object without a prototype over a plain one with the same fields',
+      [{ f: Object.assign(Object.create(null), { a: 1 }) }, { f: { a: 1 } }],
+      {},
+    ],
+    ['an empty object over a zero default', [{ f: {} }, { f: 0 }], { f: {} }],
+    [
+      'a forced object whose fields are all undefined',
+      [{ f: { a: undefined } }, {}, false, false, ['f']],
+      {},
+    ],
+    ['-0 over 0', [{ n: -0 }, { n: 0 }], {}],
+  ] as [string, Parameters<typeof compact>, object][])(
+    'writes %s',
+    (_, args, output) => {
+      expect(compact(...args).output).toStrictEqual(output);
+    },
+  );
 });
 
 describe('url option', () => {
