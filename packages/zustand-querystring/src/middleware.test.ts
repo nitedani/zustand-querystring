@@ -2218,6 +2218,121 @@ describe('href', () => {
   );
 
   it.each([
+    [false, '/list?codec="v2"&units="absolute"&page=2'],
+    ['view', '/list?view={"codec":"v2","units":"absolute","page":2}'],
+  ] as const)(
+    "with key %s and a map whose reader resets a field the map doesn't write unless a param is there, writes that param",
+    (key, link) => {
+      type View = {
+        codec: string;
+        units: string;
+        layout: string;
+        page: number;
+      };
+      // Reads a page without units as a grid.
+      const create = (url: string) =>
+        createStore<View>()(
+          querystring(
+            () => ({ codec: 'v2', units: 'relative', layout: 'grid', page: 1 }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ codec, units, page }) => ({ codec, units, page }),
+                from: ({ page, ...view }) => {
+                  if (page === undefined || view.codec === undefined)
+                    return view as Partial<View>;
+                  return (
+                    view.units === undefined
+                      ? { ...view, page, layout: 'grid' }
+                      : { ...view, page }
+                  ) as Partial<View>;
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({ units: 'absolute', layout: 'list', page: 3 });
+
+      const href = store.href('/list', { page: 2 });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        codec: 'v2',
+        units: 'absolute',
+        layout: 'grid',
+        page: 2,
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?search="acme"&mode="advanced"&advancedPage=2'],
+    ['view', '/list?view={"search":"acme","mode":"advanced","advancedPage":2}'],
+  ] as const)(
+    "with key %s and a map that takes a param name from another, writes a passed class value whose field the format doesn't write, and that param",
+    (key, link) => {
+      // Writes the text only; the offset is where the search box scrolled to.
+      class Search {
+        constructor(
+          public text: string,
+          public offset: number,
+        ) {}
+        toJSON() {
+          return this.text;
+        }
+      }
+      type State = { mode: string; page: number; search: Search };
+      const create = (url: string) =>
+        createStore<State>()(
+          querystring(
+            () => ({ mode: 'simple', page: 1, search: new Search('', 0) }),
+            {
+              url,
+              key,
+              format: json,
+              map: {
+                to: ({ mode, page, search }) => ({
+                  search,
+                  mode,
+                  [mode === 'advanced' ? 'advancedPage' : 'page']: page,
+                }),
+                from: ({ search, mode, page, advancedPage }) => {
+                  const read = mode === 'advanced' ? advancedPage : page;
+                  return {
+                    ...(search === undefined
+                      ? {}
+                      : { search: new Search(search as string, 0) }),
+                    ...(mode === undefined ? {} : { mode: mode as string }),
+                    ...(read === undefined ? {} : { page: read as number }),
+                  };
+                },
+              },
+            },
+          ),
+        );
+      const store = create('/list');
+      store.setState({
+        mode: 'advanced',
+        page: 3,
+        search: new Search('acme', 40),
+      });
+
+      const href = store.href('/list', {
+        page: 2,
+        search: new Search('acme', 40),
+      });
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toMatchObject({
+        mode: 'advanced',
+        page: 2,
+        search: { text: 'acme' },
+      });
+    },
+  );
+
+  it.each([
     [false, '/list?region="US"&price=3'],
     ['view', '/list?view={"region":"US","price":3}'],
   ] as const)(

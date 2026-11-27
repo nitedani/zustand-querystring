@@ -848,11 +848,16 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       : pickFields(clickedUrlState(), changed);
     if (byField || isEmpty(link) || link === clickedUrlState())
       return pathname + written(link);
-    // Two states a store writes alike.
-    const sameUrlState = (a: object, b: object) =>
-      sameData(a, b, () => false) ||
-      writeLinkUrl(urlStateOf(a, pathname)) ===
-        writeLinkUrl(urlStateOf(b, pathname));
+    // Two store states alike: deep-equal data, and for two distinct values of which one is opaque, the same search written.
+    const sameState = (a: object, b: object) => {
+      let opaque = false;
+      return (
+        sameData(a, b, () => (opaque = true)) &&
+        (!opaque ||
+          writeLinkUrl(urlStateOf(a, pathname)) ===
+            writeLinkUrl(urlStateOf(b, pathname)))
+      );
+    };
     type Check = {
       rejected: boolean;
       live: boolean;
@@ -878,10 +883,10 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
           const landed = applyState(base, storeState, pathname, {
             instances: 'read',
           });
-          const isExact = sameUrlState(landed, target);
+          const isExact = sameState(landed, target);
           if (i === 0) result.live = isExact;
           if (isExact) result.exact++;
-          if (isExact || (i > 0 && sameUrlState(follow(landed), landed)))
+          if (isExact || (i > 0 && sameState(follow(landed), landed)))
             result.passed++;
         });
         return result;
