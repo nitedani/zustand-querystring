@@ -192,7 +192,7 @@ Type handling:
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still make them part of the link: in a param value it packs ([below](#links-with-a-packing-map)), in a param name it derives from them, like `advancedPage` for `page` while `mode` is `'advanced'`, or in another param the reader needs to decode a value you passed. `href` reads the link as a store would and adds the params the reader needs from the current state.
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still make them part of the link: in a param value it packs ([below](#links-with-a-packing-map)), in a param name it derives from them, like `advancedPage` for `page` while `mode` is `'advanced'`, or in another param the reader needs to decode a value you passed. `href` reads the link as a store would and looks for params the reader needs from the current state ([limits below](#links-with-a-packing-map)).
 
 Call `href` in a selector so the link updates with the store, then pass it to your router's `Link` or `router.push` ([How State Syncs](#how-state-syncs)). To carry the current view, spread it and override the fields that change:
 
@@ -258,9 +258,32 @@ useStore.href('/customers', { status: 'paid' });
 
 A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
 
+A `map` that writes `page` as `advancedPage` while `mode` is `'advanced'` makes a link that passes only `page` carry the current `mode` too, so its reader finds the page:
+
+```ts
+const useStore = create<{ mode: string; page: number }>()(
+  querystring(() => ({ mode: 'basic', page: 1 }), {
+    map: {
+      to: ({ mode, page }) =>
+        mode === 'advanced' ? { mode, advancedPage: page } : { mode, page },
+      from: ({ mode, page, advancedPage }) =>
+        mode === 'advanced'
+          ? { mode, page: advancedPage as number }
+          : { page: page as number },
+    },
+  }),
+);
+
+// Current: { mode: 'advanced', page: 3 }
+useStore.href('/customers', { page: 2 });
+// href: /customers?mode=advanced&advancedPage=:2
+```
+
+A click and a new tab both open page 2 in `'advanced'` mode.
+
 A `map` whose `to` returns class instances (your own classes, a subclass of `Date` or `Array` too) makes `href` slower. The store can't compare those instances as data, so it can rewrite the query to compare a param that holds one, and it does the same for an instance whose fields match the initial one when it writes the address bar. In a benchmark, 50 links over 12 such params took about 14 ms, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
 
-To find the params a reader needs, `href` tries current params alone, first those whose value differs from the initial state, then, unless the reader rejects the link with only the values you passed, the others. It tries params alone only in a group of up to 8; when no param alone is enough, or the group is larger, it narrows the group down to fewer. A link whose reader needs several params, or rejects more than 8 changed params together, can carry params it doesn't need, or none. While it checks a link, `href` counts a class instance that `from` sets in a field `to` doesn't write as unchanged, so it misses a reader that resets that instance.
+To find the params a reader needs, `href` tries current params alone, first those whose value differs from the initial state, then, unless the reader rejects the link with only the values you passed, the params still at their initial values. It tries params alone only in a group of up to 8; when no param alone is enough, or the group is larger, it narrows the group down to fewer. The search only adds params to the fields you passed. When a reader needs several companion params, or rejects more than 8 changed params together, the link can carry params the reader doesn't need, or leave out companion params it needs. A field that `from` sets to a class instance without `to` writing it is missed when `href` checks a link, so `href` adds no companion param to keep the reader from resetting it.
 
 ### Reading a link
 
