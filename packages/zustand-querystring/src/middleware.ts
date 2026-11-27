@@ -160,11 +160,7 @@ const sameData = (a: unknown, b: unknown, opaque: () => boolean | undefined) =>
 const unseen = <T>(items: T[], same: (swapped: T[]) => boolean): T[] => {
   if (items.length > 1 && same(items)) return items;
   const kept: T[] = [];
-  for (const item of items) {
-    // All of them together are known to show.
-    const all = items.length > 1 && kept.length + 1 === items.length;
-    if (!all && same([...kept, item])) kept.push(item);
-  }
+  for (const item of items) if (same([...kept, item])) kept.push(item);
   return kept;
 };
 
@@ -586,7 +582,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   };
 
   // Widen to object-level types for internal use — the public API
-  // (QueryStringOptions<T, K, U>) ensures type safety at the call site.
+  // (QueryStringOptions<T, K>) ensures type safety at the call site.
   const map = defaultedOptions.map as
     | QueryStringMap<object, object>
     | undefined;
