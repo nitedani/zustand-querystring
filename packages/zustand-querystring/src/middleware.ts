@@ -838,6 +838,26 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     let values: object | undefined;
     // The click's URL state, which a new tab shares when it follows the link to the same state.
     const clickedUrlState = () => (values ??= urlStateOf(clicked, pathname));
+    // Each store that can follow the link, and the state it follows to.
+    const followers = [[live, clicked]];
+    if (start !== live) followers.push([start, follow(start)]);
+    // What each of them sees change; following to the click's state, a new tab compares the click's URL state.
+    const changed = followers.map(([base, followed]) =>
+      followed === clicked ||
+      (!byField && sameData(followed, clicked, () => false))
+        ? changes(base, clicked, clickedUrlState)
+        : changes(base, followed, () => urlStateOf(followed, pathname)),
+    );
+    // A key a URL set inside a class instance is written whenever it is passed.
+    if (byField)
+      changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
+    // Written with the click's values: a map packing fields into one param keeps those not passed.
+    const link = changed.every(isEmpty)
+      ? {}
+      : pickFields(clickedUrlState(), changed);
+    // pickFields returns the click's URL state itself when the link holds all of it: such a link is not read again.
+    if (byField || isEmpty(link) || link === clickedUrlState())
+      return pathname + written(link);
     // The link with the click's other keys it needs: a map's reader may need another param to read it, or read it as more than it says, so it is read as a store reads it.
     const withCompanions = (link: object): object => {
       // Two store states alike: deep-equal data, and for two distinct values of which one is opaque, the same search written.
@@ -971,27 +991,6 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       }
       return best;
     };
-
-    // Each store that can follow the link, and the state it follows to.
-    const followers = [[live, clicked]];
-    if (start !== live) followers.push([start, follow(start)]);
-    // What each of them sees change; following to the click's state, a new tab compares the click's URL state.
-    const changed = followers.map(([base, followed]) =>
-      followed === clicked ||
-      (!byField && sameData(followed, clicked, () => false))
-        ? changes(base, clicked, clickedUrlState)
-        : changes(base, followed, () => urlStateOf(followed, pathname)),
-    );
-    // A key a URL set inside a class instance is written whenever it is passed.
-    if (byField)
-      changed.push(pickBy(passed, (_value, key) => urlSetKeys.includes(key)));
-    // Written with the click's values: a map packing fields into one param keeps those not passed.
-    const link = changed.every(isEmpty)
-      ? {}
-      : pickFields(clickedUrlState(), changed);
-    // pickFields returns the click's URL state itself when the link holds all of it: such a link is not read again.
-    if (byField || isEmpty(link) || link === clickedUrlState())
-      return pathname + written(link);
     return pathname + written(withCompanions(link));
   };
 
