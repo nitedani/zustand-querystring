@@ -1049,6 +1049,83 @@ describe('href', () => {
     expect(create(href).getState().search).toBe('acme');
   });
 
+  type Panes = {
+    left: { page: number; search: string };
+    right: { page: number; search: string };
+  };
+  const panes = (): Panes => ({
+    left: { page: 1, search: 'left' },
+    right: { page: 1, search: 'right' },
+  });
+
+  it.each([
+    [
+      false,
+      '/list?left={"page":2,"search":"left"}&right={"page":2,"search":"right"}',
+    ],
+    [
+      'view',
+      '/list?view={"left":{"page":2,"search":"left"},"right":{"page":2,"search":"right"}}',
+    ],
+  ] as const)(
+    'with key %s and a map, merges one object passed for two fields into each of them',
+    (key, link) => {
+      const create = (url: string) =>
+        createStore<Panes>()(
+          querystring(panes, {
+            url,
+            key,
+            format: json,
+            map: { to: state => state, from: state => state },
+          }),
+        );
+      const nextPage = { page: 2 };
+
+      const href = create('/list').href('/list', {
+        left: nextPage,
+        right: nextPage,
+      } as Partial<Panes>);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        left: { page: 2, search: 'left' },
+        right: { page: 2, search: 'right' },
+      });
+    },
+  );
+
+  it.each([
+    [false, '/list?left={"page":2,"search":"left"}'],
+    ['view', '/list?view={"left":{"page":2,"search":"left"}}'],
+  ] as const)(
+    'with key %s and a map, merges a circular object passed for a field',
+    (key, link) => {
+      const create = (url: string) =>
+        createStore<Panes>()(
+          querystring(panes, {
+            url,
+            key,
+            format: json,
+            map: {
+              to: ({ left, right }) => ({
+                left: { page: left.page, search: left.search },
+                right: { page: right.page, search: right.search },
+              }),
+              from: state => state,
+            },
+          }),
+        );
+      const left: Record<string, unknown> = { page: 2 };
+      left.self = left;
+
+      const href = create('/list').href('/list', { left } as Partial<Panes>);
+      expect(decodeURIComponent(href)).toBe(link);
+      expect(create(href).getState()).toStrictEqual({
+        ...panes(),
+        left: { page: 2, search: 'left' },
+      });
+    },
+  );
+
   // A format whose text for a date needs the mode next to it.
   const needsMode = (state: object) => {
     if ('date' in state && !('mode' in state)) throw Error('date needs mode');

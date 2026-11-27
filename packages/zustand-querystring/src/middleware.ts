@@ -538,6 +538,8 @@ const mergeUrlState = (
       if (delta && isEmpty(fields) && !isEmptyObject) continue;
       write(key, fields);
     }
+    // A link merges an object passed twice into each place it lands; only its cycles reuse a merge.
+    if (instances === 'read') merges.delete(urlState);
     return merged;
   };
   return merge(state, urlState, selection, Object.keys(urlState));
