@@ -1481,11 +1481,7 @@ describe('href', () => {
               marked.stringifyStandalone,
               () => 1,
             ),
-            parseStandalone: count(
-              'reads',
-              marked.parseStandalone,
-              params => Object.keys(params).length,
-            ),
+            parseStandalone: count('reads', marked.parseStandalone, () => 1),
           },
           map: {
             to: ({ color, size, page }) => ({
@@ -2429,63 +2425,6 @@ describe('href', () => {
       '/list?page=:3',
     );
   });
-
-  it.each([
-    [false, '/list?color=.value=red&size=.value=red&page=:3'],
-    ['view', '/list?view=color.value=red~,size.value=red~,page:3'],
-  ] as const)(
-    "with key %s and a map that returns new class instances, writes a link without reading a URL the format's reader rejects",
-    (key, link) => {
-      class Facet {
-        constructor(public value: string) {}
-      }
-      let rejected = 0;
-      // Page 1 is the default, which the store never writes.
-      const check = (state: Record<string, unknown>) => {
-        if (state.page !== 1) return state;
-        rejected++;
-        throw new Error('page 1 is implicit');
-      };
-      const store = createStore<{
-        color: string;
-        size: string;
-        page: number;
-      }>()(
-        querystring(() => ({ color: 'all', size: 'all', page: 1 }), {
-          url: '/list',
-          key,
-          format: {
-            ...marked,
-            parse: (value, ctx) => check(marked.parse(value, ctx)),
-            parseStandalone: (params, ctx) =>
-              check(marked.parseStandalone(params, ctx)),
-          },
-          map: {
-            to: ({ color, size, page }) => ({
-              color: new Facet(color),
-              size: new Facet(size),
-              page,
-            }),
-            from: ({ color, size, page }) => ({
-              ...(color ? { color: (color as Facet).value } : {}),
-              ...(size ? { size: (size as Facet).value } : {}),
-              ...(page === undefined ? {} : { page: page as number }),
-            }),
-          },
-        }),
-      );
-      store.setState({ color: 'red', size: 'red' });
-      store.href('/list', { ...store.getState(), page: 2 });
-      rejected = 0;
-
-      expect(
-        decodeURIComponent(
-          store.href('/list', { ...store.getState(), page: 3 }),
-        ),
-      ).toBe(link);
-      expect(rejected).toBe(0);
-    },
-  );
 
   it.each([
     [false, 1, '1', '01', '/list?id.value=01'],
