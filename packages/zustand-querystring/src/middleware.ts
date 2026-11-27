@@ -702,6 +702,45 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     }
   };
 
+  // What a navigation to next sets in current: only changed keys, so the others keep their references; an opaque value whose visible data stay alike is kept when the store writes the same URL with it.
+  const navigationChanges = (
+    current: Record<string, unknown>,
+    next: object,
+    pathname: string,
+  ) => {
+    const met: string[][] = [];
+    const changed = pickBy(next, (value, key) =>
+      Object.prototype.hasOwnProperty.call(current, key)
+        ? !sameField(value, current[key], [key], met, true)
+        : ownsNewKeys,
+    );
+    let whole: object | undefined;
+    // A key the URL state is the same without, like one map.from derives, can't be compared by the URL: it is set. A writer that throws without the key writes it.
+    const reachesUrl = ([key]: string[]) => {
+      try {
+        return !sameData(
+          urlStateOf(
+            pickBy(next, (_value, name) => name !== key),
+            pathname,
+          ),
+          (whole ??= urlStateOf(next, pathname)),
+          () => undefined,
+        );
+      } catch {
+        return true;
+      }
+    };
+    return withoutAlike(
+      changed,
+      met.filter(reachesUrl),
+      alikeIn(
+        () => next,
+        current,
+        state => writeLinkUrl(urlStateOf(state, pathname)),
+      ),
+    );
+  };
+
   const toParams = (compacted: object): QueryStringParams => {
     if (standalone) {
       const params: QueryStringParams = {};
@@ -1031,38 +1070,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
       const next = initialize(new URL(location.href), current, 'keep');
-      // Only changed keys, so the others keep their references; an opaque value whose visible data stay alike is kept when the store writes the same URL with it.
-      const met: string[][] = [];
-      const pathname = location.pathname;
-      const changed = pickBy(next, (value, key) =>
-        Object.prototype.hasOwnProperty.call(current, key)
-          ? !sameField(value, current[key], [key], met, true)
-          : ownsNewKeys,
-      );
-      // A key the URL state is the same without, like one map.from derives, can't be compared by the URL: it is set. A writer that throws without the key writes it.
-      const reachesUrl = ([key]: string[]) => {
-        try {
-          return !sameData(
-            urlStateOf(
-              pickBy(next, (_value, name) => name !== key),
-              pathname,
-            ),
-            urlStateOf(next, pathname),
-            () => undefined,
-          );
-        } catch {
-          return true;
-        }
-      };
-      withoutAlike(
-        changed,
-        met.filter(reachesUrl),
-        alikeIn(
-          () => next,
-          current,
-          state => writeLinkUrl(urlStateOf(state, pathname)),
-        ),
-      );
+      const changed = navigationChanges(current, next, location.pathname);
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
 
