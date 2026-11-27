@@ -19,7 +19,7 @@ import type {
   QueryStringFormatFor,
   QueryStringParams,
 } from './format/types.js';
-import { getOwn, setOwn } from './own.js';
+import { getOwn, hasOwn, setOwn } from './own.js';
 
 export type {
   ParseContext,
@@ -113,9 +113,7 @@ const pickFields = (source: object, masks: object[]): object => {
   const picked = {};
   let all = true;
   for (const key of Object.keys(source)) {
-    const fields = masks
-      .filter(m => Object.prototype.hasOwnProperty.call(m, key))
-      .map(m => m[key] as object);
+    const fields = masks.filter(m => hasOwn(m, key)).map(m => m[key] as object);
     if (!fields.length) {
       all = false;
       continue;
@@ -291,8 +289,7 @@ const diff = (next: object, prev: object, deep: boolean, alike: Alike) => {
     for (const key of Object.keys(next)) {
       const value = next[key];
       const before = prev[key];
-      const has =
-        before !== undefined || Object.prototype.hasOwnProperty.call(prev, key);
+      const has = before !== undefined || hasOwn(prev, key);
       if (has && Object.is(value, before)) continue;
       if (
         deep &&
@@ -387,7 +384,7 @@ const deleteIn = (state: Record<string, any>, [key, ...rest]: string[]) => {
 const clearSelected = (state: object, selection: object) => {
   const cleared = { ...state };
   for (const [key, selected] of Object.entries(selection)) {
-    if (!Object.prototype.hasOwnProperty.call(cleared, key)) continue;
+    if (!hasOwn(cleared, key)) continue;
     if (isPlainObject(selected)) {
       if (isPlainObject(cleared[key])) {
         cleared[key] = clearSelected(cleared[key], selected);
@@ -710,7 +707,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   ) => {
     const met: string[][] = [];
     const changed = pickBy(next, (value, key) =>
-      Object.prototype.hasOwnProperty.call(current, key)
+      hasOwn(current, key)
         ? !sameField(value, current[key], [key], met, true)
         : ownsNewKeys,
     );
@@ -850,7 +847,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       if (
         Object.keys(followed).every(
           key =>
-            Object.prototype.hasOwnProperty.call(base, key) &&
+            hasOwn(base, key) &&
             sameData(followed[key], base[key], () => false),
         )
       )
@@ -971,11 +968,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       };
       // A map may read a value through another param: the link then also takes some of the click's other keys.
       const full = clickedUrlState();
-      const has = (urlState: object, key: string) =>
-        Object.prototype.hasOwnProperty.call(urlState, key);
-      const others = Object.keys(full).filter(key => !has(link, key));
+      const others = Object.keys(full).filter(key => !hasOwn(link, key));
       const plus = (keys: string[]) =>
-        pickBy(full, (_value, key) => has(link, key) || keys.includes(key));
+        pickBy(full, (_value, key) => hasOwn(link, key) || keys.includes(key));
       // Keys of the pool that with the link land better than a link that checks as than does: all of them or, when a pool of 3 to 8 lands no better whole, the best of them without one, narrowed by halves; none when neither lands better.
       const findCompanions = (pool: string[], than: Check): string[] => {
         if (!pool.length) return [];
@@ -1016,7 +1011,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
             false,
             alikeIn(() => full, startUrl, written),
           ),
-        ).filter(key => !has(link, key));
+        ).filter(key => !hasOwn(link, key));
       const view = start === live ? [] : viewOf(urlStateOf(start, pathname));
       // The view's keys first; a link the reader reads may take any of the click's other keys, a rejected one never a key every follower already has.
       const pools = check(link).rejected ? [view] : [view, others];
