@@ -185,13 +185,14 @@ Type handling:
 
 - Objects: recursively diffed
 - Arrays, Dates: compared as whole values
+- Class instances, a subclass of `Array` or `Date` too: compared by their fields, then by the query the store writes for them, so a private field counts
 - Functions: never synced
 
 ---
 
 ## Links
 
-`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still make them part of the link: in a param value it packs ([below](#links-with-a-packing-map)), in a param name it derives from them, like `advancedPage` for `page` while `mode` is `'advanced'`, or in another param the reader needs to decode a value you passed.
+`useStore.href(pathname, state)` returns a URL for `pathname` with the initial state plus the fields in `state`. Current values you didn't pass, like a search the user typed, stay out of the link, so sharing it doesn't share them. A custom `map` can still make them part of the link: in a param value it packs ([below](#links-with-a-packing-map)), in a param name it derives from them, like `advancedPage` for `page` while `mode` is `'advanced'`, or in another param the reader needs to decode a value you passed. `href` reads the link as a store would and adds the params its reader needs, one when one is enough.
 
 Call `href` in a selector so the link updates with the store, then pass it to your router's `Link` or `router.push` ([How State Syncs](#how-state-syncs)). To carry the current view, spread it and override the fields that change:
 
@@ -246,7 +247,9 @@ useStore.href('/customers', { status: 'paid' });
 
 A click sets `status` to `'paid'` and `page` to 3, and keeps `search: 'acme'`. A new tab opens with `status: 'paid'`, `page: 3` and an empty search.
 
-A `map` whose `to` returns class instances (your own classes, not a `Date`) makes `href` slower. The store can't compare those instances as data, so it can rewrite the query to compare a param that holds one. In a benchmark, 50 links over 12 such params took about 14 ms, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
+A `map` whose `to` returns class instances (your own classes, a subclass of `Date` or `Array` too) makes `href` slower. The store can't compare those instances as data, so it can rewrite the query to compare a param that holds one, and it does the same for an instance whose fields match the initial one when it writes the address bar. In a benchmark, 50 links over 12 such params took about 14 ms, against under 1 ms for the same values kept in the store without a `map`. Return plain objects and strings from `to` to keep links fast.
+
+To find the params a reader needs, `href` tries each of up to 8 current params alone, and narrows more of them down by halves. A link that needs several params, or picks from more than 8, can carry more than it needs, or none when the reader rejects all of them together. A class instance that `from` sets in a field `to` doesn't write counts as unchanged, so a reader that resets it isn't caught.
 
 ### Reading a link
 
