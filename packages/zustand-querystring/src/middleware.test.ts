@@ -4148,4 +4148,14 @@ describe('server store (url option): a key naming an Object member keeps the res
     // A trailing __ is plain's escaped _
     expect(store.getState()).toEqual({ count: 5, __proto_: 'x' });
   });
+
+  it('ignores an absent namespaced key named constructor instead of reading Object.prototype', () => {
+    const store = createStore<{ count: number }>()(
+      querystring(() => ({ count: 1 }), {
+        url: '/?other=1',
+        key: 'constructor',
+      }),
+    );
+    expect(store.getState()).toStrictEqual({ count: 1 });
+  });
 });

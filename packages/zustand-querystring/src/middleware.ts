@@ -638,7 +638,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       return Object.keys(result).length > 0 ? result : null;
     } else {
       // Namespaced mode: look for prefix + key directly
-      const values = params[namespaceKey];
+      const values = getOwn(params, namespaceKey);
       if (values && values.length > 0) {
         try {
           // Namespaced mode always has single value (not repeated keys)
