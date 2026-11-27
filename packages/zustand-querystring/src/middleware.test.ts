@@ -964,29 +964,7 @@ describe('href', () => {
     expect(store.getState().filter.rating).toBe(4);
   });
 
-  it('writes a class instance field the URL set at creation, when it is passed', () => {
-    class Filter {
-      rating = 0;
-    }
-    const create = (url: string) =>
-      createStore<{ filter: Filter }>()(
-        querystring(() => ({ filter: new Filter() }), {
-          url,
-          select: () => ({ filter: { rating: true } }),
-        }),
-      );
-    const store = create('/results?filter=.rating:4');
-    const four = Object.assign(new Filter(), { rating: 4 });
-
-    const spread = store.href('/results', { ...store.getState() });
-    expect(decodeURIComponent(spread)).toBe('/results?filter=.rating:4');
-    expect(decodeURIComponent(store.href('/results', { filter: four }))).toBe(
-      '/results?filter=.rating:4',
-    );
-    expect(create(spread).getState().filter.rating).toBe(4);
-  });
-
-  it.each(['constructor', 'prototype'])(
+  it.each(['filter', 'constructor', 'prototype'])(
     'writes a class instance field named %s that the URL set at creation, when it is passed',
     field => {
       class Filter {
@@ -1002,9 +980,12 @@ describe('href', () => {
       const store = create(`/results?${field}=.rating:4`);
       const four = Object.assign(new Filter(), { rating: 4 });
 
-      const href = store.href('/results', { [field]: four });
-      expect(decodeURIComponent(href)).toBe(`/results?${field}=.rating:4`);
-      expect(create(href).getState()[field].rating).toBe(4);
+      const spread = store.href('/results', { ...store.getState() });
+      expect(decodeURIComponent(spread)).toBe(`/results?${field}=.rating:4`);
+      expect(
+        decodeURIComponent(store.href('/results', { [field]: four })),
+      ).toBe(`/results?${field}=.rating:4`);
+      expect(create(spread).getState()[field].rating).toBe(4);
     },
   );
 
@@ -1337,44 +1318,6 @@ describe('href', () => {
       });
       expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState().status.mode()).toBe('paid');
-    },
-  );
-
-  it.each([
-    ['constructor', false, '/p?constructor="adv"&adv=2'],
-    ['constructor', 'view', '/p?view={"constructor":"adv","adv":2}'],
-    ['prototype', false, '/p?prototype="adv"&adv=2'],
-    ['prototype', 'view', '/p?view={"prototype":"adv","adv":2}'],
-  ] as const)(
-    'with a map, writes the field %s that names the param of a passed field, with key %s',
-    (field, key, link) => {
-      const create = (url?: string) =>
-        createStore<Record<string, unknown>>()(
-          querystring(() => ({ a: 1, [field]: 'basic' }), {
-            url,
-            key,
-            format: json,
-            map: {
-              to: state => ({
-                [field]: state[field],
-                [state[field] as string]: state.a,
-              }),
-              from: params => {
-                const mode = params[field];
-                if (typeof mode !== 'string') return {};
-                return typeof params[mode] === 'number'
-                  ? { [field]: mode, a: params[mode] }
-                  : { [field]: mode };
-              },
-            },
-          }),
-        );
-      const store = create();
-      store.setState({ [field]: 'adv', a: 4 });
-
-      const href = store.href('/p', { a: 2 });
-      expect(decodeURIComponent(href)).toBe(link);
-      expect(create(href).getState()).toStrictEqual({ a: 2, [field]: 'adv' });
     },
   );
 
@@ -2350,24 +2293,29 @@ describe('href', () => {
     expect(create(href).getState()).toStrictEqual({ search: '', page: 2 });
   });
 
-  it.each([
-    [false, '/list?category=color&color=:2'],
-    ['view', '/list?view=category=color,color:2'],
-  ] as const)(
-    'with key %s and a map whose reader takes a param name from another param, writes that param with a passed value',
-    (key, link) => {
+  it.each(
+    (['category', 'constructor', 'prototype'] as const).flatMap(field => [
+      [false, field, `/list?${field}=color&color=:2`],
+      ['view', field, `/list?view=${field}=color,color:2`],
+    ]) as [false | 'view', string, string][],
+  )(
+    'with key %s and a map whose reader takes a param name from the param %s, writes that param with a passed value',
+    (key, field, link) => {
       // Writes the amount under the name of its category, which it reads first.
       const create = (url: string) =>
-        createStore<{ category: string; amount: number }>()(
-          querystring(() => ({ category: 'color', amount: 1 }), {
+        createStore<Record<string, unknown>>()(
+          querystring(() => ({ [field]: 'color', amount: 1 }), {
             url,
             key,
             map: {
-              to: ({ category, amount }) => ({ category, [category]: amount }),
+              to: state => ({
+                [field]: state[field],
+                [state[field] as string]: state.amount,
+              }),
               from: urlState => {
-                const category = urlState.category as string | undefined;
-                return category !== undefined && category in urlState
-                  ? { category, amount: urlState[category] as number }
+                const category = urlState[field];
+                return typeof category === 'string' && category in urlState
+                  ? { [field]: category, amount: urlState[category] }
                   : {};
               },
             },
@@ -2377,7 +2325,7 @@ describe('href', () => {
       const href = create('/list').href('/list', { amount: 2 });
       expect(decodeURIComponent(href)).toBe(link);
       expect(create(href).getState()).toStrictEqual({
-        category: 'color',
+        [field]: 'color',
         amount: 2,
       });
     },

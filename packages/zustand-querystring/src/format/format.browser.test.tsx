@@ -2799,11 +2799,12 @@ describe('navigation', () => {
 
   it.each(
     ([false, 'view'] as const).flatMap(key => [
-      [key, 'picks the page', ({ page }: Listed) => ({ page })],
+      [key, 'picks the page', ({ page }: Listed) => ({ page }), {}],
       [
         key,
         'leaves the class value out of the rest',
         ({ results: _left, ...params }: Listed) => params,
+        {},
       ],
       [
         key,
@@ -2811,16 +2812,23 @@ describe('navigation', () => {
         ({ results: _left, ...params }: Listed) => ({
           page: new Sealed(params.page),
         }),
+        {},
       ],
-    ]) as [false | 'view', string, QueryStringMap<Listed>['to']][],
+      ...(['constructor', 'prototype'] as const).map(field => [
+        key,
+        `leaves the class value out of the rest, with a field named ${field}`,
+        ({ results: _left, ...params }: Listed) => params,
+        { [field]: 'list' },
+      ]),
+    ]) as [false | 'view', string, QueryStringMap<Listed>['to'], object][],
   )(
     'with key %s and a map whose reader makes a class value from the page and whose writer %s, a link to another page sets the class value without writing the format first',
-    async (key, _writer, to) => {
+    async (key, _writer, to, fields) => {
       let writes = 0;
       let atUpdate: number | undefined;
       const createResults = () =>
         create<Listed>()(
-          querystring(() => ({ page: 1, results: new Results(1) }), {
+          querystring(() => ({ page: 1, results: new Results(1), ...fields }), {
             key,
             format: countedJson(() => writes++),
             map: {
@@ -2851,56 +2859,7 @@ describe('navigation', () => {
       expect(createResults().getState().results.label).toBe(
         'Results for page 2',
       );
-    },
-  );
-
-  it.each(
-    (['constructor', 'prototype'] as const).flatMap(field =>
-      ([false, 'view'] as const).map(key => [key, field] as const),
-    ),
-  )(
-    'with key %s and a map that writes a field named %s, a link to another page sets the class value the reader makes from the page without writing the format first',
-    async (key, field) => {
-      let writes = 0;
-      let atUpdate: number | undefined;
-      type Named = Record<string, unknown> & Listed;
-      const createResults = () =>
-        create<Named>()(
-          querystring(
-            () => ({ page: 1, [field]: 'list', results: new Results(1) }),
-            {
-              key,
-              format: countedJson(() => writes++),
-              map: {
-                to: state => ({ page: state.page, [field]: state[field] }),
-                from: params =>
-                  params.page === undefined
-                    ? {}
-                    : {
-                        page: params.page as number,
-                        results: new Results(params.page as number),
-                      },
-              },
-            },
-          ),
-        );
-      window.history.replaceState({}, '', '/list');
-      const useStore = createResults();
-      const unsubscribe = useStore.subscribe(state => {
-        if (state.page === 2) atUpdate ??= writes;
-      });
-      await settle();
-      const href = useStore.href('/list', { page: 2 });
-      writes = 0;
-
-      window.history.pushState({}, '', href);
-      await settle();
-      unsubscribe();
-
-      expect(useStore.getState().page).toBe(2);
-      expect(atUpdate).toBe(0);
-      expect(useStore.getState().results.label).toBe('Results for page 2');
-      expect(useStore.getState()[field]).toBe('list');
+      expect(useStore.getState()).toMatchObject(fields);
     },
   );
 
