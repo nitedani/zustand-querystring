@@ -558,6 +558,9 @@ const mergeUrlState = (
   return merge(state, urlState, selection, Object.keys(urlState));
 };
 
+// The subscribed stores, each told the URL keys another store wrote and the URL before the write.
+const siblings = new Set<(units: Set<string>, from: string) => void>();
+
 const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
   const defaultedOptions = {
     key: false as string | false,
@@ -1040,8 +1043,9 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       (apply: typeof set): typeof set =>
       (...args) => {
         readUrl();
+        const before = hasSibling() && urlStateOf(get(), location.pathname);
         apply(...(args as Parameters<typeof set>));
-        setQuery();
+        setQuery(before);
       };
     const state = createState(withUrl(set));
 
@@ -1057,6 +1061,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
     let writeTimer: ReturnType<typeof setTimeout> | undefined;
     // React may create a store twice and keep one, and unmount it later; only a subscribed store follows the URL.
     let subscribers = 0;
+    const hasSibling = () => siblings.size > (subscribers > 0 ? 1 : 0);
     const armWrite = () => {
       clearTimeout(writeTimer);
       writeTimer = setTimeout(() => {
@@ -1070,13 +1075,48 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       writeOwed = true;
       if (subscribers > 0) armWrite();
       const current = get() as Record<string, unknown>;
-      const next = initialize(new URL(location.href), current, 'keep');
+      applyUrl(current, current);
+    };
+    const applyUrl = (current: Record<string, unknown>, base: object) => {
+      const next = initialize(new URL(location.href), base, 'keep');
       const changed = navigationChanges(current, next, location.pathname);
       if (!isEmpty(changed)) set(changed as Parameters<typeof set>[0]);
     };
 
-    const setQuery = () => {
+    // A URL key as every store names it: a param under a prefix, or a field of one namespace.
+    const unitOf = (key: string) =>
+      standalone ? defaultedOptions.prefix + key : `${namespaceKey}\0${key}`;
+    // Another store's write is the URL's word on the keys they share, as at creation: a key it leaves out is at its initial value.
+    const takeSibling = (units: Set<string>, from: string) => {
+      const current = get() as Record<string, unknown>;
+      const shared = Object.keys(urlStateOf(current, location.pathname)).filter(
+        key => units.has(unitOf(key)),
+      );
+      if (!shared.length) return;
+      // A navigation it hasn't read came before the write, so what it kept is still owed.
+      if (lastUrl !== from) {
+        writeOwed = true;
+        if (subscribers > 0) armWrite();
+      }
+      lastUrl = currentUrl();
+      // With a map, which store keys feed a URL key isn't known, so all of them start over.
+      const selection: Record<string, unknown> = {};
+      const select = defaultedOptions.select?.(location.pathname);
+      for (const key of Object.keys(select ?? current))
+        if (map || shared.includes(key))
+          setOwn(selection, key, select ? select[key] : true);
+      const base = applyState(
+        clearSelected(current, selection),
+        pickOwn(initialState as object, (_value, k) => hasOwn(selection, k)),
+        location.pathname,
+        { instances: 'keep' },
+      );
+      applyUrl(current, base);
+    };
+
+    const setQuery = (before: object | false = false) => {
       readUrl();
+      const from = currentUrl();
       // Paid before the write, so a write that throws isn't owed again.
       writeOwed = false;
       clearTimeout(writeTimer);
@@ -1109,6 +1149,17 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         history.replaceState(history.state, '', url);
       }
       lastUrl = currentUrl();
+      if (
+        hasSibling() &&
+        (url.search !== previous ||
+          (before && !sameData(before, stateForUrl, () => false)))
+      ) {
+        const units = new Set(
+          Object.keys({ ...before, ...stateForUrl }).map(unitOf),
+        );
+        for (const sibling of siblings)
+          if (sibling !== takeSibling) sibling(units, from);
+      }
     };
 
     // @ts-ignore
@@ -1124,6 +1175,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
       const originalSubscribe = api.subscribe;
       api.subscribe = (...args) => {
         if (subscribers++ === 0) {
+          siblings.add(takeSibling);
           frame = requestAnimationFrame(cb);
           if (writeOwed) armWrite();
         }
@@ -1131,6 +1183,7 @@ const queryStringImpl: QueryStringImpl = (fn, options?) => (set, get, api) => {
         let subscribed = true;
         return () => {
           if (subscribed && --subscribers === 0) {
+            siblings.delete(takeSibling);
             cancelAnimationFrame(frame);
             clearTimeout(writeTimer);
           }
