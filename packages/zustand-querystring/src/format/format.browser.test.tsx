@@ -12,7 +12,7 @@
  * - Edge cases: special characters, unicode, empty values, escape sequences
  */
 import { StrictMode, useState } from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { create } from 'zustand';
@@ -3171,6 +3171,219 @@ describe('navigation', () => {
     await settle();
     expect(useStore.getState().count).toBe(0);
     expect(url()).toBe('/b');
+  });
+
+  describe('two subscribed stores with the same keys', () => {
+    let unsubscribes: (() => void)[] = [];
+    const follow = <
+      T extends { subscribe: (listener: () => void) => () => void },
+    >(
+      useStore: T,
+    ) => {
+      unsubscribes.push(useStore.subscribe(() => {}));
+      return useStore;
+    };
+    afterEach(() => {
+      unsubscribes.forEach(unsubscribe => unsubscribe());
+      unsubscribes = [];
+    });
+
+    it('a Strict Mode store that subscribes in its initializer keeps a reset to the initial value', async () => {
+      let store!: ReturnType<typeof createNavStore>;
+      function Provider() {
+        const [useStore] = useState(() => follow(createNavStore()));
+        useStore(state => state.count);
+        store = useStore;
+        return null;
+      }
+      await render(
+        <StrictMode>
+          <Provider />
+        </StrictMode>,
+      );
+      store.setState({ count: 5 });
+      await settle();
+      store.setState({ count: 0 });
+      await settle();
+      expect(store.getState().count).toBe(0);
+      expect(url()).toBe('/');
+
+      window.history.pushState({}, '', '/b');
+      await settle();
+      expect(store.getState().count).toBe(0);
+      expect(url()).toBe('/b');
+    });
+
+    it.each([
+      ['standalone', {}],
+      ['key', { key: 'view' }],
+      ['prefix', { prefix: 'f_' }],
+      ['select', { select: () => ({ count: true }) }],
+      [
+        'map',
+        {
+          map: createMap({
+            to: (state: NavState) => ({ c: state.count }),
+            from: (urlState: { c: number }) => ({ count: urlState.c }),
+          }),
+        },
+      ],
+      ['plain', { format: plain }],
+    ] as [string, QueryStringOptions<NavState>][])(
+      '%s: a reset to the initial value reaches the other store and stays after a navigation',
+      async (_, options) => {
+        const first = follow(createNavStore(options));
+        const second = follow(createNavStore(options));
+        first.setState({ count: 5 });
+        await settle();
+        expect(second.getState().count).toBe(5);
+
+        first.setState({ count: 0 });
+        await settle();
+        expect([first.getState().count, second.getState().count]).toEqual([
+          0, 0,
+        ]);
+        expect(url()).toBe('/');
+
+        window.history.pushState({}, '', '/b');
+        await settle();
+        expect([first.getState().count, second.getState().count]).toEqual([
+          0, 0,
+        ]);
+        expect(url()).toBe('/b');
+      },
+    );
+
+    it('a dynamic object emptied by one store is empty in the other', async () => {
+      const createStore = () =>
+        follow(
+          create<{ filters: Record<string, number> }>()(
+            querystring(() => ({ filters: {} }), { format: plain }),
+          ),
+        );
+      const first = createStore();
+      const second = createStore();
+      first.setState({ filters: { a: 1 } });
+      await settle();
+      expect(second.getState().filters).toEqual({ a: 1 });
+
+      first.setState({ filters: {} });
+      await settle();
+      expect(second.getState().filters).toEqual({});
+      expect(url()).toBe('/');
+    });
+
+    it.each([
+      ['a reset and then a navigation in one tick', 0],
+      ['a navigation and then a reset in one tick', 1],
+      ['a reset 50ms after a navigation', 2],
+    ] as const)('%s', async (_, order) => {
+      const first = follow(createNavStore());
+      const second = follow(createNavStore());
+      first.setState({ count: 5 });
+      await settle();
+
+      if (order === 0) first.setState({ count: 0 });
+      window.history.pushState({}, '', '/b');
+      if (order === 2) await new Promise(r => setTimeout(r, 50));
+      if (order > 0) first.setState({ count: 0 });
+      await settle();
+      expect([first.getState().count, second.getState().count]).toEqual([0, 0]);
+      expect(url()).toBe('/b');
+    });
+
+    it('a navigation still keeps what its URL leaves out, and sets what it carries', async () => {
+      const first = follow(createNavStore());
+      const second = follow(createNavStore());
+      first.setState({ count: 5 });
+      await settle();
+
+      window.history.pushState({}, '', '/');
+      await settle();
+      window.history.replaceState({}, '', '/');
+      await settle();
+      expect([first.getState().count, second.getState().count]).toEqual([5, 5]);
+      expect(url()).toBe('/?count=:5');
+
+      window.history.pushState({}, '', '/?count=:0');
+      await settle();
+      expect([first.getState().count, second.getState().count]).toEqual([0, 0]);
+      expect(url()).toBe('/');
+    });
+
+    it('a store with other keys keeps what a navigation left out while another writes', async () => {
+      const first = follow(createNavStore());
+      const second = follow(
+        create<{ page: number }>()(querystring(() => ({ page: 0 }))),
+      );
+      first.setState({ count: 5 });
+      second.setState({ page: 7 });
+      await settle();
+
+      window.history.pushState({}, '', '/q');
+      second.setState({ page: 8 });
+      await settle();
+      expect(first.getState().count).toBe(5);
+      expect(url()).toBe('/q?page=:8&count=:5');
+    });
+
+    it('a store resets only the keys of a namespace the other store writes', async () => {
+      const first = follow(
+        create<{ count: number }>()(
+          querystring(() => ({ count: 0 }), { key: 'view' }),
+        ),
+      );
+      const second = follow(createNavStore({ key: 'view' }));
+      second.setState({ count: 5, other: 3 });
+      await settle();
+
+      first.setState({ count: 0 });
+      await settle();
+      expect(second.getState()).toMatchObject({ count: 0, other: 3 });
+      expect(url()).toBe('/?view=other:3');
+    });
+
+    it('stores with different initial values each read a key the URL leaves out as their own, in one write', async () => {
+      const first = follow(createNavStore());
+      const second = follow(createNavStore());
+      second.setDefaults({ count: 1 });
+      second.setState({ count: 1 });
+      await settle();
+      const replaceState = vi.spyOn(History.prototype, 'replaceState');
+      try {
+        first.setState({ count: 1 });
+        await settle();
+        expect(replaceState).toHaveBeenCalledTimes(1);
+      } finally {
+        replaceState.mockRestore();
+      }
+      expect([first.getState().count, second.getState().count]).toEqual([1, 1]);
+      expect(url()).toBe('/?count=:1');
+
+      first.setState({ count: 0 });
+      await settle();
+      expect([first.getState().count, second.getState().count]).toEqual([0, 1]);
+      expect(url()).toBe('/');
+    });
+
+    it("a store's listener can change the other store while it takes a reset", async () => {
+      const first = follow(createNavStore());
+      const second = follow(createNavStore());
+      unsubscribes.push(
+        second.subscribe(state => {
+          if (state.count === 0 && first.getState().other === 0)
+            first.setState({ other: 9 });
+        }),
+      );
+      first.setState({ count: 5 });
+      await settle();
+
+      first.setState({ count: 0 });
+      await settle();
+      expect([first.getState().count, second.getState().count]).toEqual([0, 0]);
+      expect(second.getState().other).toBe(9);
+      expect(url()).toBe('/?other=:9');
+    });
   });
 });
 
